@@ -1,2 +1,0 @@
-# CollectorSecurityAnalyzer
-Workstations security analyzer
