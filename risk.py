@@ -16,6 +16,7 @@ class Finding:
     severity: str
     description: str
     recommendation: str
+    status: str = "FAIL"
     category: str = "general"
     affected_asset: str | None = None
     evidence: dict[str, Any] = field(default_factory=dict)

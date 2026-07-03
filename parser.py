@@ -47,7 +47,11 @@ def parse_json(path: str | Path) -> dict[str, Any]:
 
     file_path = Path(path)
     try:
-        data = json.loads(read_text(file_path))
+        content = read_text(file_path).strip()
+        if not content:
+            LOGGER.warning("JSON file is empty, using empty object: %s", file_path)
+            return {}
+        data = json.loads(content)
     except json.JSONDecodeError:
         LOGGER.exception("Invalid JSON in file: %s", file_path)
         raise
