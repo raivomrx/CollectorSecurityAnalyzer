@@ -1,0 +1,12 @@
+{
+  "app": {
+    "name": "Collector Security Analyzer",
+    "log_level": "INFO"
+  },
+  "parser": {
+    "encodings": ["utf-8-sig", "utf-8", "cp1252"]
+  },
+  "risk": {
+    "default_category": "general"
+  }
+}
