@@ -12,8 +12,6 @@ class BaseRule(ABC):
     """Abstract base class for all security rules."""
 
     id: str
-    title: str
-    description: str
 
     @abstractmethod
     def check(self, data: dict[str, Any]) -> list[Finding]:

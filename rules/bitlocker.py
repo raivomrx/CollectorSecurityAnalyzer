@@ -16,8 +16,6 @@ class BitLockerRule(BaseRule):
     """Check whether BitLocker is enabled for the system drive."""
 
     id = "BIT-001"
-    title = "BitLocker system drive protection"
-    description = "System drive should be protected by BitLocker."
 
     def check(self, data: dict[str, Any]) -> list[Finding]:
         """Return a BitLocker finding for collector data."""
@@ -29,12 +27,9 @@ class BitLockerRule(BaseRule):
                 return [
                     Finding(
                         rule_id=self.id,
-                        title=self.title,
                         severity="LOW",
                         status="PASS",
-                        description="BitLocker is enabled on the system drive.",
-                        recommendation="No action required.",
-                        category="disk_encryption",
+                        evidence={"Bitlocker-C": enabled},
                         score=0,
                     )
                 ]
@@ -42,12 +37,10 @@ class BitLockerRule(BaseRule):
             return [
                 Finding(
                     rule_id=self.id,
-                    title=self.title,
                     severity="HIGH",
                     status="FAIL",
-                    description="BitLocker is not enabled on the system drive.",
-                    recommendation="Enable BitLocker on system drive.",
-                    category="disk_encryption",
+                    evidence={"Bitlocker-C": enabled},
+                    affected_asset="system_drive",
                     score=20,
                 )
             ]

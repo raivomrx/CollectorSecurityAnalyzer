@@ -17,8 +17,6 @@ class FirewallRule(BaseRule):
     """Check whether Domain, Private, and Public firewall profiles are enabled."""
 
     id = "FW-001"
-    title = "Windows Firewall profiles"
-    description = "All Windows Firewall profiles should be enabled."
 
     def check(self, data: dict[str, Any]) -> list[Finding]:
         """Return a firewall finding for collector data."""
@@ -33,20 +31,8 @@ class FirewallRule(BaseRule):
             return [
                 Finding(
                     rule_id=self.id,
-                    title=self.title,
                     severity="LOW" if enabled else "HIGH",
                     status="PASS" if enabled else "FAIL",
-                    description=(
-                        "All Windows Firewall profiles are enabled."
-                        if enabled
-                        else "One or more Windows Firewall profiles are disabled."
-                    ),
-                    recommendation=(
-                        "No action required."
-                        if enabled
-                        else "Enable Domain, Private, and Public firewall profiles."
-                    ),
-                    category="firewall",
                     evidence=states,
                     score=0 if enabled else 20,
                 )

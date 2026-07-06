@@ -7,18 +7,20 @@ import logging
 from pathlib import Path
 
 from logger import setup_logging
+from knowledge.repository import KnowledgeRepository
 from parser import parse_collector_file
-from risk import Finding
+from risk import AuditFinding, Finding
 from rules.loader import load_rules
 from scoring import calculate_score
 
 LOGGER = logging.getLogger(__name__)
 
 
-def analyze_file(path: str | Path) -> tuple[list[Finding], int]:
-    """Analyze a collector JSON file and return findings with the total score."""
+def analyze_file(path: str | Path) -> tuple[list[AuditFinding], int]:
+    """Analyze a collector JSON file and return audit findings with the score."""
 
     data = parse_collector_file(path)
+    repository = KnowledgeRepository()
     rules = load_rules()
     findings: list[Finding] = []
 
@@ -26,9 +28,23 @@ def analyze_file(path: str | Path) -> tuple[list[Finding], int]:
         findings.extend(rule.check(data))
 
     score = calculate_score(findings)
+    audit_findings = enrich_findings(findings, repository)
     LOGGER.info("Total Findings: %s", len(findings))
     LOGGER.info("Security Score: %s", score)
-    return findings, score
+    return audit_findings, score
+
+
+def enrich_findings(
+    findings: list[Finding],
+    repository: KnowledgeRepository | None = None,
+) -> list[AuditFinding]:
+    """Merge technical findings with knowledge-base entries."""
+
+    repository = KnowledgeRepository() if repository is None else repository
+    return [
+        AuditFinding(finding=finding, knowledge=repository.get(finding.rule_id))
+        for finding in findings
+    ]
 
 
 def main() -> None:

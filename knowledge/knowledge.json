@@ -1,0 +1,92 @@
+{
+  "BIT-001": {
+    "title": "BitLocker is disabled",
+    "description": "The operating system drive is not protected with BitLocker encryption.",
+    "risk": "Data can be accessed if the device is lost or stolen.",
+    "recommendation": "Enable BitLocker for the system drive.",
+    "frameworks": {
+      "E-ITS": ["EITS-ENCRYPTION-001"],
+      "CIS": ["CIS-4.3"],
+      "Microsoft": ["MSB-BITLOCKER-001"]
+    },
+    "references": [
+      "https://learn.microsoft.com/windows/security",
+      "https://www.cisecurity.org"
+    ]
+  },
+  "DEF-001": {
+    "title": "Windows Defender is disabled",
+    "description": "Microsoft Defender Antivirus is not enabled or its state is unknown.",
+    "risk": "Malware may execute without endpoint protection detecting or blocking it.",
+    "recommendation": "Turn on Microsoft Defender Antivirus and verify protection status.",
+    "frameworks": {
+      "E-ITS": ["EITS-ENDPOINT-001"],
+      "CIS": ["CIS-10.1"],
+      "Microsoft": ["MSB-DEFENDER-001"]
+    },
+    "references": [
+      "https://learn.microsoft.com/microsoft-365/security/defender-endpoint",
+      "https://www.cisecurity.org"
+    ]
+  },
+  "FW-001": {
+    "title": "Windows Firewall profile is disabled",
+    "description": "One or more Windows Firewall profiles are not enabled.",
+    "risk": "Unrestricted inbound connectivity can increase exposure to network attacks.",
+    "recommendation": "Enable Domain, Private, and Public firewall profiles unless an approved exception exists.",
+    "frameworks": {
+      "E-ITS": ["EITS-NETWORK-001"],
+      "CIS": ["CIS-4.5"],
+      "Microsoft": ["MSB-FIREWALL-001"]
+    },
+    "references": [
+      "https://learn.microsoft.com/windows/security/operating-system-security/network-security/windows-firewall",
+      "https://www.cisecurity.org"
+    ]
+  },
+  "ADM-001": {
+    "title": "Local administrators require review",
+    "description": "Local administrator membership is missing or exceeds the expected baseline.",
+    "risk": "Excessive local administrator rights can enable privilege escalation and persistence.",
+    "recommendation": "Review local administrators and keep only approved required accounts.",
+    "frameworks": {
+      "E-ITS": ["EITS-IAM-001"],
+      "CIS": ["CIS-5.4"],
+      "Microsoft": ["MSB-LOCALADMIN-001"]
+    },
+    "references": [
+      "https://learn.microsoft.com/windows/security/identity-protection/access-control",
+      "https://www.cisecurity.org"
+    ]
+  },
+  "NET-001": {
+    "title": "Public network profile detected",
+    "description": "The active network connection is using the Public profile.",
+    "risk": "A wrong network profile can apply unsuitable firewall and sharing behavior.",
+    "recommendation": "Use Private or Domain profile when appropriate.",
+    "frameworks": {
+      "E-ITS": ["EITS-NETWORK-002"],
+      "CIS": ["CIS-4.6"],
+      "Microsoft": ["MSB-NETWORKPROFILE-001"]
+    },
+    "references": [
+      "https://learn.microsoft.com/windows/security/operating-system-security/network-security",
+      "https://www.cisecurity.org"
+    ]
+  },
+  "UPD-001": {
+    "title": "Windows Updates are missing or stale",
+    "description": "The last successful update installation is missing or older than the accepted threshold.",
+    "risk": "Missing security updates can leave known vulnerabilities exploitable.",
+    "recommendation": "Install current Windows updates and verify successful installation telemetry.",
+    "frameworks": {
+      "E-ITS": ["EITS-PATCHING-001"],
+      "CIS": ["CIS-7.1"],
+      "Microsoft": ["MSB-UPDATES-001"]
+    },
+    "references": [
+      "https://learn.microsoft.com/windows/deployment/update",
+      "https://www.cisecurity.org"
+    ]
+  }
+}

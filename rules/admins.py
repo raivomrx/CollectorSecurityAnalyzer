@@ -17,8 +17,6 @@ class AdminRule(BaseRule):
     """Check whether the local administrators list is small and present."""
 
     id = "ADM-001"
-    title = "Local administrators"
-    description = "Local administrator membership should be known and limited."
 
     def check(self, data: dict[str, Any]) -> list[Finding]:
         """Return a local administrators finding for collector data."""
@@ -30,12 +28,9 @@ class AdminRule(BaseRule):
                 return [
                     Finding(
                         rule_id=self.id,
-                        title=self.title,
                         severity="INFO",
                         status="FAIL",
-                        description="Local administrators data is missing.",
-                        recommendation="Collect and review local administrators.",
-                        category="identity",
+                        evidence={"All_local_admins": None},
                         score=0,
                     )
                 ]
@@ -45,20 +40,8 @@ class AdminRule(BaseRule):
             return [
                 Finding(
                     rule_id=self.id,
-                    title=self.title,
                     severity="MEDIUM" if elevated else "LOW",
                     status="FAIL" if elevated else "PASS",
-                    description=(
-                        f"{count} local administrators were found."
-                        if elevated
-                        else "Local administrators count is acceptable."
-                    ),
-                    recommendation=(
-                        "Reduce local administrator membership to required accounts only."
-                        if elevated
-                        else "No action required."
-                    ),
-                    category="identity",
                     evidence={"count": count},
                     score=10 if elevated else 0,
                 )
