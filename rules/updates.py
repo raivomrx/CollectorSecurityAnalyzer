@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from risk import Finding
+from risk import Finding, Severity, Status
 from rules.base import BaseRule
 from utils import parse_date, safe_get
 
@@ -30,8 +30,8 @@ class UpdatesRule(BaseRule):
                 return [
                     Finding(
                         rule_id=self.id,
-                        severity="HIGH",
-                        status="FAIL",
+                        severity=Severity.HIGH,
+                        status=Status.FAIL,
                         evidence={"Updates_lastInstallationSuccessDate": value},
                         score=20,
                     )
@@ -43,8 +43,8 @@ class UpdatesRule(BaseRule):
             return [
                 Finding(
                     rule_id=self.id,
-                    severity="MEDIUM" if stale else "LOW",
-                    status="FAIL" if stale else "PASS",
+                    severity=Severity.MEDIUM if stale else Severity.LOW,
+                    status=Status.FAIL if stale else Status.PASS,
                     evidence={"lastInstallationSuccessDate": str(value), "age_days": age_days},
                     score=10 if stale else 0,
                 )

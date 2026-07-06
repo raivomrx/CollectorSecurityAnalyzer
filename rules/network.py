@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from risk import Finding
+from risk import Finding, Severity, Status
 from rules.base import BaseRule
 from utils import safe_get
 
@@ -29,8 +29,8 @@ class NetworkRule(BaseRule):
             return [
                 Finding(
                     rule_id=self.id,
-                    severity="MEDIUM" if is_public else "LOW",
-                    status="FAIL" if is_public else "PASS",
+                    severity=Severity.MEDIUM if is_public else Severity.LOW,
+                    status=Status.FAIL if is_public else Status.PASS,
                     evidence={"NetworkCategory": category},
                     score=10 if is_public else 0,
                 )

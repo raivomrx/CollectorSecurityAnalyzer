@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from risk import Finding
+from risk import Finding, Severity, Status
 from rules.base import BaseRule
 from utils import safe_get
 
@@ -27,8 +27,8 @@ class DefenderRule(BaseRule):
             return [
                 Finding(
                     rule_id=self.id,
-                    severity="LOW" if enabled else "HIGH",
-                    status="PASS" if enabled else "FAIL",
+                    severity=Severity.LOW if enabled else Severity.HIGH,
+                    status=Status.PASS if enabled else Status.FAIL,
                     evidence={"ProductState": product_state},
                     score=0 if enabled else 20,
                 )

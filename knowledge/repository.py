@@ -29,8 +29,16 @@ class KnowledgeRepository:
 
         if self._initialized:
             return
-        self._entries = load_knowledge(path)
+        knowledge_base = load_knowledge(path)
+        self._version = knowledge_base.version
+        self._entries = knowledge_base.entries
         self._initialized = True
+
+    @property
+    def version(self) -> str:
+        """Return the loaded knowledge-base version."""
+
+        return self._version
 
     def get(self, rule_id: str) -> Knowledge:
         """Return knowledge for a rule id or an Unknown placeholder."""
@@ -38,13 +46,5 @@ class KnowledgeRepository:
         knowledge = self._entries.get(rule_id)
         if knowledge is None:
             LOGGER.warning("Knowledge missing: %s", rule_id)
-            return Knowledge(
-                id=rule_id,
-                title="Unknown",
-                description="Unknown",
-                risk="Unknown",
-                recommendation="Unknown",
-                frameworks={},
-                references=[],
-            )
+            return Knowledge.unknown(rule_id, self._version)
         return knowledge

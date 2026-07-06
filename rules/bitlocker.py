@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from risk import Finding
+from risk import Finding, Severity, Status
 from rules.base import BaseRule
 from utils import safe_get
 
@@ -27,8 +27,8 @@ class BitLockerRule(BaseRule):
                 return [
                     Finding(
                         rule_id=self.id,
-                        severity="LOW",
-                        status="PASS",
+                        severity=Severity.LOW,
+                        status=Status.PASS,
                         evidence={"Bitlocker-C": enabled},
                         score=0,
                     )
@@ -37,8 +37,8 @@ class BitLockerRule(BaseRule):
             return [
                 Finding(
                     rule_id=self.id,
-                    severity="HIGH",
-                    status="FAIL",
+                    severity=Severity.HIGH,
+                    status=Status.FAIL,
                     evidence={"Bitlocker-C": enabled},
                     affected_asset="system_drive",
                     score=20,

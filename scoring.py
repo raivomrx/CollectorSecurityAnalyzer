@@ -5,16 +5,16 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 
-from risk import Finding
+from risk import Finding, Severity, Status
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_BASE_SCORE = 100
 SEVERITY_WEIGHTS = {
-    "HIGH": -20,
-    "MEDIUM": -10,
-    "LOW": -5,
-    "INFO": 0,
-    "PASS": 0,
+    Severity.CRITICAL: -30,
+    Severity.HIGH: -20,
+    Severity.MEDIUM: -10,
+    Severity.LOW: -5,
+    Severity.INFO: 0,
 }
 
 
@@ -23,12 +23,12 @@ def calculate_score(findings: Iterable[Finding], base_score: int = DEFAULT_BASE_
 
     score = base_score
     for finding in findings:
-        if finding.status.upper() == "PASS":
+        if finding.status == Status.PASS:
             delta = 0
         elif finding.score is not None:
             delta = -abs(int(finding.score))
         else:
-            delta = SEVERITY_WEIGHTS.get(finding.severity.upper(), 0)
+            delta = SEVERITY_WEIGHTS.get(finding.severity, 0)
         score += delta
 
     bounded_score = max(0, min(100, score))

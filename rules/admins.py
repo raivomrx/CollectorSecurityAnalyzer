@@ -6,7 +6,7 @@ import logging
 from collections.abc import Sized
 from typing import Any
 
-from risk import Finding
+from risk import Finding, Severity, Status
 from rules.base import BaseRule
 from utils import safe_get
 
@@ -28,8 +28,8 @@ class AdminRule(BaseRule):
                 return [
                     Finding(
                         rule_id=self.id,
-                        severity="INFO",
-                        status="FAIL",
+                        severity=Severity.INFO,
+                        status=Status.FAIL,
                         evidence={"All_local_admins": None},
                         score=0,
                     )
@@ -40,8 +40,8 @@ class AdminRule(BaseRule):
             return [
                 Finding(
                     rule_id=self.id,
-                    severity="MEDIUM" if elevated else "LOW",
-                    status="FAIL" if elevated else "PASS",
+                    severity=Severity.MEDIUM if elevated else Severity.LOW,
+                    status=Status.FAIL if elevated else Status.PASS,
                     evidence={"count": count},
                     score=10 if elevated else 0,
                 )
