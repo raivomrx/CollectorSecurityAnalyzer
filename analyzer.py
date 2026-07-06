@@ -10,7 +10,7 @@ from logger import setup_logging
 from knowledge.repository import KnowledgeRepository
 from parser import parse_collector_file
 from risk import AuditFinding, Finding
-from rules.loader import load_rules
+from rules.loader import load_registry
 from scoring import calculate_score
 
 LOGGER = logging.getLogger(__name__)
@@ -21,11 +21,11 @@ def analyze_file(path: str | Path) -> tuple[list[AuditFinding], int]:
 
     data = parse_collector_file(path)
     repository = KnowledgeRepository()
-    rules = load_rules()
+    registry = load_registry()
     findings: list[Finding] = []
 
-    for rule in rules:
-        findings.extend(rule.check(data))
+    for rule in registry.get_enabled():
+        findings.extend(rule.run(data))
 
     score = calculate_score(findings)
     audit_findings = enrich_findings(findings, repository)

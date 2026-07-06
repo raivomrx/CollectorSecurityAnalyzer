@@ -7,6 +7,8 @@ from typing import Any
 
 from risk import Finding, Severity, Status
 from rules.base import BaseRule
+from rules.categories import RuleCategory
+from rules.metadata import RuleMetadata
 from utils import safe_get
 
 LOGGER = logging.getLogger(__name__)
@@ -15,7 +17,16 @@ LOGGER = logging.getLogger(__name__)
 class NetworkRule(BaseRule):
     """Check whether the active network category is Public."""
 
-    id = "NET-001"
+    metadata = RuleMetadata(
+        id="NET-001",
+        title="Network Profile Category",
+        version="1.0",
+        author="CSA",
+        category=RuleCategory.NETWORK,
+        severity=Severity.MEDIUM,
+        enabled=True,
+        description="Checks whether the active network profile is Public.",
+    )
 
     def check(self, data: dict[str, Any]) -> list[Finding]:
         """Return a network profile finding for collector data."""

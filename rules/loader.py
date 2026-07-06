@@ -8,33 +8,37 @@ import logging
 import pkgutil
 
 from rules.base import BaseRule
+from rules.registry import RuleRegistry
 
 LOGGER = logging.getLogger(__name__)
+SKIPPED_MODULES = {"base", "categories", "loader", "metadata", "registry"}
 
 
-def load_rules() -> list[BaseRule]:
-    """Discover, instantiate, and return all available rule classes."""
+def load_registry() -> RuleRegistry:
+    """Discover rule modules, register their classes, and return a registry."""
 
     package = importlib.import_module("rules")
     _import_rule_modules(package.__name__, package.__path__)
 
-    rules: list[BaseRule] = []
+    registry = RuleRegistry()
     for rule_class in _iter_rule_classes():
-        try:
-            rules.append(rule_class())
-        except Exception:
-            LOGGER.exception("Failed to instantiate rule: %s", rule_class.__name__)
+        registry.register(rule_class)
 
-    rules.sort(key=lambda rule: rule.id)
-    LOGGER.info("Loaded %s rules", len(rules))
-    return rules
+    _log_registry_startup(registry)
+    return registry
+
+
+def load_rules() -> list[BaseRule]:
+    """Discover, register, and return enabled rules."""
+
+    return load_registry().get_enabled()
 
 
 def _import_rule_modules(package_name: str, package_path: object) -> None:
     """Import every non-private module in the rules package."""
 
     for module_info in pkgutil.iter_modules(package_path):
-        if module_info.name.startswith("_") or module_info.name in {"base", "loader"}:
+        if module_info.name.startswith("_") or module_info.name in SKIPPED_MODULES:
             continue
         importlib.import_module(f"{package_name}.{module_info.name}")
 
@@ -55,3 +59,14 @@ def _walk_subclasses(rule_class: type[BaseRule]) -> list[type[BaseRule]]:
     for subclass in rule_class.__subclasses__():
         classes.extend(_walk_subclasses(subclass))
     return classes
+
+
+def _log_registry_startup(registry: RuleRegistry) -> None:
+    """Log registry startup statistics."""
+
+    statistics = registry.get_statistics()
+    LOGGER.info("CSA Rule Registry")
+    LOGGER.info("Rules loaded: %s", statistics["total_rules"])
+    LOGGER.info("Enabled: %s", statistics["enabled_rules"])
+    LOGGER.info("Disabled: %s", statistics["disabled_rules"])
+    LOGGER.info("Categories: %s", len(statistics["rules_by_category"]))

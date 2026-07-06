@@ -8,6 +8,8 @@ from typing import Any
 
 from risk import Finding, Severity, Status
 from rules.base import BaseRule
+from rules.categories import RuleCategory
+from rules.metadata import RuleMetadata
 from utils import parse_date, safe_get
 
 LOGGER = logging.getLogger(__name__)
@@ -17,7 +19,16 @@ MAX_UPDATE_AGE_DAYS = 45
 class UpdatesRule(BaseRule):
     """Check whether the last successful update installation is recent."""
 
-    id = "UPD-001"
+    metadata = RuleMetadata(
+        id="UPD-001",
+        title="Windows Updates Freshness",
+        version="1.0",
+        author="CSA",
+        category=RuleCategory.UPDATES,
+        severity=Severity.HIGH,
+        enabled=True,
+        description="Checks whether Windows updates were installed in the last 45 days.",
+    )
 
     def check(self, data: dict[str, Any]) -> list[Finding]:
         """Return an updates freshness finding for collector data."""
