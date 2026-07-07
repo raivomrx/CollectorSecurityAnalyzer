@@ -9,17 +9,24 @@ from pathlib import Path
 from logger import setup_logging
 from knowledge.repository import KnowledgeRepository
 from parser import parse_collector_file
+from report import generate_html_report
 from risk import AuditFinding, Finding
 from rules.loader import load_registry
 from scoring import calculate_score
+from software.inventory import build_inventory
+from software.models import SoftwareInventory
 
 LOGGER = logging.getLogger(__name__)
 
 
-def analyze_file(path: str | Path) -> tuple[list[AuditFinding], int]:
-    """Analyze a collector JSON file and return audit findings with the score."""
+def analyze_file(
+    path: str | Path,
+    output_dir: str | Path = "output",
+) -> tuple[list[AuditFinding], int, SoftwareInventory, Path]:
+    """Analyze a collector JSON file and generate an HTML report."""
 
-    data = parse_collector_file(path)
+    input_path = Path(path)
+    data = parse_collector_file(input_path)
     repository = KnowledgeRepository()
     registry = load_registry()
     findings: list[Finding] = []
@@ -29,9 +36,20 @@ def analyze_file(path: str | Path) -> tuple[list[AuditFinding], int]:
 
     score = calculate_score(findings)
     audit_findings = enrich_findings(findings, repository)
+    software_items = data.get("Software", [])
+    software_inventory = build_inventory(software_items if isinstance(software_items, list) else [])
+    output_path = Path(output_dir) / f"{input_path.stem}.html"
+    report_path = generate_html_report(
+        data=data,
+        audit_findings=audit_findings,
+        score=score,
+        software_inventory=software_inventory,
+        output_path=output_path,
+    )
     LOGGER.info("Total Findings: %s", len(findings))
     LOGGER.info("Security Score: %s", score)
-    return audit_findings, score
+    LOGGER.info("HTML report generated: %s", report_path)
+    return audit_findings, score, software_inventory, report_path
 
 
 def enrich_findings(
