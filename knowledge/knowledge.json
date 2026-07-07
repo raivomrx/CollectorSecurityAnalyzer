@@ -152,6 +152,31 @@
           "type": "Framework"
         }
       ]
+    },
+    "SW-001": {
+      "title": "Unknown software detected",
+      "description": "The software inventory contains products that could not be normalized with high confidence.",
+      "risk": "Unknown software reduces asset visibility and can prevent accurate CVE, EOL, and unsupported software checks.",
+      "recommendation": "Review unknown software entries and add approved aliases to the Software Intelligence Engine.",
+      "frameworks": {
+        "E-ITS": ["EITS-ASSET-001"],
+        "CIS": ["CIS-1.1"],
+        "Microsoft": ["MSB-INVENTORY-001"]
+      },
+      "references": [
+        {
+          "title": "CIS Controls",
+          "url": "https://www.cisecurity.org",
+          "vendor": "CIS",
+          "type": "Framework"
+        },
+        {
+          "title": "Microsoft security baselines",
+          "url": "https://learn.microsoft.com/windows/security",
+          "vendor": "Microsoft",
+          "type": "Official"
+        }
+      ]
     }
   }
 }

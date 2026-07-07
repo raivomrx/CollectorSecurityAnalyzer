@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Collector Security Analyzer Report</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="report-cover">
+    <div>
+      <p class="eyebrow">Collector Security Analyzer</p>
+      <h1>Security Audit Report</h1>
+      <p>{{ summary.computer_name }} · {{ summary.forensics_date }}</p>
+    </div>
+    <div class="score-badge">
+      <span>Security Score</span>
+      <strong>{{ score }}</strong>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <h2>Executive Summary</h2>
+      <div class="summary-grid">
+        <div><span>ComputerName</span><strong>{{ summary.computer_name }}</strong></div>
+        <div><span>OS</span><strong>{{ summary.os }}</strong></div>
+        <div><span>Domain / Workgroup</span><strong>{{ summary.domain }}</strong></div>
+        <div><span>ForensicsDate</span><strong>{{ summary.forensics_date }}</strong></div>
+        <div><span>Current_user</span><strong>{{ summary.current_user }}</strong></div>
+        <div><span>Findings</span><strong>{{ summary.finding_count }}</strong></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Finding Summary</h2>
+      <div class="pill-row">
+        {% for status in ["FAIL", "WARNING", "PASS", "INFO"] %}
+          <span class="pill status-{{ status|lower }}">{{ status }}: {{ summary.status_counts.get(status, 0) }}</span>
+        {% endfor %}
+      </div>
+      <div class="pill-row">
+        {% for severity in ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"] %}
+          <span class="pill severity-{{ severity|lower }}">{{ severity }}: {{ summary.severity_counts.get(severity, 0) }}</span>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section>
+      <h2>Critical / High Findings</h2>
+      {% if high_findings %}
+        {% for item in high_findings %}
+          {% include "_finding_card.html" %}
+        {% endfor %}
+      {% else %}
+        <p class="muted">No critical or high failed findings.</p>
+      {% endif %}
+    </section>
+
+    <section>
+      <h2>All Findings</h2>
+      {% for item in audit_findings %}
+        {% include "_finding_card.html" %}
+      {% endfor %}
+    </section>
+
+    <section>
+      <h2>Software Inventory</h2>
+      <div class="summary-grid compact">
+        <div><span>Products</span><strong>{{ software_inventory.product_count }}</strong></div>
+        <div><span>Vendors</span><strong>{{ software_inventory.vendor_count }}</strong></div>
+        <div><span>Duplicates</span><strong>{{ software_inventory.duplicate_entries|length }}</strong></div>
+        <div><span>Unknown</span><strong>{{ software_inventory.unknown_products|length }}</strong></div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Vendor</th>
+            <th>Product</th>
+            <th>Version</th>
+            <th>Normalized Vendor</th>
+            <th>Normalized Product</th>
+            <th>Normalized Version</th>
+            <th>Confidence</th>
+            <th>Install Date</th>
+            <th>CPE</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for product in software_inventory.products %}
+            <tr>
+              <td>{{ product.vendor }}</td>
+              <td>{{ product.product }}</td>
+              <td>{{ product.version }}</td>
+              <td>{{ product.normalized_vendor }}</td>
+              <td>{{ product.normalized_product }}</td>
+              <td>{{ product.normalized_version }}</td>
+              <td><span class="confidence {{ product|confidence_class }}">{{ product.confidence }}</span></td>
+              <td>{{ product.install_date or "" }}</td>
+              <td>{{ product.cpe or "" }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="9" class="muted">No software inventory data.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Unknown Software</h2>
+      {% if software_inventory.unknown_products %}
+        <table>
+          <thead>
+            <tr><th>Vendor</th><th>Product</th><th>Version</th><th>Confidence</th></tr>
+          </thead>
+          <tbody>
+            {% for product in software_inventory.unknown_products %}
+              <tr>
+                <td>{{ product.vendor }}</td>
+                <td>{{ product.product }}</td>
+                <td>{{ product.version }}</td>
+                <td><span class="confidence {{ product|confidence_class }}">{{ product.confidence }}</span></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="muted">No unknown software detected.</p>
+      {% endif %}
+    </section>
+
+    <section>
+      <h2>Rule / Audit Metadata</h2>
+      <table>
+        <thead>
+          <tr><th>Rule</th><th>Version</th><th>Category</th><th>Severity</th><th>Enabled</th><th>Result</th></tr>
+        </thead>
+        <tbody>
+          {% for row in metadata %}
+            {% set rule = rule_metadata.get(row.rule_id) %}
+            <tr>
+              <td>{{ row.rule_id }}</td>
+              <td>{{ rule.version if rule else "" }}</td>
+              <td>{{ rule.category.value if rule else "Unknown" }}</td>
+              <td>{{ rule.severity.value if rule else row.severity }}</td>
+              <td>{{ rule.enabled if rule else "" }}</td>
+              <td>{{ row.status }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>

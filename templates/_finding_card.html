@@ -1,0 +1,48 @@
+{% set finding = item.finding %}
+{% set knowledge = item.knowledge %}
+{% set rule = rule_metadata.get(finding.rule_id) %}
+<article class="finding-card severity-{{ finding.severity.value|lower }}">
+  <div class="finding-header">
+    <div>
+      <p class="eyebrow">{{ finding.rule_id }}</p>
+      <h3>
+        {% if knowledge.title == "Unknown" %}
+          Knowledge entry missing
+        {% else %}
+          {{ knowledge.title }}
+        {% endif %}
+      </h3>
+    </div>
+    <div class="pill-row">
+      <span class="pill status-{{ finding.status.value|lower }}">{{ finding.status.value }}</span>
+      <span class="pill severity-{{ finding.severity.value|lower }}">{{ finding.severity.value }}</span>
+    </div>
+  </div>
+  <dl class="finding-details">
+    <div><dt>Category</dt><dd>{{ rule.category.value if rule else "Unknown" }}</dd></div>
+    <div><dt>Description</dt><dd>{{ knowledge.description }}</dd></div>
+    <div><dt>Risk</dt><dd>{{ knowledge.risk }}</dd></div>
+    <div><dt>Evidence</dt><dd><pre>{{ finding.evidence|json }}</pre></dd></div>
+    <div><dt>Recommendation</dt><dd>{{ knowledge.recommendation }}</dd></div>
+    <div>
+      <dt>Framework references</dt>
+      <dd>
+        {% for framework, values in knowledge.frameworks.items() %}
+          <span class="framework">{{ framework }}: {{ values|join(", ") }}</span>
+        {% else %}
+          <span class="muted">No framework references.</span>
+        {% endfor %}
+      </dd>
+    </div>
+    <div>
+      <dt>External references</dt>
+      <dd>
+        {% for reference in knowledge.references %}
+          <a href="{{ reference.url }}">{{ reference.title }}</a>
+        {% else %}
+          <span class="muted">No external references.</span>
+        {% endfor %}
+      </dd>
+    </div>
+  </dl>
+</article>

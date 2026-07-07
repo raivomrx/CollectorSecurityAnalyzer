@@ -17,12 +17,12 @@ class RuleRegistryTests(unittest.TestCase):
     """Validate rule registry behavior."""
 
     def test_01_loader_registers_existing_rules(self) -> None:
-        """Loader should discover and register the six existing rules."""
+        """Loader should discover and register the seven existing rules."""
 
         registry = load_registry()
 
-        self.assertEqual(len(registry.get_all()), 6)
-        self.assertEqual(len(registry.get_enabled()), 6)
+        self.assertEqual(len(registry.get_all()), 7)
+        self.assertEqual(len(registry.get_enabled()), 7)
         self.assertIsNotNone(registry.get("BIT-001"))
 
     def test_duplicate_rule_id_logs_warning(self) -> None:

@@ -14,7 +14,7 @@ LOGGER = logging.getLogger(__name__)
 SKIPPED_MODULES = {"base", "categories", "loader", "metadata", "registry"}
 
 
-def load_registry() -> RuleRegistry:
+def load_registry(log_startup: bool = True) -> RuleRegistry:
     """Discover rule modules, register their classes, and return a registry."""
 
     package = importlib.import_module("rules")
@@ -24,7 +24,8 @@ def load_registry() -> RuleRegistry:
     for rule_class in _iter_rule_classes():
         registry.register(rule_class)
 
-    _log_registry_startup(registry)
+    if log_startup:
+        _log_registry_startup(registry)
     return registry
 
 
