@@ -11,7 +11,6 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from risk import AuditFinding
-from rules.loader import load_registry
 from rules.metadata import RuleMetadata
 from software.models import SoftwareInventory, SoftwareProduct
 from utils import safe_get
@@ -26,6 +25,7 @@ def generate_html_report(
     audit_findings: list[AuditFinding],
     score: int,
     software_inventory: SoftwareInventory,
+    rule_metadata: dict[str, RuleMetadata],
     output_path: str | Path,
 ) -> Path:
     """Generate an HTML audit report from analyzer results."""
@@ -49,7 +49,7 @@ def generate_html_report(
         score=score,
         software_inventory=software_inventory,
         metadata=_build_metadata(audit_findings),
-        rule_metadata=_build_rule_metadata_map(),
+        rule_metadata=rule_metadata,
     )
     output.write_text(html, encoding="utf-8")
     return output
@@ -91,18 +91,6 @@ def _build_metadata(audit_findings: list[AuditFinding]) -> list[dict[str, Any]]:
         }
         for item in audit_findings
     ]
-
-
-def _build_rule_metadata_map() -> dict[str, RuleMetadata]:
-    """Return rule metadata keyed by rule id."""
-
-    registry = load_registry(log_startup=False)
-    return {
-        item.rule_id: metadata
-        for item in registry.get_execution_info()
-        for metadata in [registry.get_metadata(item.rule_id)]
-        if metadata is not None
-    }
 
 
 def _high_findings(audit_findings: list[AuditFinding]) -> list[AuditFinding]:

@@ -5,10 +5,13 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from knowledge.models import Knowledge, Reference
 from report import generate_html_report
 from risk import AuditFinding, Finding, Severity, Status
+from rules.categories import RuleCategory
+from rules.metadata import RuleMetadata
 from software.inventory import build_inventory
 
 
@@ -44,6 +47,7 @@ class HtmlReportTests(unittest.TestCase):
                 audit_findings=audit_findings,
                 score=82,
                 software_inventory=inventory,
+                rule_metadata={"BIT-001": _rule_metadata()},
                 output_path=output_path,
             )
             html = report_path.read_text(encoding="utf-8")
@@ -54,6 +58,25 @@ class HtmlReportTests(unittest.TestCase):
         self.assertIn("BIT-001", html)
         self.assertIn("Software Inventory", html)
         self.assertIn("Unknown Product", html)
+
+    def test_reporter_does_not_load_registry(self) -> None:
+        """Reporter should render with provided metadata and not load registry."""
+
+        data = {"ComputerName": "EE-D3147"}
+        inventory = build_inventory([])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "report.html"
+            with patch("rules.loader.load_registry", side_effect=AssertionError):
+                report_path = generate_html_report(
+                    data=data,
+                    audit_findings=[_audit_finding()],
+                    score=90,
+                    software_inventory=inventory,
+                    rule_metadata={"BIT-001": _rule_metadata()},
+                    output_path=output_path,
+                )
+
+        self.assertEqual(report_path.name, "report.html")
 
 
 def _audit_finding() -> AuditFinding:
@@ -84,6 +107,21 @@ def _audit_finding() -> AuditFinding:
             ],
             knowledge_version="CSA-KB-2026.1",
         ),
+    )
+
+
+def _rule_metadata() -> RuleMetadata:
+    """Create test rule metadata."""
+
+    return RuleMetadata(
+        id="BIT-001",
+        title="BitLocker Enabled",
+        version="1.0",
+        author="CSA",
+        category=RuleCategory.ENCRYPTION,
+        severity=Severity.HIGH,
+        enabled=True,
+        description="Checks BitLocker.",
     )
 
 

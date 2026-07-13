@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
+from analysis_context import AnalysisContext
 from risk import Finding
 from rules.metadata import RuleMetadata
 
@@ -20,11 +21,19 @@ class BaseRule(ABC):
 
         return self.metadata.id
 
-    def run(self, data: dict[str, Any]) -> list[Finding]:
+    def run(
+        self,
+        data: dict[str, Any],
+        context: AnalysisContext | None = None,
+    ) -> list[Finding]:
         """Run the rule and return technical findings."""
 
-        return self.check(data)
+        return self.check(data, context)
 
     @abstractmethod
-    def check(self, data: dict[str, Any]) -> list[Finding]:
+    def check(
+        self,
+        data: dict[str, Any],
+        context: AnalysisContext | None = None,
+    ) -> list[Finding]:
         """Run the rule against collector data and return findings."""

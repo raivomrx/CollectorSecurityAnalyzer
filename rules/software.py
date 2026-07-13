@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from analysis_context import AnalysisContext
 from risk import Finding, Severity, Status
 from rules.base import BaseRule
 from rules.categories import RuleCategory
@@ -28,15 +29,22 @@ class SoftwareInventoryRule(BaseRule):
         description="Checks whether software inventory contains unknown products.",
     )
 
-    def check(self, data: dict[str, Any]) -> list[Finding]:
+    def check(
+        self,
+        data: dict[str, Any],
+        context: AnalysisContext | None = None,
+    ) -> list[Finding]:
         """Return a finding for unknown software products."""
 
         LOGGER.info("Running SoftwareInventoryRule")
         try:
-            software_items = data.get("Software", [])
-            if not isinstance(software_items, list):
-                software_items = []
-            inventory = build_inventory(software_items)
+            if context is not None:
+                inventory = context.software_inventory
+            else:
+                software_items = data.get("Software", [])
+                if not isinstance(software_items, list):
+                    software_items = []
+                inventory = build_inventory(software_items)
             unknown_names = [
                 product.product for product in inventory.unknown_products
             ]

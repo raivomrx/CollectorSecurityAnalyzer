@@ -6,6 +6,7 @@ import argparse
 import logging
 from pathlib import Path
 
+from analysis_context import AnalysisContext
 from logger import setup_logging
 from knowledge.repository import KnowledgeRepository
 from parser import parse_collector_file
@@ -29,21 +30,34 @@ def analyze_file(
     data = parse_collector_file(input_path)
     repository = KnowledgeRepository()
     registry = load_registry()
+    software_items = data.get("Software", [])
+    software_inventory = build_inventory(
+        software_items if isinstance(software_items, list) else []
+    )
+    context = AnalysisContext(
+        raw_data=data,
+        software_inventory=software_inventory,
+    )
     findings: list[Finding] = []
 
     for rule in registry.get_enabled():
-        findings.extend(rule.run(data))
+        findings.extend(rule.run(data, context))
 
     score = calculate_score(findings)
     audit_findings = enrich_findings(findings, repository)
-    software_items = data.get("Software", [])
-    software_inventory = build_inventory(software_items if isinstance(software_items, list) else [])
+    rule_metadata = {
+        execution.rule_id: metadata
+        for execution in registry.get_execution_info()
+        for metadata in [registry.get_metadata(execution.rule_id)]
+        if metadata is not None
+    }
     output_path = Path(output_dir) / f"{input_path.stem}.html"
     report_path = generate_html_report(
         data=data,
         audit_findings=audit_findings,
         score=score,
         software_inventory=software_inventory,
+        rule_metadata=rule_metadata,
         output_path=output_path,
     )
     LOGGER.info("Total Findings: %s", len(findings))

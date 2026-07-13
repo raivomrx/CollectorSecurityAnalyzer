@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from analysis_context import AnalysisContext
 from risk import Finding, Severity, Status
 from rules.base import BaseRule
 from rules.categories import RuleCategory
@@ -28,7 +29,11 @@ class DefenderRule(BaseRule):
         description="Checks whether Microsoft Defender Antivirus is enabled.",
     )
 
-    def check(self, data: dict[str, Any]) -> list[Finding]:
+    def check(
+        self,
+        data: dict[str, Any],
+        context: AnalysisContext | None = None,
+    ) -> list[Finding]:
         """Return a Defender finding for collector data."""
 
         LOGGER.info("Running DefenderRule")

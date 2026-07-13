@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from analysis_context import AnalysisContext
 from risk import Finding, Severity, Status
 from rules.base import BaseRule
 from rules.categories import RuleCategory
@@ -28,7 +29,11 @@ class BitLockerRule(BaseRule):
         description="Checks whether BitLocker protects the system drive.",
     )
 
-    def check(self, data: dict[str, Any]) -> list[Finding]:
+    def check(
+        self,
+        data: dict[str, Any],
+        context: AnalysisContext | None = None,
+    ) -> list[Finding]:
         """Return a BitLocker finding for collector data."""
 
         LOGGER.info("Running BitLockerRule")
