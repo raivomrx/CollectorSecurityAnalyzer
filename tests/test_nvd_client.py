@@ -6,6 +6,8 @@ import os
 import unittest
 from unittest.mock import patch
 
+import requests
+
 from cve.cache import NvdCache
 from cve.client import NVD_CPE_ENDPOINT, NVD_CVE_ENDPOINT, NvdClient
 from cve.exceptions import NvdRequestError
@@ -83,6 +85,34 @@ class NvdClientTests(unittest.TestCase):
         with self.assertRaises(NvdRequestError):
             client.get_cves({})
 
+    def test_permanent_4xx_responses_are_not_retried(self) -> None:
+        """Permanent client errors should fail once without retry."""
+
+        for status_code in (400, 401, 403, 404):
+            with self.subTest(status_code=status_code):
+                session = _Session([
+                    _Response(
+                        {"error": "full body should not be logged"},
+                        status_code=status_code,
+                        text=f"HTTP {status_code} short summary",
+                    )
+                ])
+                client = NvdClient(
+                    cache=_MemoryCache(),
+                    session=session,
+                    limiter=_limiter(),
+                    max_retries=3,
+                    timeout=1,
+                )
+
+                with self.assertRaises(NvdRequestError) as raised:
+                    client.get_cves({})
+
+                self.assertEqual(len(session.calls), 1)
+                self.assertIn("endpoint=CVES", str(raised.exception))
+                self.assertIn(f"status={status_code}", str(raised.exception))
+                self.assertIn("short summary", str(raised.exception))
+
     def test_429_honors_retry_after_header(self) -> None:
         """Retry-After should be forwarded to the limiter."""
 
@@ -99,6 +129,45 @@ class NvdClientTests(unittest.TestCase):
             client.get_cves({})
 
         self.assertEqual(limiter.retry_values, ["7"])
+
+    def test_retryable_http_responses_are_retried(self) -> None:
+        """429 and 5xx responses should retry and recover."""
+
+        for status_code in (429, 500):
+            with self.subTest(status_code=status_code):
+                session = _Session(
+                    [
+                        _Response({}, status_code=status_code, headers={"Retry-After": "0"}),
+                        _Response({"totalResults": 0, "vulnerabilities": []}),
+                    ]
+                )
+                client = NvdClient(
+                    cache=_MemoryCache(),
+                    session=session,
+                    limiter=_limiter(),
+                    max_retries=1,
+                    timeout=1,
+                )
+
+                self.assertEqual(client.get_cves({}), [])
+                self.assertEqual(len(session.calls), 2)
+
+    def test_retryable_network_errors_are_retried(self) -> None:
+        """Timeout and connection errors should retry and recover."""
+
+        for error in (requests.Timeout("slow"), requests.ConnectionError("down")):
+            with self.subTest(error=type(error).__name__):
+                session = _Session([error, _Response({"totalResults": 0, "vulnerabilities": []})])
+                client = NvdClient(
+                    cache=_MemoryCache(),
+                    session=session,
+                    limiter=_limiter(),
+                    max_retries=1,
+                    timeout=1,
+                )
+
+                self.assertEqual(client.get_cves({}), [])
+                self.assertEqual(len(session.calls), 2)
 
     def test_invalid_response_schema(self) -> None:
         """Invalid NVD schemas should raise a request error."""
@@ -142,16 +211,27 @@ class _Session:
                 "timeout": timeout,
             }
         )
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 class _Response:
     """Fake requests response."""
 
-    def __init__(self, payload, status_code: int = 200, headers: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        payload,
+        status_code: int = 200,
+        headers: dict[str, str] | None = None,
+        text: str = "",
+    ) -> None:
         self.payload = payload
         self.status_code = status_code
         self.headers = {} if headers is None else headers
+        self.text = text
+        self.reason = text
 
     def json(self):
         return self.payload

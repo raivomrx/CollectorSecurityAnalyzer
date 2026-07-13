@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from cve.applicability import evaluate_applicability
 from cve.client import NvdClient
@@ -40,7 +41,11 @@ class CveService:
         )
         self.minimum_cpe_confidence = minimum_cpe_confidence
 
-    def scan_inventory(self, inventory: SoftwareInventory) -> CveScanSummary:
+    def scan_inventory(
+        self,
+        inventory: SoftwareInventory,
+        raw_data: dict[str, Any] | None = None,
+    ) -> CveScanSummary:
         """Scan a software inventory for CVEs."""
 
         unique_products = _deduplicate(inventory.products)
@@ -78,7 +83,7 @@ class CveService:
                 evaluated_products += 1
                 records = parse_cve_items(cve_items)
                 for record in records:
-                    assessments.append(_assess(software, cpe, record))
+                    assessments.append(_assess(software, cpe, record, raw_data))
             except Exception as error:
                 LOGGER.exception("CVE scan failed for a product")
                 errors.append(
@@ -121,8 +126,8 @@ def empty_summary(scan_complete: bool = False, message: str | None = None) -> Cv
         unique_products=0,
         eligible_products=0,
         evaluated_products=0,
-        coverage_percent=100.0,
-        coverage_complete=True,
+        coverage_percent=0.0,
+        coverage_complete=False,
         products_with_cpe=0,
         products_without_cpe=0,
         ambiguous_cpe_matches=0,
@@ -136,10 +141,20 @@ def empty_summary(scan_complete: bool = False, message: str | None = None) -> Cv
     )
 
 
-def _assess(software: SoftwareProduct, cpe, record: CveRecord) -> CveAssessment:
+def _assess(
+    software: SoftwareProduct,
+    cpe,
+    record: CveRecord,
+    raw_data: dict[str, Any] | None,
+) -> CveAssessment:
     """Create an applicability assessment."""
 
-    status, reason, confidence, matched = evaluate_applicability(software, cpe, record)
+    status, reason, confidence, matched = evaluate_applicability(
+        software,
+        cpe,
+        record,
+        raw_data,
+    )
     LOGGER.info("CVE applicability: %s = %s", record.cve_id, status.value)
     return CveAssessment(
         software=software,

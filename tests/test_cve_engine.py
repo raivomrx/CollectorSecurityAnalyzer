@@ -23,7 +23,7 @@ from cve.models import (
 )
 from cve.parser import parse_cve_record
 from cve.rate_limiter import SlidingWindowRateLimiter
-from cve.service import CveService
+from cve.service import CveService, empty_summary
 from rules.cve import KnownVulnerabilitiesRule
 from software.models import SoftwareInventory, SoftwareProduct
 
@@ -296,6 +296,111 @@ class CveEngineTests(unittest.TestCase):
         self.assertEqual(status, ApplicabilityStatus.NOT_EVALUATED)
         self.assertIn("AND", reason)
 
+    def test_applicability_target_sw_wildcard_does_not_require_collector_os(self) -> None:
+        """Wildcard target_sw should not restrict applicability."""
+
+        status, _, _, _ = evaluate_applicability(
+            _software(),
+            _cpe(),
+            _cve_record(configurations=[_configuration_for_criteria("cpe:2.3:a:google:chrome:144.0.7559.60:*:*:*:*:*:*:*")]),
+        )
+
+        self.assertEqual(status, ApplicabilityStatus.AFFECTED)
+
+    def test_applicability_target_sw_matches_collector_windows(self) -> None:
+        """Windows target_sw should match trusted Windows collector OS data."""
+
+        status, _, _, _ = evaluate_applicability(
+            _software(),
+            _cpe(),
+            _cve_record(configurations=[_configuration_for_criteria("cpe:2.3:a:google:chrome:144.0.7559.60:*:*:*:*:windows:*:*")]),
+            {"OS": "Microsoft Windows 11 Pro"},
+        )
+
+        self.assertEqual(status, ApplicabilityStatus.AFFECTED)
+
+    def test_applicability_target_sw_mismatch_is_not_affected(self) -> None:
+        """Linux target_sw should not match trusted Windows collector OS data."""
+
+        status, _, _, _ = evaluate_applicability(
+            _software(),
+            _cpe(),
+            _cve_record(configurations=[_configuration_for_criteria("cpe:2.3:a:google:chrome:144.0.7559.60:*:*:*:*:linux:*:*")]),
+            {"OS": "Microsoft Windows 11 Pro"},
+        )
+
+        self.assertEqual(status, ApplicabilityStatus.NOT_AFFECTED)
+
+    def test_applicability_target_sw_missing_collector_info_is_not_evaluated(self) -> None:
+        """Specific target_sw without collector OS data should remain unevaluated."""
+
+        status, reason, _, _ = evaluate_applicability(
+            _software(),
+            _cpe(),
+            _cve_record(configurations=[_configuration_for_criteria("cpe:2.3:a:google:chrome:144.0.7559.60:*:*:*:*:windows:*:*")]),
+        )
+
+        self.assertEqual(status, ApplicabilityStatus.NOT_EVALUATED)
+        self.assertIn("target_sw", reason)
+
+    def test_applicability_target_hw_missing_collector_info_is_not_evaluated(self) -> None:
+        """Specific target_hw without architecture data should remain unevaluated."""
+
+        status, reason, _, _ = evaluate_applicability(
+            _software(),
+            _cpe(),
+            _cve_record(configurations=[_configuration_for_criteria("cpe:2.3:a:google:chrome:144.0.7559.60:*:*:*:*:*:x64:*")]),
+            {"OS": "Microsoft Windows 11 Pro"},
+        )
+
+        self.assertEqual(status, ApplicabilityStatus.NOT_EVALUATED)
+        self.assertIn("target_hw", reason)
+
+    def test_applicability_edition_mismatch_is_not_affected(self) -> None:
+        """Specific edition mismatch should prevent affected status."""
+
+        status, reason, _, _ = evaluate_applicability(
+            _software(),
+            _cpe(),
+            _cve_record(configurations=[_configuration_for_criteria("cpe:2.3:a:google:chrome:144.0.7559.60:*:enterprise:*:*:*:*:*")]),
+            {"Edition": "Professional"},
+        )
+
+        self.assertEqual(status, ApplicabilityStatus.NOT_AFFECTED)
+        self.assertIn("edition", reason)
+
+    def test_applicability_na_environment_component_is_not_wildcard(self) -> None:
+        """NA environment components should require confirmation, not act as wildcard."""
+
+        status, reason, _, _ = evaluate_applicability(
+            _software(),
+            _cpe(),
+            _cve_record(configurations=[_configuration_for_criteria("cpe:2.3:a:google:chrome:144.0.7559.60:-:*:*:*:*:*:*")]),
+            {"OS": "Microsoft Windows 11 Pro"},
+        )
+
+        self.assertEqual(status, ApplicabilityStatus.NOT_EVALUATED)
+        self.assertIn("update", reason)
+
+    def test_applicability_all_environment_conditions_match(self) -> None:
+        """Matching environment components should allow version evaluation to continue."""
+
+        status, _, _, _ = evaluate_applicability(
+            _software(),
+            _cpe(),
+            _cve_record(configurations=[_configuration_for_criteria("cpe:2.3:a:google:chrome:144.0.7559.60:stable:pro:en_us:desktop:windows_11:x64:*")]),
+            {
+                "Update": "stable",
+                "Edition": "Pro",
+                "Language": "en-US",
+                "SoftwareEdition": "Desktop",
+                "OS": "Microsoft Windows 11 Pro",
+                "Architecture": "AMD64",
+            },
+        )
+
+        self.assertEqual(status, ApplicabilityStatus.AFFECTED)
+
     def test_applicability_missing_config_is_not_evaluated(self) -> None:
         """Missing NVD configuration must not become affected."""
 
@@ -449,6 +554,54 @@ class CveEngineTests(unittest.TestCase):
         self.assertEqual(summary.coverage_percent, 0.0)
         self.assertFalse(summary.coverage_complete)
 
+    def test_empty_summary_for_skipped_or_failed_scan_has_no_coverage(self) -> None:
+        """Skipped or fatal CVE scans should not claim complete coverage."""
+
+        skipped = empty_summary(scan_complete=False)
+        failed = empty_summary(scan_complete=False, message="fatal")
+        incomplete = empty_summary(scan_complete=False, message="interrupted")
+
+        for summary in (skipped, failed, incomplete):
+            self.assertEqual(summary.coverage_percent, 0.0)
+            self.assertFalse(summary.coverage_complete)
+            self.assertFalse(summary.scan_complete)
+
+    def test_empty_successful_inventory_has_complete_coverage(self) -> None:
+        """An empty inventory can be fully covered when the scan ran successfully."""
+
+        class Client:
+            def get_cves(self, params):
+                return []
+
+        class Resolver:
+            def resolve(self, software):
+                return None
+
+        summary = CveService(client=Client(), resolver=Resolver()).scan_inventory(SoftwareInventory())
+
+        self.assertEqual(summary.coverage_percent, 100.0)
+        self.assertTrue(summary.coverage_complete)
+        self.assertTrue(summary.scan_complete)
+
+    def test_product_scan_error_marks_coverage_incomplete(self) -> None:
+        """Product-level fatal scan errors should reduce coverage."""
+
+        class Client:
+            def get_cves(self, params):
+                return []
+
+        class Resolver:
+            def resolve(self, software):
+                raise RuntimeError("boom")
+
+        summary = CveService(client=Client(), resolver=Resolver()).scan_inventory(
+            SoftwareInventory(products=[_software()], product_count=1)
+        )
+
+        self.assertEqual(summary.coverage_percent, 0.0)
+        self.assertFalse(summary.coverage_complete)
+        self.assertFalse(summary.scan_complete)
+
     def test_cve_rule_states(self) -> None:
         """CVE rule should represent not-run, clean, and affected summaries."""
 
@@ -528,6 +681,24 @@ def _cve_record(configurations) -> CveRecord:
         vuln_status="Analyzed",
         data_quality=CveDataQuality.COMPLETE,
     )
+
+
+def _configuration_for_criteria(criteria: str) -> dict:
+    """Create a simple OR configuration for one CPE criteria string."""
+
+    return {
+        "nodes": [
+            {
+                "operator": "OR",
+                "cpeMatch": [
+                    {
+                        "vulnerable": True,
+                        "criteria": criteria,
+                    }
+                ],
+            }
+        ]
+    }
 
 
 def _nvd_cve_payload():

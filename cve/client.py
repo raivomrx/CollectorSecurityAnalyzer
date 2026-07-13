@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from typing import Any
 
@@ -107,22 +108,51 @@ class NvdClient:
                 )
                 if response.status_code == 429:
                     self.limiter.retry_after(response.headers.get("Retry-After"))
-                    raise NvdRequestError("NVD rate limit exceeded")
+                    raise _http_error(endpoint, response, retryable=True)
                 if response.status_code >= 500:
-                    raise NvdRequestError(f"NVD server error: {response.status_code}")
+                    raise _http_error(endpoint, response, retryable=True)
+                if 400 <= response.status_code < 500:
+                    raise _http_error(endpoint, response, retryable=False)
                 response.raise_for_status()
                 data = response.json()
                 if not isinstance(data, dict):
-                    raise NvdRequestError("Invalid NVD JSON response")
+                    raise NvdRequestError("Invalid NVD JSON response", retryable=False)
                 self.cache.set(cache_key, endpoint, params, data, self.cache_ttl_hours)
                 return data
-            except (requests.RequestException, ValueError, NvdRequestError) as error:
+            except NvdRequestError as error:
                 last_error = error
+                if not error.retryable:
+                    break
                 if attempt >= self.max_retries:
                     break
                 time.sleep(min(2 ** attempt, 8))
+            except (requests.ConnectionError, requests.Timeout) as error:
+                last_error = NvdRequestError(
+                    f"NVD request failed: endpoint={_endpoint_label(endpoint)} transient network error",
+                    retryable=True,
+                    endpoint_label=_endpoint_label(endpoint),
+                )
+                if attempt >= self.max_retries:
+                    break
+                time.sleep(min(2 ** attempt, 8))
+            except requests.RequestException as error:
+                last_error = NvdRequestError(
+                    f"NVD request failed: endpoint={_endpoint_label(endpoint)} network error",
+                    retryable=False,
+                    endpoint_label=_endpoint_label(endpoint),
+                )
+                break
+            except ValueError as error:
+                last_error = NvdRequestError(
+                    f"NVD request failed: endpoint={_endpoint_label(endpoint)} invalid JSON response",
+                    retryable=False,
+                    endpoint_label=_endpoint_label(endpoint),
+                )
+                break
 
         LOGGER.error("NVD request failed after retries")
+        if isinstance(last_error, NvdRequestError):
+            raise last_error
         raise NvdRequestError(str(last_error))
 
 
@@ -134,3 +164,27 @@ def _endpoint_label(endpoint: str) -> str:
     if endpoint == NVD_CPE_ENDPOINT:
         return "CPES"
     return "UNKNOWN"
+
+
+def _http_error(endpoint: str, response: requests.Response, retryable: bool) -> NvdRequestError:
+    """Build a structured HTTP error without leaking request details."""
+
+    label = _endpoint_label(endpoint)
+    status = response.status_code
+    summary = _safe_response_summary(response)
+    return NvdRequestError(
+        f"NVD request failed: endpoint={label} status={status} summary={summary}",
+        retryable=retryable,
+        status_code=status,
+        endpoint_label=label,
+    )
+
+
+def _safe_response_summary(response: requests.Response) -> str:
+    """Return a short sanitized response summary."""
+
+    text = getattr(response, "text", "") or getattr(response, "reason", "") or ""
+    summary = re.sub(r"\s+", " ", str(text)).strip()
+    if not summary:
+        summary = "no response summary"
+    return summary[:160]

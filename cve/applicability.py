@@ -10,6 +10,15 @@ from cve.models import ApplicabilityStatus, CpeCandidate, CpeMatchStatus, CveRec
 from software.models import SoftwareProduct
 from software.version import compare_versions, parse_version
 
+ENVIRONMENT_COMPONENTS = {
+    "update": ("Update", "OSUpdate", "CpeUpdate"),
+    "edition": ("Edition", "OSEdition", "WindowsEdition"),
+    "language": ("Language", "OSLanguage", "Locale"),
+    "sw_edition": ("SoftwareEdition", "SWEdition", "SwEdition", "OSEdition"),
+    "target_sw": ("OS", "OSName", "OperatingSystem", "Operating System", "TargetSW"),
+    "target_hw": ("Architecture", "OSArchitecture", "SystemType", "TargetHW", "MachineArchitecture"),
+}
+
 
 @dataclass(frozen=True, slots=True)
 class EvaluationResult:
@@ -25,6 +34,7 @@ def evaluate_applicability(
     software: SoftwareProduct,
     cpe: CpeCandidate,
     cve: CveRecord,
+    environment_data: dict[str, Any] | None = None,
 ) -> tuple[ApplicabilityStatus, str, int, list[str]]:
     """Evaluate whether an installed software version is affected by a CVE."""
 
@@ -37,7 +47,10 @@ def evaluate_applicability(
     if not parse_version(software.version).parts:
         return ApplicabilityStatus.NOT_EVALUATED, "Installed version could not be compared reliably", 30, []
 
-    results = [_evaluate_configuration(software, cpe, configuration) for configuration in cve.configurations]
+    results = [
+        _evaluate_configuration(software, cpe, configuration, environment_data)
+        for configuration in cve.configurations
+    ]
     combined = _combine_or(results, "CVE configuration")
     return combined.status, combined.reason, combined.confidence, combined.matched_criteria
 
@@ -46,6 +59,7 @@ def _evaluate_configuration(
     software: SoftwareProduct,
     cpe: CpeCandidate,
     configuration: dict[str, Any],
+    environment_data: dict[str, Any] | None,
 ) -> EvaluationResult:
     """Evaluate one NVD configuration object."""
 
@@ -54,7 +68,11 @@ def _evaluate_configuration(
         return _not_evaluated("Invalid NVD configuration")
 
     operator = _operator(configuration.get("operator", "OR"))
-    results = [_evaluate_node(software, cpe, node) for node in nodes if isinstance(node, dict)]
+    results = [
+        _evaluate_node(software, cpe, node, environment_data)
+        for node in nodes
+        if isinstance(node, dict)
+    ]
     return _combine(operator, results, "Configuration")
 
 
@@ -62,6 +80,7 @@ def _evaluate_node(
     software: SoftwareProduct,
     cpe: CpeCandidate,
     node: dict[str, Any],
+    environment_data: dict[str, Any] | None,
 ) -> EvaluationResult:
     """Evaluate one NVD configuration node."""
 
@@ -71,14 +90,18 @@ def _evaluate_node(
     cpe_matches = node.get("cpeMatch", [])
     if isinstance(cpe_matches, list):
         results.extend(
-            _evaluate_cpe_match(software, cpe, match)
+            _evaluate_cpe_match(software, cpe, match, environment_data)
             for match in cpe_matches
             if isinstance(match, dict)
         )
 
     children = node.get("children", [])
     if isinstance(children, list):
-        results.extend(_evaluate_node(software, cpe, child) for child in children if isinstance(child, dict))
+        results.extend(
+            _evaluate_node(software, cpe, child, environment_data)
+            for child in children
+            if isinstance(child, dict)
+        )
 
     return _combine(operator, results, "Node")
 
@@ -87,6 +110,7 @@ def _evaluate_cpe_match(
     software: SoftwareProduct,
     cpe: CpeCandidate,
     match: dict[str, Any],
+    environment_data: dict[str, Any] | None,
 ) -> EvaluationResult:
     """Evaluate one cpeMatch block."""
 
@@ -103,6 +127,10 @@ def _evaluate_cpe_match(
 
     if _key(parsed.vendor) != _key(cpe.vendor) or _key(parsed.product) != _key(cpe.product):
         return _not_affected("CPE product mismatch")
+
+    environment_result = _evaluate_environment(parsed, environment_data)
+    if environment_result is not None:
+        return environment_result
 
     if any(
         key in match
@@ -165,6 +193,85 @@ def _evaluate_range(
     )
 
 
+def _evaluate_environment(
+    parsed: Any,
+    environment_data: dict[str, Any] | None,
+) -> EvaluationResult | None:
+    """Evaluate CPE environment components that constrain applicability."""
+
+    for component, keys in ENVIRONMENT_COMPONENTS.items():
+        criteria_value = str(getattr(parsed, component))
+        if criteria_value == "*":
+            continue
+
+        observed = _read_environment_value(environment_data, keys)
+        if observed is None:
+            return _not_evaluated(f"CPE environment component {component} cannot be confirmed")
+        if not _environment_matches(component, criteria_value, observed):
+            return _not_affected(f"CPE environment component {component} does not match collector data")
+
+    return None
+
+
+def _read_environment_value(
+    environment_data: dict[str, Any] | None,
+    keys: tuple[str, ...],
+) -> str | None:
+    """Read a trusted collector environment value by any known alias."""
+
+    if not environment_data:
+        return None
+
+    lowered = {str(key).casefold(): value for key, value in environment_data.items()}
+    for key in keys:
+        value = lowered.get(key.casefold())
+        if value is not None and str(value).strip():
+            return str(value)
+    return None
+
+
+def _environment_matches(component: str, criteria_value: str, observed_value: str) -> bool:
+    """Return whether collector data satisfies a CPE environment component."""
+
+    criteria = _normalise_environment(criteria_value)
+    observed = _normalise_environment(observed_value)
+    if component == "target_hw":
+        criteria = _normalise_architecture(criteria)
+        observed = _normalise_architecture(observed)
+        return criteria == observed or criteria in observed
+    if component == "target_sw":
+        return criteria == observed or criteria in observed
+    return criteria == observed or criteria in observed
+
+
+def _normalise_architecture(value: str) -> str:
+    """Normalize common architecture names."""
+
+    aliases = {
+        "amd64": "x64",
+        "x86 64": "x64",
+        "x86_64": "x64",
+        "64 bit": "x64",
+        "64bit": "x64",
+        "i386": "x86",
+        "i686": "x86",
+        "32 bit": "x86",
+        "32bit": "x86",
+    }
+    return aliases.get(value, value)
+
+
+def _normalise_environment(value: str) -> str:
+    """Normalize CPE and collector environment values for comparison."""
+
+    return (
+        value.replace("_", " ")
+        .replace("-", " ")
+        .casefold()
+        .strip()
+    )
+
+
 def _combine(operator: str, results: list[EvaluationResult], scope: str) -> EvaluationResult:
     """Combine node/configuration results according to NVD operator semantics."""
 
@@ -206,6 +313,9 @@ def _combine_or(results: list[EvaluationResult], scope: str) -> EvaluationResult
             _criteria(not_evaluated),
         )
 
+    not_affected = [result for result in results if result.status == ApplicabilityStatus.NOT_AFFECTED]
+    if not_affected:
+        return _not_affected(not_affected[0].reason)
     return _not_affected("No vulnerable criteria matched")
 
 

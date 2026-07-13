@@ -128,7 +128,10 @@ def _run_cve_scan(
             resolver=resolver,
             minimum_cpe_confidence=int(cve_config.get("MinimumCpeConfidence", 80)),
         )
-        context.cve_summary = service.scan_inventory(context.software_inventory)
+        context.cve_summary = service.scan_inventory(
+            context.software_inventory,
+            context.raw_data,
+        )
     except Exception as error:
         LOGGER.exception("CVE service failed")
         context.cve_summary = empty_summary(scan_complete=False, message=str(error))
