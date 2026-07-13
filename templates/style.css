@@ -138,14 +138,16 @@ h3 {
 .status-fail,
 .severity-critical,
 .severity-high,
-.confidence-low {
+.confidence-low,
+.applicability-affected td {
   color: var(--red);
   background: #fee2e2;
 }
 
 .status-warning,
 .severity-medium,
-.confidence-medium {
+.confidence-medium,
+.applicability-possibly_affected td {
   color: var(--orange);
   background: #ffedd5;
 }
@@ -156,15 +158,28 @@ h3 {
 }
 
 .status-pass,
-.confidence-high {
+.confidence-high,
+.applicability-not_affected td {
   color: var(--green);
   background: #dcfce7;
 }
 
 .status-info,
-.severity-info {
+.severity-info,
+.applicability-not_evaluated td {
   color: var(--blue);
   background: #dbeafe;
+}
+
+.notice {
+  padding: 12px;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+.notice.warning {
+  color: var(--orange);
+  background: #ffedd5;
 }
 
 .finding-header {

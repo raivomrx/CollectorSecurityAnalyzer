@@ -11,6 +11,7 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from risk import AuditFinding
+from cve.models import ApplicabilityStatus, CveScanSummary
 from rules.metadata import RuleMetadata
 from software.models import SoftwareInventory, SoftwareProduct
 from utils import safe_get
@@ -26,6 +27,7 @@ def generate_html_report(
     score: int,
     software_inventory: SoftwareInventory,
     rule_metadata: dict[str, RuleMetadata],
+    cve_summary: CveScanSummary | None,
     output_path: str | Path,
 ) -> Path:
     """Generate an HTML audit report from analyzer results."""
@@ -48,6 +50,8 @@ def generate_html_report(
         high_findings=_high_findings(audit_findings),
         score=score,
         software_inventory=software_inventory,
+        cve_summary=cve_summary,
+        cve_rows=_visible_cve_rows(cve_summary),
         metadata=_build_metadata(audit_findings),
         rule_metadata=rule_metadata,
     )
@@ -101,6 +105,23 @@ def _high_findings(audit_findings: list[AuditFinding]) -> list[AuditFinding]:
         for item in audit_findings
         if item.finding.severity.value in {"CRITICAL", "HIGH"}
         and item.finding.status.value != "PASS"
+    ]
+
+
+def _visible_cve_rows(cve_summary: CveScanSummary | None) -> list[Any]:
+    """Return CVE rows shown in the main vulnerability table."""
+
+    if cve_summary is None:
+        return []
+    return [
+        item
+        for item in cve_summary.assessments
+        if item.applicability
+        in {
+            ApplicabilityStatus.AFFECTED,
+            ApplicabilityStatus.POSSIBLY_AFFECTED,
+            ApplicabilityStatus.NOT_EVALUATED,
+        }
     ]
 
 

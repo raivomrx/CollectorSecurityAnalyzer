@@ -1,0 +1,32 @@
+{
+  "google|google chrome": {
+    "part": "a",
+    "vendor": "google",
+    "product": "chrome",
+    "confidence": 100
+  },
+  "zoom|zoom workplace": {
+    "part": "a",
+    "vendor": "zoom",
+    "product": "zoom",
+    "confidence": 95
+  },
+  "oracle|java 8": {
+    "part": "a",
+    "vendor": "oracle",
+    "product": "jre",
+    "confidence": 90
+  },
+  "7-zip|7-zip": {
+    "part": "a",
+    "vendor": "7-zip",
+    "product": "7-zip",
+    "confidence": 100
+  },
+  "fortinet|forticlient vpn": {
+    "part": "a",
+    "vendor": "fortinet",
+    "product": "forticlient",
+    "confidence": 90
+  }
+}

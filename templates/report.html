@@ -130,6 +130,86 @@
     </section>
 
     <section>
+      <h2>Known Vulnerabilities</h2>
+      <p class="muted">This product uses the NVD API but is not endorsed or certified by the NVD.</p>
+      {% if cve_summary %}
+        {% if not cve_summary.scan_complete %}
+          <p class="notice warning">CVE scan completed with partial or incomplete results.</p>
+        {% endif %}
+        <div class="summary-grid compact">
+          <div><span>Products scanned</span><strong>{{ cve_summary.scanned_products }}</strong></div>
+          <div><span>Products with CPE</span><strong>{{ cve_summary.products_with_cpe }}</strong></div>
+          <div><span>Products without CPE</span><strong>{{ cve_summary.products_without_cpe }}</strong></div>
+          <div><span>Ambiguous CPE</span><strong>{{ cve_summary.ambiguous_cpe_matches }}</strong></div>
+          <div><span>Confirmed CVEs</span><strong>{{ cve_summary.confirmed_vulnerabilities }}</strong></div>
+          <div><span>Possible CVEs</span><strong>{{ cve_summary.possible_vulnerabilities }}</strong></div>
+          <div><span>Not evaluated</span><strong>{{ cve_summary.not_evaluated }}</strong></div>
+          <div><span>API errors</span><strong>{{ cve_summary.api_errors }}</strong></div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Vendor</th>
+              <th>Product</th>
+              <th>Installed Version</th>
+              <th>Matched CPE</th>
+              <th>CPE Confidence</th>
+              <th>CPE Match Status</th>
+              <th>CVE</th>
+              <th>Applicability</th>
+              <th>CVSS</th>
+              <th>Severity</th>
+              <th>Data Quality</th>
+              <th>Description</th>
+              <th>Published</th>
+              <th>Reference</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in cve_rows %}
+              <tr class="applicability-{{ item.applicability.value|lower }}">
+                <td>{{ item.software.vendor }}</td>
+                <td>{{ item.software.product }}</td>
+                <td>{{ item.software.version }}</td>
+                <td>{{ item.cpe.cpe_name if item.cpe else "" }}</td>
+                <td>{{ item.cpe.confidence if item.cpe else "" }}</td>
+                <td>{{ item.cpe.match_status.value if item.cpe else "" }}</td>
+                <td><a href="https://nvd.nist.gov/vuln/detail/{{ item.cve.cve_id }}">{{ item.cve.cve_id }}</a></td>
+                <td>
+                  {% if item.applicability.value == "AFFECTED" %}
+                    Confirmed affected
+                  {% elif item.applicability.value == "POSSIBLY_AFFECTED" %}
+                    Possible - manual verification required
+                  {% elif item.applicability.value == "NOT_EVALUATED" %}
+                    Could not be reliably evaluated
+                  {% else %}
+                    Not affected
+                  {% endif %}
+                </td>
+                <td>{{ item.cve.cvss_score if item.cve.cvss_score is not none else "Missing" }}</td>
+                <td>{{ item.cve.severity }}</td>
+                <td>{{ item.cve.data_quality.value }}</td>
+                <td>{{ item.cve.description }}</td>
+                <td>{{ item.cve.published or "" }}</td>
+                <td>
+                  {% if item.cve.references %}
+                    <a href="{{ item.cve.references[0] }}">Reference</a>
+                  {% endif %}
+                </td>
+                <td>{{ item.reason }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="15" class="muted">No confirmed, possible, or unevaluated CVE results.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="muted">CVE scan was not executed.</p>
+      {% endif %}
+    </section>
+
+    <section>
       <h2>Rule / Audit Metadata</h2>
       <table>
         <thead>

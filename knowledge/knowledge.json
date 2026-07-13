@@ -177,6 +177,31 @@
           "type": "Official"
         }
       ]
+    },
+    "CVE-001": {
+      "title": "Known vulnerabilities detected",
+      "description": "Installed software may be affected by known vulnerabilities based on CPE and version-aware NVD applicability data.",
+      "risk": "Confirmed vulnerable versions can expose the workstation to exploitation, privilege escalation, data exposure, or remote code execution depending on the CVE.",
+      "recommendation": "For confirmed affected versions, update to a vendor-supported fixed version or apply vendor mitigation. For possible matches, manually verify the CPE and installed version. For not evaluated entries, review the vendor advisory or release notes.",
+      "frameworks": {
+        "E-ITS": ["EITS-VULN-001"],
+        "CIS": ["CIS-7.1"],
+        "Microsoft": ["MSB-VULNERABILITY-001"]
+      },
+      "references": [
+        {
+          "title": "NVD Vulnerability APIs",
+          "url": "https://nvd.nist.gov/developers/vulnerabilities",
+          "vendor": "NVD",
+          "type": "Official"
+        },
+        {
+          "title": "NVD CPE APIs",
+          "url": "https://nvd.nist.gov/developers/products",
+          "vendor": "NVD",
+          "type": "Official"
+        }
+      ]
     }
   }
 }

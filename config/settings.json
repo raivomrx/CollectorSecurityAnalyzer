@@ -8,5 +8,25 @@
   },
   "risk": {
     "default_category": "general"
+  },
+  "CVE": {
+    "Enabled": true,
+    "Provider": "NVD",
+    "ApiKeyEnvironmentVariable": "NVD_API_KEY",
+    "RequestTimeoutSeconds": 30,
+    "MaxRetries": 3,
+    "CacheTtlHours": 24,
+    "MinimumCpeConfidence": 80,
+    "AmbiguousScoreDifference": 5,
+    "IncludePossibleMatches": true,
+    "IncludeNotEvaluated": true,
+    "RateLimitWithoutApiKey": {
+      "Requests": 5,
+      "WindowSeconds": 30
+    },
+    "RateLimitWithApiKey": {
+      "Requests": 50,
+      "WindowSeconds": 30
+    }
   }
 }
