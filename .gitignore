@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+output/*
+!output/.gitkeep
+logs/*
+!logs/.gitkeep
+cache/
+software/unknown_products.json
