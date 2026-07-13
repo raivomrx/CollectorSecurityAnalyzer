@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from cve.cache import NvdCache
-from cve.client import NVD_CVE_ENDPOINT, NvdClient
+from cve.client import NVD_CPE_ENDPOINT, NVD_CVE_ENDPOINT, NvdClient
 from cve.exceptions import NvdRequestError
 from cve.rate_limiter import SlidingWindowRateLimiter
 
@@ -51,8 +51,26 @@ class NvdClientTests(unittest.TestCase):
         cache.set(key, NVD_CVE_ENDPOINT, params, {"totalResults": 0, "vulnerabilities": []}, 1)
         session = _Session([])
         client = NvdClient(cache=cache, session=session, limiter=_limiter(), max_retries=0)
-        self.assertEqual(client.get_cves({}), [])
+        with self.assertLogs("cve.client", level="INFO") as logs:
+            self.assertEqual(client.get_cves({}), [])
         self.assertEqual(session.calls, [])
+        self.assertIn("NVD cache hit: endpoint=CVES", "\n".join(logs.output))
+
+    def test_cache_hit_logs_endpoint_without_query(self) -> None:
+        """Cache hit logs should name only the endpoint family."""
+
+        cache = _MemoryCache()
+        params = {"keywordSearch": "secret product", "startIndex": 0, "resultsPerPage": 2000}
+        key = NvdCache.make_key(NVD_CPE_ENDPOINT, params)
+        cache.set(key, NVD_CPE_ENDPOINT, params, {"totalResults": 0, "products": []}, 1)
+        client = NvdClient(cache=cache, session=_Session([]), limiter=_limiter(), max_retries=0)
+
+        with self.assertLogs("cve.client", level="INFO") as logs:
+            client.get_cpes({"keywordSearch": "secret product"})
+
+        message = "\n".join(logs.output)
+        self.assertIn("endpoint=CPES", message)
+        self.assertNotIn("secret product", message)
 
     def test_429_and_500_exhaust_retries(self) -> None:
         """Retryable server responses should raise after retries are exhausted."""
@@ -64,6 +82,23 @@ class NvdClientTests(unittest.TestCase):
         client = _client(_Session([_Response({}, status_code=500)]))
         with self.assertRaises(NvdRequestError):
             client.get_cves({})
+
+    def test_429_honors_retry_after_header(self) -> None:
+        """Retry-After should be forwarded to the limiter."""
+
+        limiter = _RecordingLimiter()
+        client = NvdClient(
+            cache=_MemoryCache(),
+            session=_Session([_Response({}, status_code=429, headers={"Retry-After": "7"})]),
+            limiter=limiter,
+            max_retries=0,
+            timeout=1,
+        )
+
+        with self.assertRaises(NvdRequestError):
+            client.get_cves({})
+
+        self.assertEqual(limiter.retry_values, ["7"])
 
     def test_invalid_response_schema(self) -> None:
         """Invalid NVD schemas should raise a request error."""
@@ -141,6 +176,19 @@ class _MemoryCache:
 
     def set(self, key, endpoint, params, value, ttl_hours):
         self.values[key] = value
+
+
+class _RecordingLimiter:
+    """Limiter fake that records Retry-After values."""
+
+    def __init__(self) -> None:
+        self.retry_values: list[str | None] = []
+
+    def acquire(self):
+        return None
+
+    def retry_after(self, value):
+        self.retry_values.append(value)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,23 @@ from software.models import SoftwareProduct
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_MAPPING_PATH = Path(__file__).resolve().parent.parent / "software" / "cpe_mappings.json"
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedCpe23:
+    """Parsed CPE 2.3 well-formed name components."""
+
+    part: str
+    vendor: str
+    product: str
+    version: str
+    update: str
+    edition: str
+    language: str
+    sw_edition: str
+    target_sw: str
+    target_hw: str
+    other: str
 
 
 class CpeResolver:
@@ -70,7 +88,10 @@ class CpeResolver:
         mapping = self.mappings.get(key)
         if not isinstance(mapping, dict):
             return None
+        validated = bool(mapping.get("validated", False))
         confidence = int(mapping.get("confidence", 0))
+        if not validated:
+            confidence = min(confidence, 85)
         if confidence < self.minimum_confidence:
             return None
         version = None
@@ -80,7 +101,7 @@ class CpeResolver:
             product=str(mapping["product"]),
             version="*",
         )
-        status = CpeMatchStatus.EXACT if confidence >= 95 else CpeMatchStatus.ALIAS
+        status = CpeMatchStatus.EXACT if validated and confidence >= 95 else CpeMatchStatus.ALIAS
         return CpeCandidate(
             cpe_name=cpe_name,
             title=f"{mapping['vendor']} {mapping['product']}",
@@ -148,10 +169,67 @@ def build_cpe23(part: str, vendor: str, product: str, version: str = "*") -> str
 def parse_cpe23(cpe_name: str) -> tuple[str, str, str | None]:
     """Parse vendor, product, and version from a CPE 2.3 name."""
 
-    parts = cpe_name.split(":")
-    if len(parts) < 6:
+    parsed = parse_cpe23_components(cpe_name)
+    if parsed is None:
         return "", "", None
-    return _unescape(parts[3]), _unescape(parts[4]), _unescape(parts[5])
+    return parsed.vendor, parsed.product, parsed.version
+
+
+def parse_cpe23_components(cpe_name: str) -> ParsedCpe23 | None:
+    """Parse a CPE 2.3 well-formed name into all 11 components."""
+
+    parts = _split_cpe23(cpe_name)
+    if parts is None or len(parts) != 13:
+        return None
+    if parts[0] != "cpe" or parts[1] != "2.3":
+        return None
+
+    values = [_unescape(part) for part in parts[2:]]
+    return ParsedCpe23(
+        part=values[0],
+        vendor=values[1],
+        product=values[2],
+        version=values[3],
+        update=values[4],
+        edition=values[5],
+        language=values[6],
+        sw_edition=values[7],
+        target_sw=values[8],
+        target_hw=values[9],
+        other=values[10],
+    )
+
+
+def _split_cpe23(cpe_name: str) -> list[str] | None:
+    """Split CPE fields on unescaped colons only."""
+
+    parts: list[str] = []
+    current: list[str] = []
+    escaped = False
+
+    for char in cpe_name:
+        if escaped:
+            current.append("\\")
+            current.append(char)
+            escaped = False
+            continue
+
+        if char == "\\":
+            escaped = True
+            continue
+
+        if char == ":":
+            parts.append("".join(current))
+            current = []
+            continue
+
+        current.append(char)
+
+    if escaped:
+        return None
+
+    parts.append("".join(current))
+    return parts
 
 
 def _load_mappings(path: str | Path) -> dict[str, Any]:
@@ -210,7 +288,25 @@ def _escape(value: str) -> str:
 def _unescape(value: str) -> str:
     """Unescape a CPE component."""
 
-    return value.replace("\\:", ":").replace("\\*", "*").replace("\\?", "?")
+    result: list[str] = []
+    escaped = False
+
+    for char in value:
+        if escaped:
+            result.append(char)
+            escaped = False
+            continue
+
+        if char == "\\":
+            escaped = True
+            continue
+
+        result.append(char)
+
+    if escaped:
+        result.append("\\")
+
+    return "".join(result)
 
 
 def _key(value: str) -> str:

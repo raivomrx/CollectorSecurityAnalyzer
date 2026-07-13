@@ -50,17 +50,17 @@ class CveService:
         products_with_cpe = 0
         products_without_cpe = 0
         ambiguous = 0
+        eligible_products = 0
+        evaluated_products = 0
 
         for software in unique_products:
             product_key = _product_key(software)
             try:
-                if not software.normalized_product or not software.version:
-                    products_without_cpe += 1
-                    continue
-                if software.confidence < 60:
+                if not _is_eligible(software):
                     products_without_cpe += 1
                     continue
 
+                eligible_products += 1
                 cpe = self.resolver.resolve(software)
                 if cpe is None:
                     products_without_cpe += 1
@@ -75,6 +75,7 @@ class CveService:
 
                 products_with_cpe += 1
                 cve_items = self.client.get_cves({"cpeName": cpe.cpe_name})
+                evaluated_products += 1
                 records = parse_cve_items(cve_items)
                 for record in records:
                     assessments.append(_assess(software, cpe, record))
@@ -92,6 +93,8 @@ class CveService:
         summary = _summary(
             scanned_products=inventory.product_count,
             unique_products=len(unique_products),
+            eligible_products=eligible_products,
+            evaluated_products=evaluated_products,
             products_with_cpe=products_with_cpe,
             products_without_cpe=products_without_cpe,
             ambiguous_cpe_matches=ambiguous,
@@ -116,6 +119,10 @@ def empty_summary(scan_complete: bool = False, message: str | None = None) -> Cv
     return CveScanSummary(
         scanned_products=0,
         unique_products=0,
+        eligible_products=0,
+        evaluated_products=0,
+        coverage_percent=100.0,
+        coverage_complete=True,
         products_with_cpe=0,
         products_without_cpe=0,
         ambiguous_cpe_matches=0,
@@ -148,6 +155,8 @@ def _assess(software: SoftwareProduct, cpe, record: CveRecord) -> CveAssessment:
 def _summary(
     scanned_products: int,
     unique_products: int,
+    eligible_products: int,
+    evaluated_products: int,
     products_with_cpe: int,
     products_without_cpe: int,
     ambiguous_cpe_matches: int,
@@ -159,9 +168,16 @@ def _summary(
     confirmed = sum(1 for item in assessments if item.applicability == ApplicabilityStatus.AFFECTED)
     possible = sum(1 for item in assessments if item.applicability == ApplicabilityStatus.POSSIBLY_AFFECTED)
     not_evaluated = sum(1 for item in assessments if item.applicability == ApplicabilityStatus.NOT_EVALUATED)
+    coverage_percent = 100.0
+    if eligible_products:
+        coverage_percent = round((evaluated_products / eligible_products) * 100, 1)
     return CveScanSummary(
         scanned_products=scanned_products,
         unique_products=unique_products,
+        eligible_products=eligible_products,
+        evaluated_products=evaluated_products,
+        coverage_percent=coverage_percent,
+        coverage_complete=evaluated_products == eligible_products,
         products_with_cpe=products_with_cpe,
         products_without_cpe=products_without_cpe,
         ambiguous_cpe_matches=ambiguous_cpe_matches,
@@ -192,6 +208,12 @@ def _deduplicate(products: list[SoftwareProduct]) -> list[SoftwareProduct]:
         seen.add(key)
         unique.append(product)
     return unique
+
+
+def _is_eligible(software: SoftwareProduct) -> bool:
+    """Return whether a product has enough data for CVE evaluation."""
+
+    return bool(software.normalized_product and software.version and software.confidence >= 60)
 
 
 def _product_key(software: SoftwareProduct) -> str:

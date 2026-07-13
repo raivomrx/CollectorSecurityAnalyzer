@@ -136,8 +136,16 @@
         {% if not cve_summary.scan_complete %}
           <p class="notice warning">CVE scan completed with partial or incomplete results.</p>
         {% endif %}
+        {% if not cve_summary.coverage_complete %}
+          <p class="notice warning">CVE coverage is incomplete because some eligible products could not be evaluated.</p>
+        {% endif %}
         <div class="summary-grid compact">
+          <div><span>Technical scan</span><strong>{{ "Complete" if cve_summary.scan_complete else "Incomplete" }}</strong></div>
+          <div><span>Coverage</span><strong>{{ "Complete" if cve_summary.coverage_complete else "Incomplete" }}</strong></div>
           <div><span>Products scanned</span><strong>{{ cve_summary.scanned_products }}</strong></div>
+          <div><span>Eligible products</span><strong>{{ cve_summary.eligible_products }}</strong></div>
+          <div><span>Evaluated products</span><strong>{{ cve_summary.evaluated_products }}</strong></div>
+          <div><span>Coverage percent</span><strong>{{ cve_summary.coverage_percent }}%</strong></div>
           <div><span>Products with CPE</span><strong>{{ cve_summary.products_with_cpe }}</strong></div>
           <div><span>Products without CPE</span><strong>{{ cve_summary.products_without_cpe }}</strong></div>
           <div><span>Ambiguous CPE</span><strong>{{ cve_summary.ambiguous_cpe_matches }}</strong></div>

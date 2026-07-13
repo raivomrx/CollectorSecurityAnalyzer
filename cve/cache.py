@@ -6,8 +6,10 @@ import hashlib
 import json
 import logging
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from sqlite3 import Connection
 from typing import Any
 
 LOGGER = logging.getLogger(__name__)
@@ -42,7 +44,7 @@ class NvdCache:
 
         now = _utc_now().isoformat()
         try:
-            with sqlite3.connect(self.path) as connection:
+            with self._connect() as connection:
                 row = connection.execute(
                     "SELECT response_json FROM nvd_cache WHERE cache_key = ? AND expires_at > ?",
                     (key, now),
@@ -71,7 +73,7 @@ class NvdCache:
         created_at = _utc_now()
         expires_at = created_at + timedelta(hours=ttl_hours)
         try:
-            with sqlite3.connect(self.path) as connection:
+            with self._connect() as connection:
                 connection.execute(
                     """
                     INSERT OR REPLACE INTO nvd_cache
@@ -94,7 +96,7 @@ class NvdCache:
         """Clear expired cache entries and return the number removed."""
 
         try:
-            with sqlite3.connect(self.path) as connection:
+            with self._connect() as connection:
                 cursor = connection.execute(
                     "DELETE FROM nvd_cache WHERE expires_at <= ?",
                     (_utc_now().isoformat(),),
@@ -108,7 +110,7 @@ class NvdCache:
         """Clear all cache entries."""
 
         try:
-            with sqlite3.connect(self.path) as connection:
+            with self._connect() as connection:
                 connection.execute("DELETE FROM nvd_cache")
         except sqlite3.Error:
             LOGGER.exception("CVE cache database error")
@@ -116,7 +118,7 @@ class NvdCache:
     def _ensure_schema(self) -> None:
         """Create the cache table."""
 
-        with sqlite3.connect(self.path) as connection:
+        with self._connect() as connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS nvd_cache (
@@ -129,6 +131,17 @@ class NvdCache:
                 )
                 """
             )
+
+    @contextmanager
+    def _connect(self) -> Connection:
+        """Open a SQLite connection and always close it."""
+
+        connection = sqlite3.connect(self.path)
+        try:
+            yield connection
+            connection.commit()
+        finally:
+            connection.close()
 
 
 def _utc_now() -> datetime:

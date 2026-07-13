@@ -88,7 +88,7 @@ class NvdClient:
         cache_key = NvdCache.make_key(endpoint, params)
         cached = self.cache.get(cache_key)
         if cached is not None:
-            LOGGER.info("NVD cache hit for CPE query")
+            LOGGER.info("NVD cache hit: endpoint=%s", _endpoint_label(endpoint))
             return cached
 
         headers = {"User-Agent": USER_AGENT}
@@ -124,3 +124,13 @@ class NvdClient:
 
         LOGGER.error("NVD request failed after retries")
         raise NvdRequestError(str(last_error))
+
+
+def _endpoint_label(endpoint: str) -> str:
+    """Return a safe endpoint label for logs."""
+
+    if endpoint == NVD_CVE_ENDPOINT:
+        return "CVES"
+    if endpoint == NVD_CPE_ENDPOINT:
+        return "CPES"
+    return "UNKNOWN"

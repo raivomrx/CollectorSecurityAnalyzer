@@ -108,6 +108,10 @@ def _evidence(summary, affected: list[CveAssessment], possible: list[CveAssessme
     noteworthy = affected + possible
     return {
         "unique_products_scanned": summary.unique_products,
+        "eligible_products": summary.eligible_products,
+        "evaluated_products": summary.evaluated_products,
+        "coverage_percent": summary.coverage_percent,
+        "coverage_complete": summary.coverage_complete,
         "products_with_cpe": summary.products_with_cpe,
         "products_without_cpe": summary.products_without_cpe,
         "ambiguous_cpe_matches": summary.ambiguous_cpe_matches,

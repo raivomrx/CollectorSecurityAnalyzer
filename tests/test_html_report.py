@@ -71,6 +71,7 @@ class HtmlReportTests(unittest.TestCase):
         self.assertIn("Unknown Product", html)
         self.assertIn("Known Vulnerabilities", html)
         self.assertIn("This product uses the NVD API", html)
+        self.assertIn("Coverage percent", html)
 
     def test_reporter_does_not_load_registry(self) -> None:
         """Reporter should render with provided metadata and not load registry."""
@@ -189,6 +190,10 @@ def _cve_summary() -> CveScanSummary:
     return CveScanSummary(
         scanned_products=1,
         unique_products=1,
+        eligible_products=1,
+        evaluated_products=1,
+        coverage_percent=100.0,
+        coverage_complete=True,
         products_with_cpe=1,
         products_without_cpe=0,
         ambiguous_cpe_matches=0,

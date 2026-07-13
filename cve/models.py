@@ -102,6 +102,10 @@ class CveScanSummary:
 
     scanned_products: int
     unique_products: int
+    eligible_products: int
+    evaluated_products: int
+    coverage_percent: float
+    coverage_complete: bool
     products_with_cpe: int
     products_without_cpe: int
     ambiguous_cpe_matches: int

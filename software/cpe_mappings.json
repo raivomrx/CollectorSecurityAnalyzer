@@ -3,30 +3,45 @@
     "part": "a",
     "vendor": "google",
     "product": "chrome",
-    "confidence": 100
+    "confidence": 100,
+    "validated": true,
+    "validated_at": "2026-07-13",
+    "validation_source": "NVD_CPE_API"
   },
   "zoom|zoom workplace": {
     "part": "a",
     "vendor": "zoom",
     "product": "zoom",
-    "confidence": 95
+    "confidence": 95,
+    "validated": true,
+    "validated_at": "2026-07-13",
+    "validation_source": "NVD_CPE_API"
   },
   "oracle|java 8": {
     "part": "a",
     "vendor": "oracle",
     "product": "jre",
-    "confidence": 90
+    "confidence": 90,
+    "validated": true,
+    "validated_at": "2026-07-13",
+    "validation_source": "NVD_CPE_API"
   },
   "7-zip|7-zip": {
     "part": "a",
     "vendor": "7-zip",
     "product": "7-zip",
-    "confidence": 100
+    "confidence": 100,
+    "validated": true,
+    "validated_at": "2026-07-13",
+    "validation_source": "NVD_CPE_API"
   },
   "fortinet|forticlient vpn": {
     "part": "a",
     "vendor": "fortinet",
     "product": "forticlient",
-    "confidence": 90
+    "confidence": 90,
+    "validated": true,
+    "validated_at": "2026-07-13",
+    "validation_source": "NVD_CPE_API"
   }
 }
