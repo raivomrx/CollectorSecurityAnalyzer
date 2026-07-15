@@ -42,7 +42,8 @@
       "Mode": "REMOTE_RECORD",
       "LocalRepositoryPath": "",
       "RawBaseUrl": "https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves",
-      "CacheTtlHours": 24
+      "CacheTtlHours": 24,
+      "AllowStaleCache": true
     },
     "EnrichNotAffected": false
   },

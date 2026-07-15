@@ -13,7 +13,7 @@ from cve.client import NvdClient
 from cve.cpe_resolver import CpeResolver
 from cve.enrichment_service import VulnerabilityEnrichmentService
 from cve.providers.cisa_kev import CisaKevProvider, DEFAULT_KEV_CACHE_PATH, DEFAULT_KEV_FEED_URL
-from cve.providers.cve_program import CveProgramProvider
+from cve.providers.cve_program import CveProgramCache, CveProgramProvider, DEFAULT_CVE_PROGRAM_CACHE_PATH
 from cve.rate_limiter import SlidingWindowRateLimiter
 from cve.service import CveService, empty_summary
 from logger import setup_logging
@@ -178,6 +178,8 @@ def _run_cve_enrichment(
 
     if refresh_enrichment_cache and DEFAULT_KEV_CACHE_PATH.exists():
         DEFAULT_KEV_CACHE_PATH.unlink()
+    if refresh_enrichment_cache and DEFAULT_CVE_PROGRAM_CACHE_PATH.exists():
+        CveProgramCache().clear_all()
 
     providers = []
     kev_config = enrichment_config.get("CisaKev", {})
@@ -201,6 +203,8 @@ def _run_cve_enrichment(
                 mode=str(cve_program_config.get("Mode", "REMOTE_RECORD")),
                 local_repository_path=cvelist_path or str(cve_program_config.get("LocalRepositoryPath", "")),
                 raw_base_url=str(cve_program_config.get("RawBaseUrl", "https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves")),
+                cache_ttl_hours=int(cve_program_config.get("CacheTtlHours", 24)),
+                allow_stale_cache=bool(cve_program_config.get("AllowStaleCache", True)),
             )
         )
 

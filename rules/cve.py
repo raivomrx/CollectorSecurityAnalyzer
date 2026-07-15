@@ -184,6 +184,13 @@ def _evidence(
             {
                 "known_exploited_cve_count": enrichment.known_exploited_count,
                 "ransomware_associated_cve_count": enrichment.ransomware_known_count,
+                "unique_enriched_cves": enrichment.unique_enriched_cves,
+                "enriched_assessment_count": enrichment.enriched_assessment_count,
+                "unique_known_exploited_cves": enrichment.unique_known_exploited_cves,
+                "known_exploited_assessment_count": enrichment.known_exploited_assessment_count,
+                "unique_ransomware_cves": enrichment.unique_ransomware_cves,
+                "ransomware_assessment_count": enrichment.ransomware_assessment_count,
+                "enrichment_coverage_percent": enrichment.enrichment_coverage_percent,
                 "priority_counts": priority_counts,
                 "cna_confirmed_affected_count": enrichment.cna_confirmed_count,
                 "source_conflict_count": enrichment.conflict_count,

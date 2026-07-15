@@ -17,12 +17,20 @@ from cve.enrichment_models import (
     RansomwareUse,
     SourceEnrichment,
     SourceType,
+    SsvcExploitation,
 )
 from cve.enrichment_service import VulnerabilityEnrichmentService
 from cve.models import ApplicabilityStatus, CpeCandidate, CpeMatchStatus, CveAssessment, CveDataQuality, CveRecord, CveScanSummary
 from cve.prioritization import PriorityLevel, calculate_priority
 from cve.providers.cisa_kev import CisaKevProvider
-from cve.providers.cve_program import cve_record_relative_path, parse_cna_affected, parse_cve_program_record
+from cve.providers.cve_program import (
+    CveProgramCache,
+    CveProgramMode,
+    CveProgramProvider,
+    cve_record_relative_path,
+    parse_cna_affected,
+    parse_cve_program_record,
+)
 from cve.provenance import ConflictType
 from report import generate_html_report
 from risk import AuditFinding, Finding, Severity, Status
@@ -114,6 +122,7 @@ class CveProgramProviderTests(unittest.TestCase):
                 self.assertEqual(enrichment.affected[0].package_url, "pkg:generic/google/chrome")
                 self.assertEqual(len(enrichment.references), 2)
                 self.assertIsNotNone(enrichment.ssvc)
+                self.assertEqual(enrichment.ssvc.exploitation, SsvcExploitation.ACTIVE)
 
     def test_unknown_future_minor_and_unsupported_major(self) -> None:
         """Unknown 5.x should parse with warnings; unsupported major is unknown quality."""
@@ -130,6 +139,81 @@ class CveProgramProviderTests(unittest.TestCase):
         affected = parse_cna_affected([{"product": "Google Chrome", "versions": [{"version": "1.0", "status": "affected"}]}])
         self.assertEqual(len(affected), 1)
         self.assertIsNone(affected[0].vendor)
+
+    def test_cve_program_cache_hit_miss_clear_and_malformed(self) -> None:
+        """CVE Program cache should support hit, miss, clear, and malformed records."""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache = CveProgramCache(Path(temp_dir) / "cache.sqlite3", source_identity="test")
+            self.assertIsNone(cache.get("CVE-2026-0001"))
+            cache.set("CVE-2026-0001", _cve_program_record("5.1"), ttl_hours=1)
+            self.assertEqual(cache.get("CVE-2026-0001")["dataVersion"], "5.1")
+            cache.clear_all()
+            self.assertIsNone(cache.get("CVE-2026-0001"))
+            cache.set("CVE-2026-0001", _cve_program_record("5.1"), ttl_hours=1)
+            with cache._connect() as connection:
+                connection.execute("UPDATE cve_program_cache SET response_json = ?", ("{broken",))
+            self.assertIsNone(cache.get("CVE-2026-0001"))
+
+    def test_cve_program_cache_expiry_and_stale_fallback(self) -> None:
+        """Expired records should be available only as stale fallback."""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache = CveProgramCache(Path(temp_dir) / "cache.sqlite3", source_identity="remote")
+            cache.set("CVE-2026-0001", _cve_program_record("5.1"), ttl_hours=-1)
+            self.assertIsNone(cache.get("CVE-2026-0001"))
+            self.assertIsNotNone(cache.get_stale("CVE-2026-0001"))
+            self.assertEqual(cache.clear_expired(), 1)
+            cache.set("CVE-2026-0001", _cve_program_record("5.1"), ttl_hours=-1)
+            provider = CveProgramProvider(
+                session=_Session([requests.ConnectionError("offline")]),
+                cache=cache,
+                allow_stale_cache=True,
+                max_retries=0,
+            )
+            enrichment = provider.enrich("CVE-2026-0001")
+
+        self.assertIsNotNone(enrichment)
+        self.assertTrue(provider.status().used_stale_cache)
+        self.assertTrue(provider.status().partial)
+
+    def test_cve_program_http_retry_and_no_retry(self) -> None:
+        """Remote provider should retry transient errors but not permanent 4xx."""
+
+        for response in (_Response(_cve_program_record("5.1"), status_code=429, headers={"Retry-After": "0"}), _Response(_cve_program_record("5.1"), status_code=500), requests.Timeout("slow"), requests.ConnectionError("down")):
+            with self.subTest(response=type(response).__name__):
+                session = _Session([response, _Response(_cve_program_record("5.1"))])
+                provider = CveProgramProvider(
+                    session=session,
+                    cache=CveProgramCache(_temp_path("cve-program.sqlite3"), source_identity=str(id(response))),
+                    max_retries=1,
+                    sleep=lambda _: None,
+                )
+                self.assertIsNotNone(provider.enrich("CVE-2026-0001"))
+                self.assertEqual(session.calls, 2)
+
+        for status_code in (400, 401, 403):
+            with self.subTest(status_code=status_code):
+                session = _Session([_Response({}, status_code=status_code), _Response(_cve_program_record("5.1"))])
+                provider = CveProgramProvider(
+                    session=session,
+                    cache=CveProgramCache(_temp_path(f"cve-program-{status_code}.sqlite3"), source_identity=str(status_code)),
+                    max_retries=3,
+                    sleep=lambda _: None,
+                )
+                self.assertIsNone(provider.enrich("CVE-2026-0001"))
+                self.assertEqual(session.calls, 1)
+
+    def test_cve_program_mode_validation(self) -> None:
+        """Provider should not silently fallback from invalid/local mirror config."""
+
+        invalid = CveProgramProvider(mode="NOPE")
+        missing = CveProgramProvider(mode=CveProgramMode.LOCAL_MIRROR.value, local_repository_path=_temp_path("missing-dir"))
+
+        self.assertIsNone(invalid.enrich("CVE-2026-0001"))
+        self.assertFalse(invalid.status().succeeded)
+        self.assertIsNone(missing.enrich("CVE-2026-0001"))
+        self.assertFalse(missing.status().succeeded)
 
 
 class CnaApplicabilityTests(unittest.TestCase):
@@ -157,6 +241,31 @@ class CnaApplicabilityTests(unittest.TestCase):
         self.assertEqual(evaluate_cna_applicability(_software(), [_affected(product="Other")])[0], ApplicabilityStatus.NOT_AFFECTED)
         self.assertEqual(evaluate_cna_applicability(_software(architecture="x64"), [_affected(platforms=["arm64"])])[0], ApplicabilityStatus.NOT_AFFECTED)
         self.assertEqual(evaluate_cna_applicability(_software(version="unknown"), [_affected()])[0], ApplicabilityStatus.NOT_EVALUATED)
+
+    def test_changes_boundaries_and_transitions(self) -> None:
+        """CNA changes should be sorted, boundary-aware, and conservative."""
+
+        affected_to_unaffected = [_affected(version="1.0", less_than="4.0", changes=[{"at": "2.0", "status": "unaffected"}])]
+        self.assertEqual(evaluate_cna_applicability(_software(version="1.9"), affected_to_unaffected)[0], ApplicabilityStatus.AFFECTED)
+        self.assertEqual(evaluate_cna_applicability(_software(version="2.0"), affected_to_unaffected)[0], ApplicabilityStatus.NOT_AFFECTED)
+        self.assertEqual(evaluate_cna_applicability(_software(version="2.1"), affected_to_unaffected)[0], ApplicabilityStatus.NOT_AFFECTED)
+
+        multiple_unsorted = [
+            _affected(
+                version="1.0",
+                less_than="5.0",
+                status="unaffected",
+                changes=[
+                    {"at": "3.0", "status": "unaffected"},
+                    {"at": "2.0", "status": "affected"},
+                ],
+            )
+        ]
+        self.assertEqual(evaluate_cna_applicability(_software(version="2.5"), multiple_unsorted)[0], ApplicabilityStatus.AFFECTED)
+        self.assertEqual(evaluate_cna_applicability(_software(version="3.0"), multiple_unsorted)[0], ApplicabilityStatus.NOT_AFFECTED)
+
+        bad_change = [_affected(version="1.0", less_than="4.0", changes=[{"at": "bad", "status": "unaffected"}])]
+        self.assertEqual(evaluate_cna_applicability(_software(version="2.0"), bad_change)[0], ApplicabilityStatus.NOT_EVALUATED)
 
 
 class EnrichmentServiceTests(unittest.TestCase):
@@ -188,6 +297,10 @@ class EnrichmentServiceTests(unittest.TestCase):
         enriched = VulnerabilityEnrichmentService([_FailingProvider(), good]).enrich_summary(_summary([_assessment()]))
 
         self.assertEqual(enriched.known_exploited_count, 1)
+        failing = next(status for status in enriched.provider_statuses if status.provider == "Failing")
+        self.assertFalse(failing.succeeded)
+        self.assertEqual(failing.attempts, 1)
+        self.assertFalse(enriched.enrichment_complete)
 
     def test_priority_model(self) -> None:
         """Priority model should remain separate from CVSS."""
@@ -202,6 +315,68 @@ class EnrichmentServiceTests(unittest.TestCase):
 
         self.assertEqual(priority.level, PriorityLevel.P1_IMMEDIATE)
         self.assertEqual(_assessment(cvss_score=9.8).cve.cvss_score, 9.8)
+
+    def test_unique_statistics_separate_cves_from_assessments(self) -> None:
+        """Same CVE on multiple products should count one unique CVE and two matches."""
+
+        kev = SourceEnrichment(
+            cve_id="CVE-2026-0001",
+            source=SourceType.CISA_KEV,
+            kev=_kev_record(),
+            raw_available=True,
+        )
+        enriched = VulnerabilityEnrichmentService([_Provider(kev)]).enrich_summary(
+            _summary([_assessment(), _assessment(product="Google Chrome Beta")])
+        )
+
+        self.assertEqual(enriched.unique_enriched_cves, 1)
+        self.assertEqual(enriched.enriched_assessment_count, 2)
+        self.assertEqual(enriched.unique_known_exploited_cves, 1)
+        self.assertEqual(enriched.known_exploited_assessment_count, 2)
+        self.assertEqual(enriched.unique_ransomware_cves, 1)
+        self.assertEqual(enriched.ransomware_assessment_count, 2)
+        self.assertEqual(enriched.enrichment_coverage_percent, 100.0)
+
+    def test_enrichment_coverage_tracks_missing_source_records(self) -> None:
+        """Coverage should be separate from provider technical status."""
+
+        enriched = VulnerabilityEnrichmentService([_Provider(None)]).enrich_summary(
+            _summary([_assessment()])
+        )
+
+        self.assertEqual(enriched.enrichment_coverage_percent, 0.0)
+        self.assertFalse(enriched.enrichment_complete)
+
+    def test_ssvc_exploitation_semantics(self) -> None:
+        """Only active SSVC exploitation should add ADP exploitation score by default."""
+
+        active = calculate_priority(
+            _assessment(cvss_score=0.0),
+            ExploitationStatus.UNKNOWN,
+            RansomwareUse.NOT_LISTED,
+            ApplicabilityStatus.NOT_EVALUATED,
+            [],
+            adp_exploitation_status=SsvcExploitation.ACTIVE,
+        )
+        poc = calculate_priority(
+            _assessment(cvss_score=0.0),
+            ExploitationStatus.UNKNOWN,
+            RansomwareUse.NOT_LISTED,
+            ApplicabilityStatus.NOT_EVALUATED,
+            [],
+            adp_exploitation_status=SsvcExploitation.POC,
+        )
+        unknown = calculate_priority(
+            _assessment(cvss_score=0.0),
+            ExploitationStatus.UNKNOWN,
+            RansomwareUse.NOT_LISTED,
+            ApplicabilityStatus.NOT_EVALUATED,
+            [],
+            adp_exploitation_status=SsvcExploitation.UNKNOWN,
+        )
+
+        self.assertGreater(active.score, unknown.score)
+        self.assertEqual(poc.score, unknown.score)
 
 
 class EnrichedHtmlTests(unittest.TestCase):
@@ -464,7 +639,7 @@ class _Provider:
 
     name = "Provider"
 
-    def __init__(self, enrichment: SourceEnrichment) -> None:
+    def __init__(self, enrichment: SourceEnrichment | None) -> None:
         self.enrichment = enrichment
         self.calls = 0
 
@@ -497,8 +672,10 @@ class _Session:
 
     def __init__(self, responses: list[object]) -> None:
         self.responses = responses
+        self.calls = 0
 
     def get(self, *args, **kwargs):
+        self.calls += 1
         response = self.responses.pop(0)
         if isinstance(response, Exception):
             raise response
@@ -508,9 +685,10 @@ class _Session:
 class _Response:
     """Fake HTTP response."""
 
-    def __init__(self, payload, status_code: int = 200) -> None:
+    def __init__(self, payload, status_code: int = 200, headers: dict[str, str] | None = None) -> None:
         self.payload = payload
         self.status_code = status_code
+        self.headers = {} if headers is None else headers
 
     def json(self):
         if isinstance(self.payload, Exception):

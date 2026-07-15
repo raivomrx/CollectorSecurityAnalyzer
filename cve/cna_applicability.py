@@ -29,7 +29,10 @@ def evaluate_cna_applicability(
             saw_uncertain = True
             continue
 
-        status = _effective_status(software.version, item)
+        status, uncertain_changes = _effective_status(software.version, item)
+        if uncertain_changes:
+            saw_uncertain = True
+            continue
         if status == "unaffected":
             return ApplicabilityStatus.NOT_AFFECTED, "CNA marks installed version unaffected", 90
         if status == "affected" and _version_matches(software.version, item):
@@ -89,21 +92,28 @@ def _start_matches(installed: str, item: AffectedVersionRange) -> bool:
     return compare_versions(installed, item.version) >= 0
 
 
-def _effective_status(installed: str, item: AffectedVersionRange) -> str:
+def _effective_status(installed: str, item: AffectedVersionRange) -> tuple[str, bool]:
     """Return CNA status after applying version changes."""
 
     status = (item.status or "unknown").casefold()
+    sortable_changes: list[tuple[str, dict[str, str]]] = []
     for change in item.changes:
         at = change.get("at")
-        changed_status = change.get("status")
-        if not at or not changed_status:
+        if not at or not change.get("status"):
             continue
         try:
-            if compare_versions(installed, at) >= 0:
-                status = changed_status.casefold()
+            parse_version(at)
         except Exception:
-            continue
-    return status
+            return status, True
+        if not parse_version(at).parts:
+            return status, True
+        sortable_changes.append((at, change))
+
+    sortable_changes.sort(key=lambda item_pair: parse_version(item_pair[0]))
+    for at, change in sortable_changes:
+        if compare_versions(installed, at) >= 0:
+            status = str(change["status"]).casefold()
+    return status, False
 
 
 def _product_from_purl(package_url: str | None) -> str | None:

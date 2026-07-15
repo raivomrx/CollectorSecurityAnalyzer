@@ -42,6 +42,15 @@ class RansomwareUse(str, Enum):
     NOT_LISTED = "NOT_LISTED"
 
 
+class SsvcExploitation(str, Enum):
+    """Normalized SSVC exploitation values."""
+
+    ACTIVE = "ACTIVE"
+    POC = "POC"
+    NONE = "NONE"
+    UNKNOWN = "UNKNOWN"
+
+
 @dataclass(slots=True, frozen=True)
 class ReferenceRecord:
     """Represent a source reference with provenance."""
@@ -93,7 +102,8 @@ class SsvcDecision:
     """Represent an SSVC decision extracted from ADP data."""
 
     decision: str | None
-    exploitation: str | None
+    exploitation: SsvcExploitation
+    exploitation_raw: str | None
     automatable: str | None
     technical_impact: str | None
     timestamp: datetime | None
@@ -152,6 +162,21 @@ class ProviderStatus:
     used_stale_cache: bool
     records_loaded: int
     error_message: str | None
+    partial: bool = False
+    attempts: int = 0
+
+
+@dataclass(slots=True)
+class ProviderExecutionState:
+    """Track provider execution truthfully at orchestration level."""
+
+    provider: str
+    attempts: int = 0
+    succeeded: bool = True
+    partial: bool = False
+    used_stale_cache: bool = False
+    records_loaded: int = 0
+    errors: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -160,6 +185,12 @@ class EnrichedCveScanSummary:
 
     base_summary: CveScanSummary
     assessments: list[EnrichedCveAssessment]
+    unique_enriched_cves: int
+    enriched_assessment_count: int
+    unique_known_exploited_cves: int
+    known_exploited_assessment_count: int
+    unique_ransomware_cves: int
+    ransomware_assessment_count: int
     known_exploited_count: int
     ransomware_known_count: int
     cna_confirmed_count: int
@@ -167,3 +198,4 @@ class EnrichedCveScanSummary:
     manual_review_count: int
     provider_statuses: list[ProviderStatus]
     enrichment_complete: bool
+    enrichment_coverage_percent: float

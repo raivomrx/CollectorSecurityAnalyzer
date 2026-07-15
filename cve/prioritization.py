@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from cve.enrichment_models import ExploitationStatus, RansomwareUse
+from cve.enrichment_models import ExploitationStatus, RansomwareUse, SsvcExploitation
 from cve.models import ApplicabilityStatus, CveAssessment
 from cve.provenance import ConflictType, DataConflict
 
@@ -40,6 +40,7 @@ DEFAULT_WEIGHTS = {
     "MediumCvssWeight": 5,
     "CnaConfirmationWeight": 10,
     "AdpExploitationWeight": 5,
+    "AdpPocWeight": 0,
     "ConflictPenalty": 20,
 }
 
@@ -51,6 +52,7 @@ def calculate_priority(
     cna_applicability: ApplicabilityStatus,
     conflicts: list[DataConflict],
     adp_exploitation_evidence: bool = False,
+    adp_exploitation_status: SsvcExploitation = SsvcExploitation.UNKNOWN,
     weights: dict[str, Any] | None = None,
 ) -> VulnerabilityPriority:
     """Calculate a deterministic vulnerability priority."""
@@ -90,9 +92,12 @@ def calculate_priority(
     if cna_applicability == ApplicabilityStatus.AFFECTED:
         score += active_weights["CnaConfirmationWeight"]
         reasons.append("CNA confirms affected version")
-    if adp_exploitation_evidence:
+    if adp_exploitation_status == SsvcExploitation.ACTIVE:
         score += active_weights["AdpExploitationWeight"]
         reasons.append("ADP exploitation evidence")
+    elif adp_exploitation_status == SsvcExploitation.POC and active_weights["AdpPocWeight"]:
+        score += active_weights["AdpPocWeight"]
+        reasons.append("ADP proof-of-concept exploitation evidence")
 
     manual_conflicts = [conflict for conflict in conflicts if conflict.requires_manual_review]
     if manual_conflicts:

@@ -143,8 +143,11 @@
           <div><span>Technical scan</span><strong>{{ "Complete" if cve_summary.scan_complete else "Incomplete" }}</strong></div>
           <div><span>Coverage</span><strong>{{ "Complete" if cve_summary.coverage_complete else "Incomplete" }}</strong></div>
           {% if cve_enrichment %}
-            <div><span>Known exploited</span><strong>{{ cve_enrichment.known_exploited_count }}</strong></div>
-            <div><span>Known ransomware use</span><strong>{{ cve_enrichment.ransomware_known_count }}</strong></div>
+            <div><span>Known exploited CVEs</span><strong>{{ cve_enrichment.unique_known_exploited_cves }}</strong></div>
+            <div><span>Known exploited software/CVE matches</span><strong>{{ cve_enrichment.known_exploited_assessment_count }}</strong></div>
+            <div><span>Known ransomware CVEs</span><strong>{{ cve_enrichment.unique_ransomware_cves }}</strong></div>
+            <div><span>Ransomware software/CVE matches</span><strong>{{ cve_enrichment.ransomware_assessment_count }}</strong></div>
+            <div><span>Enrichment coverage</span><strong>{{ cve_enrichment.enrichment_coverage_percent }}%</strong></div>
             <div><span>Immediate priority</span><strong>{{ cve_enrichment.assessments|selectattr("priority.level.value", "equalto", "P1_IMMEDIATE")|list|length }}</strong></div>
             <div><span>Urgent priority</span><strong>{{ cve_enrichment.assessments|selectattr("priority.level.value", "equalto", "P2_URGENT")|list|length }}</strong></div>
             <div><span>Source conflicts</span><strong>{{ cve_enrichment.conflict_count }}</strong></div>
@@ -172,6 +175,8 @@
                 {{ status.provider }}:
                 {% if not status.enabled %}
                   disabled
+                {% elif status.partial %}
+                  partial
                 {% elif status.used_stale_cache %}
                   stale cache
                 {% elif status.succeeded %}
