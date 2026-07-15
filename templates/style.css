@@ -126,7 +126,9 @@ h3 {
 
 .pill,
 .confidence,
-.framework {
+.framework,
+.priority-label,
+.kev-badge {
   display: inline-block;
   padding: 4px 8px;
   border-radius: 999px;
@@ -180,6 +182,32 @@ h3 {
 .notice.warning {
   color: var(--orange);
   background: #ffedd5;
+}
+
+.kev-badge,
+.priority-p1_immediate {
+  color: white;
+  background: #7f1d1d;
+}
+
+.priority-p2_urgent {
+  color: #7f1d1d;
+  background: #fed7aa;
+}
+
+.priority-p3_planned {
+  color: var(--yellow);
+  background: #fef3c7;
+}
+
+.priority-p4_monitor {
+  color: var(--blue);
+  background: #dbeafe;
+}
+
+.priority-manual_review {
+  color: #5b21b6;
+  background: #ede9fe;
 }
 
 .finding-header {

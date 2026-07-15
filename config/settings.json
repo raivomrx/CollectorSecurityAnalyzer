@@ -28,5 +28,33 @@
       "Requests": 50,
       "WindowSeconds": 30
     }
+  },
+  "VulnerabilityEnrichment": {
+    "Enabled": true,
+    "CisaKev": {
+      "Enabled": true,
+      "FeedUrl": "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+      "CacheTtlHours": 6,
+      "AllowStaleCache": true
+    },
+    "CveProgram": {
+      "Enabled": true,
+      "Mode": "REMOTE_RECORD",
+      "LocalRepositoryPath": "",
+      "RawBaseUrl": "https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves",
+      "CacheTtlHours": 24
+    },
+    "EnrichNotAffected": false
+  },
+  "Prioritization": {
+    "KevWeight": 50,
+    "RansomwareWeight": 15,
+    "AffectedWeight": 20,
+    "PossibleWeight": 10,
+    "CriticalCvssWeight": 15,
+    "HighCvssWeight": 10,
+    "MediumCvssWeight": 5,
+    "CnaConfirmationWeight": 10,
+    "ConflictPenalty": 20
   }
 }

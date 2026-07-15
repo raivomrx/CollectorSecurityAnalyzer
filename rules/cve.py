@@ -6,7 +6,9 @@ import logging
 from typing import Any
 
 from analysis_context import AnalysisContext
+from cve.enrichment_models import EnrichedCveAssessment, EnrichedCveScanSummary, ExploitationStatus
 from cve.models import ApplicabilityStatus, CveAssessment
+from cve.prioritization import PriorityLevel
 from risk import Finding, Severity, Status
 from rules.base import BaseRule
 from rules.categories import RuleCategory
@@ -49,6 +51,7 @@ class KnownVulnerabilitiesRule(BaseRule):
             ]
 
         summary = context.cve_summary
+        enrichment = getattr(context, "cve_enrichment", None)
         affected = [
             item for item in summary.assessments
             if item.applicability == ApplicabilityStatus.AFFECTED
@@ -62,7 +65,17 @@ class KnownVulnerabilitiesRule(BaseRule):
             if item.applicability == ApplicabilityStatus.NOT_EVALUATED
         ]
 
-        if affected:
+        affected_kev = _affected_kev(enrichment)
+        possible_p1 = _possible_p1(enrichment)
+        if affected_kev:
+            status = Status.FAIL
+            severity = Severity.CRITICAL
+            score = 30
+        elif possible_p1:
+            status = Status.WARNING
+            severity = Severity.HIGH
+            score = 15
+        elif affected:
             status = Status.FAIL
             severity = _severity_for_affected(affected)
             score = 20
@@ -80,7 +93,7 @@ class KnownVulnerabilitiesRule(BaseRule):
                 rule_id=self.id,
                 severity=severity,
                 status=status,
-                evidence=_evidence(summary, affected, possible),
+                evidence=_evidence(summary, affected, possible, enrichment),
                 score=score,
             )
         ]
@@ -102,11 +115,40 @@ def _severity_for_affected(assessments: list[CveAssessment]) -> Severity:
     return Severity.LOW
 
 
-def _evidence(summary, affected: list[CveAssessment], possible: list[CveAssessment]) -> dict[str, Any]:
+def _affected_kev(enrichment: EnrichedCveScanSummary | None) -> list[EnrichedCveAssessment]:
+    """Return confirmed affected KEV assessments."""
+
+    if enrichment is None:
+        return []
+    return [
+        item for item in enrichment.assessments
+        if item.base_assessment.applicability == ApplicabilityStatus.AFFECTED
+        and item.exploitation_status == ExploitationStatus.KNOWN_EXPLOITED
+    ]
+
+
+def _possible_p1(enrichment: EnrichedCveScanSummary | None) -> list[EnrichedCveAssessment]:
+    """Return P1 assessments that are not confirmed affected."""
+
+    if enrichment is None:
+        return []
+    return [
+        item for item in enrichment.assessments
+        if item.priority.level == PriorityLevel.P1_IMMEDIATE
+        and item.base_assessment.applicability != ApplicabilityStatus.AFFECTED
+    ]
+
+
+def _evidence(
+    summary,
+    affected: list[CveAssessment],
+    possible: list[CveAssessment],
+    enrichment: EnrichedCveScanSummary | None,
+) -> dict[str, Any]:
     """Build CVE finding evidence."""
 
     noteworthy = affected + possible
-    return {
+    evidence = {
         "unique_products_scanned": summary.unique_products,
         "eligible_products": summary.eligible_products,
         "evaluated_products": summary.evaluated_products,
@@ -133,3 +175,56 @@ def _evidence(summary, affected: list[CveAssessment], possible: list[CveAssessme
         },
         "scan_complete": summary.scan_complete,
     }
+    if enrichment is not None:
+        priority_counts = {
+            level.value: sum(1 for item in enrichment.assessments if item.priority.level == level)
+            for level in PriorityLevel
+        }
+        evidence.update(
+            {
+                "known_exploited_cve_count": enrichment.known_exploited_count,
+                "ransomware_associated_cve_count": enrichment.ransomware_known_count,
+                "priority_counts": priority_counts,
+                "cna_confirmed_affected_count": enrichment.cna_confirmed_count,
+                "source_conflict_count": enrichment.conflict_count,
+                "manual_review_count": enrichment.manual_review_count,
+                "enrichment_complete": enrichment.enrichment_complete,
+                "provider_statuses": [
+                    {
+                        "provider": status.provider,
+                        "enabled": status.enabled,
+                        "succeeded": status.succeeded,
+                        "used_stale_cache": status.used_stale_cache,
+                        "records_loaded": status.records_loaded,
+                        "error_message": status.error_message,
+                    }
+                    for status in enrichment.provider_statuses
+                ],
+                "top_priority_cve_ids": [
+                    item.base_assessment.cve.cve_id
+                    for item in sorted(
+                        enrichment.assessments,
+                        key=lambda row: row.priority.score,
+                        reverse=True,
+                    )[:5]
+                ],
+                "required_cisa_actions": {
+                    item.base_assessment.cve.cve_id: item.kev.required_action
+                    for item in enrichment.assessments
+                    if item.kev is not None
+                },
+                "kev_due_dates": {
+                    item.base_assessment.cve.cve_id: item.kev.due_date
+                    for item in enrichment.assessments
+                    if item.kev is not None
+                },
+                "source_provenance_summary": [
+                    {
+                        "cve": item.base_assessment.cve.cve_id,
+                        "fields": [record.field_name for record in item.provenance],
+                    }
+                    for item in enrichment.assessments
+                ],
+            }
+        )
+    return evidence

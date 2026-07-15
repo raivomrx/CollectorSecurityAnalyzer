@@ -180,9 +180,9 @@
     },
     "CVE-001": {
       "title": "Known vulnerabilities detected",
-      "description": "Installed software may be affected by known vulnerabilities based on CPE and version-aware NVD applicability data.",
-      "risk": "Confirmed vulnerable versions can expose the workstation to exploitation, privilege escalation, data exposure, or remote code execution depending on the CVE.",
-      "recommendation": "For confirmed affected versions, update to a vendor-supported fixed version or apply vendor mitigation. For possible matches, manually verify the CPE and installed version. For not evaluated entries, review the vendor advisory or release notes.",
+      "description": "Installed software may be affected by known vulnerabilities based on NVD applicability, CISA KEV exploitation evidence, CVE Program CNA affected-version data, and related source references. CVSS describes technical severity, while CSA priority combines exploit evidence, applicability, CNA confirmation, and source conflicts.",
+      "risk": "Confirmed vulnerable versions can expose the workstation to exploitation, privilege escalation, data exposure, or remote code execution. KEV membership indicates known exploitation in the wild, but does not by itself prove that this specific installed version is affected.",
+      "recommendation": "For confirmed affected KEV or P1 findings, prioritize remediation or vendor mitigation. For possible, not evaluated, or source-conflicting entries, manually validate the installed product, version, and vendor advisory before treating the device as confirmed vulnerable. P1 priority does not automatically mean every endpoint is exploitable.",
       "frameworks": {
         "E-ITS": ["EITS-VULN-001"],
         "CIS": ["CIS-7.1"],
@@ -199,6 +199,18 @@
           "title": "NVD CPE APIs",
           "url": "https://nvd.nist.gov/developers/products",
           "vendor": "NVD",
+          "type": "Official"
+        },
+        {
+          "title": "CISA Known Exploited Vulnerabilities Catalog",
+          "url": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+          "vendor": "CISA",
+          "type": "Official"
+        },
+        {
+          "title": "CVE Program CVE Record Format",
+          "url": "https://github.com/CVEProject/cve-schema",
+          "vendor": "CVE Program",
           "type": "Official"
         }
       ]

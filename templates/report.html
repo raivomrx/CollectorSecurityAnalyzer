@@ -142,6 +142,15 @@
         <div class="summary-grid compact">
           <div><span>Technical scan</span><strong>{{ "Complete" if cve_summary.scan_complete else "Incomplete" }}</strong></div>
           <div><span>Coverage</span><strong>{{ "Complete" if cve_summary.coverage_complete else "Incomplete" }}</strong></div>
+          {% if cve_enrichment %}
+            <div><span>Known exploited</span><strong>{{ cve_enrichment.known_exploited_count }}</strong></div>
+            <div><span>Known ransomware use</span><strong>{{ cve_enrichment.ransomware_known_count }}</strong></div>
+            <div><span>Immediate priority</span><strong>{{ cve_enrichment.assessments|selectattr("priority.level.value", "equalto", "P1_IMMEDIATE")|list|length }}</strong></div>
+            <div><span>Urgent priority</span><strong>{{ cve_enrichment.assessments|selectattr("priority.level.value", "equalto", "P2_URGENT")|list|length }}</strong></div>
+            <div><span>Source conflicts</span><strong>{{ cve_enrichment.conflict_count }}</strong></div>
+            <div><span>Manual review required</span><strong>{{ cve_enrichment.manual_review_count }}</strong></div>
+            <div><span>Enrichment</span><strong>{{ "Complete" if cve_enrichment.enrichment_complete else "Incomplete" }}</strong></div>
+          {% endif %}
           <div><span>Products scanned</span><strong>{{ cve_summary.scanned_products }}</strong></div>
           <div><span>Eligible products</span><strong>{{ cve_summary.eligible_products }}</strong></div>
           <div><span>Evaluated products</span><strong>{{ cve_summary.evaluated_products }}</strong></div>
@@ -154,6 +163,85 @@
           <div><span>Not evaluated</span><strong>{{ cve_summary.not_evaluated }}</strong></div>
           <div><span>API errors</span><strong>{{ cve_summary.api_errors }}</strong></div>
         </div>
+        {% if cve_enrichment %}
+          <h3>Provider Status</h3>
+          <div class="pill-row">
+            <span class="pill">NVD: {{ "available" if cve_summary.scan_complete else "partial" }}</span>
+            {% for status in cve_enrichment.provider_statuses %}
+              <span class="pill {{ "status-pass" if status.succeeded else "status-warning" }}">
+                {{ status.provider }}:
+                {% if not status.enabled %}
+                  disabled
+                {% elif status.used_stale_cache %}
+                  stale cache
+                {% elif status.succeeded %}
+                  available
+                {% else %}
+                  unavailable
+                {% endif %}
+              </span>
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% if cve_enrichment %}
+        <table>
+          <thead>
+            <tr>
+              <th>Priority</th>
+              <th>CVE</th>
+              <th>Product</th>
+              <th>Known Exploited</th>
+              <th>Ransomware Use</th>
+              <th>CISA Date Added</th>
+              <th>CISA Required Action</th>
+              <th>CISA Due Date</th>
+              <th>NVD Applicability</th>
+              <th>CNA Applicability</th>
+              <th>SSVC Decision</th>
+              <th>Source Conflict</th>
+              <th>Data Sources</th>
+              <th>CVSS</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in enriched_cve_rows %}
+              <tr class="priority-{{ item.priority.level.value|lower }}">
+                <td><span class="priority-label priority-{{ item.priority.level.value|lower }}">{{ item.priority.level.value }}</span></td>
+                <td><a href="https://nvd.nist.gov/vuln/detail/{{ item.base_assessment.cve.cve_id }}">{{ item.base_assessment.cve.cve_id }}</a></td>
+                <td>{{ item.base_assessment.software.vendor }} {{ item.base_assessment.software.product }} {{ item.base_assessment.software.version }}</td>
+                <td>
+                  {% if item.exploitation_status.value == "KNOWN_EXPLOITED" %}
+                    <span class="kev-badge">KNOWN EXPLOITED</span>
+                  {% else %}
+                    {{ item.exploitation_status.value }}
+                  {% endif %}
+                </td>
+                <td>{{ item.kev.known_ransomware_campaign_use.value if item.kev else "NOT_LISTED" }}</td>
+                <td>{{ item.kev.date_added if item.kev else "" }}</td>
+                <td>{{ item.kev.required_action if item.kev else "" }}</td>
+                <td>{{ item.kev.due_date if item.kev else "" }}</td>
+                <td>{{ item.base_assessment.applicability.value }}</td>
+                <td>{{ item.cna_applicability.value }}<br><span class="muted">{{ item.cna_applicability_reason }}</span></td>
+                <td>{{ item.ssvc.decision if item.ssvc else "" }}</td>
+                <td>
+                  {% if item.conflicts %}
+                    <span class="notice warning">Source disagreement - manual verification required</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% for enrichment in item.source_enrichments %}
+                    <span class="framework">{{ enrichment.source.value }}</span>
+                  {% endfor %}
+                  <span class="framework">NVD</span>
+                </td>
+                <td>{{ item.base_assessment.cve.cvss_score if item.base_assessment.cve.cvss_score is not none else "Missing" }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="14" class="muted">No enriched CVE results.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
         <table>
           <thead>
             <tr>
@@ -212,6 +300,7 @@
             {% endfor %}
           </tbody>
         </table>
+        {% endif %}
       {% else %}
         <p class="muted">CVE scan was not executed.</p>
       {% endif %}

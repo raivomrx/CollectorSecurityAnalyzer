@@ -11,6 +11,9 @@ from config import load_config
 from cve.cache import NvdCache
 from cve.client import NvdClient
 from cve.cpe_resolver import CpeResolver
+from cve.enrichment_service import VulnerabilityEnrichmentService
+from cve.providers.cisa_kev import CisaKevProvider, DEFAULT_KEV_CACHE_PATH, DEFAULT_KEV_FEED_URL
+from cve.providers.cve_program import CveProgramProvider
 from cve.rate_limiter import SlidingWindowRateLimiter
 from cve.service import CveService, empty_summary
 from logger import setup_logging
@@ -32,6 +35,11 @@ def analyze_file(
     skip_cve: bool = False,
     refresh_cve_cache: bool = False,
     cve_debug: bool = False,
+    skip_enrichment: bool = False,
+    skip_kev: bool = False,
+    skip_cve_program: bool = False,
+    refresh_enrichment_cache: bool = False,
+    cvelist_path: str | Path | None = None,
 ) -> tuple[list[AuditFinding], int, SoftwareInventory, Path]:
     """Analyze a collector JSON file and generate an HTML report."""
 
@@ -48,6 +56,14 @@ def analyze_file(
         software_inventory=software_inventory,
     )
     _run_cve_scan(context, skip_cve, refresh_cve_cache, cve_debug)
+    _run_cve_enrichment(
+        context=context,
+        skip_enrichment=skip_enrichment,
+        skip_kev=skip_kev,
+        skip_cve_program=skip_cve_program,
+        refresh_enrichment_cache=refresh_enrichment_cache,
+        cvelist_path=cvelist_path,
+    )
     findings: list[Finding] = []
 
     for rule in registry.get_enabled():
@@ -69,6 +85,7 @@ def analyze_file(
         software_inventory=software_inventory,
         rule_metadata=rule_metadata,
         cve_summary=context.cve_summary,
+        cve_enrichment=context.cve_enrichment,
         output_path=output_path,
     )
     LOGGER.info("Total Findings: %s", len(findings))
@@ -137,6 +154,70 @@ def _run_cve_scan(
         context.cve_summary = empty_summary(scan_complete=False, message=str(error))
 
 
+def _run_cve_enrichment(
+    context: AnalysisContext,
+    skip_enrichment: bool,
+    skip_kev: bool,
+    skip_cve_program: bool,
+    refresh_enrichment_cache: bool,
+    cvelist_path: str | Path | None,
+) -> None:
+    """Run multi-source CVE enrichment when enabled."""
+
+    if context.cve_summary is None:
+        context.cve_enrichment = None
+        return
+
+    config = load_config()
+    enrichment_config = config.get("VulnerabilityEnrichment", {})
+    if not isinstance(enrichment_config, dict):
+        enrichment_config = {}
+    if skip_enrichment or not enrichment_config.get("Enabled", True):
+        context.cve_enrichment = None
+        return
+
+    if refresh_enrichment_cache and DEFAULT_KEV_CACHE_PATH.exists():
+        DEFAULT_KEV_CACHE_PATH.unlink()
+
+    providers = []
+    kev_config = enrichment_config.get("CisaKev", {})
+    if not isinstance(kev_config, dict):
+        kev_config = {}
+    if not skip_kev and kev_config.get("Enabled", True):
+        providers.append(
+            CisaKevProvider(
+                feed_url=str(kev_config.get("FeedUrl", DEFAULT_KEV_FEED_URL)),
+                cache_ttl_hours=int(kev_config.get("CacheTtlHours", 6)),
+                allow_stale_cache=bool(kev_config.get("AllowStaleCache", True)),
+            )
+        )
+
+    cve_program_config = enrichment_config.get("CveProgram", {})
+    if not isinstance(cve_program_config, dict):
+        cve_program_config = {}
+    if not skip_cve_program and cve_program_config.get("Enabled", True):
+        providers.append(
+            CveProgramProvider(
+                mode=str(cve_program_config.get("Mode", "REMOTE_RECORD")),
+                local_repository_path=cvelist_path or str(cve_program_config.get("LocalRepositoryPath", "")),
+                raw_base_url=str(cve_program_config.get("RawBaseUrl", "https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves")),
+            )
+        )
+
+    priority_config = config.get("Prioritization", {})
+    if not isinstance(priority_config, dict):
+        priority_config = {}
+    try:
+        context.cve_enrichment = VulnerabilityEnrichmentService(
+            providers=providers,
+            prioritization_weights=priority_config,
+            enrich_not_affected=bool(enrichment_config.get("EnrichNotAffected", False)),
+        ).enrich_summary(context.cve_summary)
+    except Exception as error:
+        LOGGER.exception("CVE enrichment failed")
+        context.cve_enrichment = None
+
+
 def enrich_findings(
     findings: list[Finding],
     repository: KnowledgeRepository | None = None,
@@ -167,6 +248,15 @@ def main() -> None:
         help="Clear CVE cache before scanning",
     )
     argument_parser.add_argument("--cve-debug", action="store_true", help="Enable CVE debug logging")
+    argument_parser.add_argument("--skip-enrichment", action="store_true", help="Skip CVE enrichment")
+    argument_parser.add_argument("--skip-kev", action="store_true", help="Skip CISA KEV enrichment")
+    argument_parser.add_argument("--skip-cve-program", action="store_true", help="Skip CVE Program enrichment")
+    argument_parser.add_argument(
+        "--refresh-enrichment-cache",
+        action="store_true",
+        help="Clear enrichment cache before scanning",
+    )
+    argument_parser.add_argument("--cvelist-path", help="Path to local cvelistV5 repository")
     args = argument_parser.parse_args()
 
     setup_logging(level=args.log_level)
@@ -175,6 +265,11 @@ def main() -> None:
         skip_cve=args.skip_cve,
         refresh_cve_cache=args.refresh_cve_cache,
         cve_debug=args.cve_debug,
+        skip_enrichment=args.skip_enrichment,
+        skip_kev=args.skip_kev,
+        skip_cve_program=args.skip_cve_program,
+        refresh_enrichment_cache=args.refresh_enrichment_cache,
+        cvelist_path=args.cvelist_path,
     )
 
 

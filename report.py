@@ -11,6 +11,7 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from risk import AuditFinding
+from cve.enrichment_models import EnrichedCveScanSummary
 from cve.models import ApplicabilityStatus, CveScanSummary
 from rules.metadata import RuleMetadata
 from software.models import SoftwareInventory, SoftwareProduct
@@ -29,6 +30,7 @@ def generate_html_report(
     rule_metadata: dict[str, RuleMetadata],
     cve_summary: CveScanSummary | None,
     output_path: str | Path,
+    cve_enrichment: EnrichedCveScanSummary | None = None,
 ) -> Path:
     """Generate an HTML audit report from analyzer results."""
 
@@ -51,7 +53,9 @@ def generate_html_report(
         score=score,
         software_inventory=software_inventory,
         cve_summary=cve_summary,
+        cve_enrichment=cve_enrichment,
         cve_rows=_visible_cve_rows(cve_summary),
+        enriched_cve_rows=_visible_enriched_cve_rows(cve_enrichment),
         metadata=_build_metadata(audit_findings),
         rule_metadata=rule_metadata,
     )
@@ -123,6 +127,14 @@ def _visible_cve_rows(cve_summary: CveScanSummary | None) -> list[Any]:
             ApplicabilityStatus.NOT_EVALUATED,
         }
     ]
+
+
+def _visible_enriched_cve_rows(cve_enrichment: EnrichedCveScanSummary | None) -> list[Any]:
+    """Return enriched CVE rows shown in the vulnerability table."""
+
+    if cve_enrichment is None:
+        return []
+    return cve_enrichment.assessments
 
 
 def _first_value(data: dict[str, Any], *paths: str) -> Any:
