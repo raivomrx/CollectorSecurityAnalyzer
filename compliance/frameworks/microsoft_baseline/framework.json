@@ -1,0 +1,89 @@
+{
+  "framework": {
+    "id": "MICROSOFT_BASELINE",
+    "type": "MICROSOFT_BASELINE",
+    "name": "Microsoft Windows Baseline Endpoint Evidence Subset",
+    "version": "WINDOWS_11_25H2_1.0",
+    "publisher": "CSA local mapping",
+    "effectiveDate": "2026-01-01",
+    "language": "en",
+    "sourceUrl": "https://learn.microsoft.com/windows/security/",
+    "description": "CSA-authored endpoint evidence subset for Microsoft Windows security baseline style checks.",
+    "metadata": {
+      "product": "Windows",
+      "os": "Windows 11",
+      "device_role": "workstation"
+    }
+  },
+  "controls": [
+    {
+      "id": "MSB-BITLOCKER-001",
+      "title": "BitLocker protection evidence",
+      "description": "Endpoint evidence indicates whether BitLocker protects the system drive.",
+      "requirementLevel": "MUST",
+      "scope": ["ENDPOINT"],
+      "parentControlId": null,
+      "implementationGroups": [],
+      "applicabilityTags": ["windows11", "workstation"],
+      "evidenceRequirements": [
+        {
+          "id": "MSB-BITLOCKER-001-E1",
+          "description": "BitLocker rule passes.",
+          "sourceType": "FINDING",
+          "sourceReference": "BIT-001",
+          "operator": "STATUS_IS",
+          "expectedResult": "PASS",
+          "weight": 1.0,
+          "mandatory": true
+        }
+      ],
+      "references": ["https://learn.microsoft.com/windows/security/operating-system-security/data-protection/bitlocker/"]
+    },
+    {
+      "id": "MSB-DEFENDER-001",
+      "title": "Defender enabled evidence",
+      "description": "Endpoint evidence indicates whether Microsoft Defender is enabled.",
+      "requirementLevel": "MUST",
+      "scope": ["ENDPOINT"],
+      "parentControlId": null,
+      "implementationGroups": [],
+      "applicabilityTags": ["windows11", "workstation"],
+      "evidenceRequirements": [
+        {
+          "id": "MSB-DEFENDER-001-E1",
+          "description": "Defender rule passes.",
+          "sourceType": "FINDING",
+          "sourceReference": "DEF-001",
+          "operator": "STATUS_IS",
+          "expectedResult": "PASS",
+          "weight": 1.0,
+          "mandatory": true
+        }
+      ],
+      "references": ["https://learn.microsoft.com/microsoft-365/security/defender-endpoint/"]
+    },
+    {
+      "id": "MSB-FIREWALL-001",
+      "title": "Firewall profile evidence",
+      "description": "Endpoint evidence indicates whether Windows Firewall profiles are enabled.",
+      "requirementLevel": "MUST",
+      "scope": ["ENDPOINT"],
+      "parentControlId": null,
+      "implementationGroups": [],
+      "applicabilityTags": ["windows11", "workstation"],
+      "evidenceRequirements": [
+        {
+          "id": "MSB-FIREWALL-001-E1",
+          "description": "Firewall rule passes.",
+          "sourceType": "FINDING",
+          "sourceReference": "FW-001",
+          "operator": "STATUS_IS",
+          "expectedResult": "PASS",
+          "weight": 1.0,
+          "mandatory": true
+        }
+      ],
+      "references": ["https://learn.microsoft.com/windows/security/operating-system-security/network-security/windows-firewall/"]
+    }
+  ]
+}

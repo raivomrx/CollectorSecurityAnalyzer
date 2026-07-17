@@ -1,0 +1,1 @@
+"""Microsoft baseline framework snapshot."""

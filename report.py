@@ -11,6 +11,7 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from risk import AuditFinding
+from compliance.models import ComplianceSummary
 from cve.enrichment_models import EnrichedCveScanSummary
 from cve.models import ApplicabilityStatus, CveScanSummary
 from rules.metadata import RuleMetadata
@@ -20,6 +21,7 @@ from utils import safe_get
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 REPORT_TEMPLATE = "report.html"
 STYLE_FILE = "style.css"
+SCRIPT_FILE = "report.js"
 
 
 def generate_html_report(
@@ -31,12 +33,14 @@ def generate_html_report(
     cve_summary: CveScanSummary | None,
     output_path: str | Path,
     cve_enrichment: EnrichedCveScanSummary | None = None,
+    compliance_summary: ComplianceSummary | None = None,
 ) -> Path:
     """Generate an HTML audit report from analyzer results."""
 
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
     _copy_stylesheet(output.parent)
+    _copy_script(output.parent)
 
     environment = Environment(
         loader=FileSystemLoader(TEMPLATE_DIR),
@@ -54,6 +58,7 @@ def generate_html_report(
         software_inventory=software_inventory,
         cve_summary=cve_summary,
         cve_enrichment=cve_enrichment,
+        compliance_summary=compliance_summary,
         cve_rows=_visible_cve_rows(cve_summary),
         enriched_cve_rows=_visible_enriched_cve_rows(cve_enrichment),
         metadata=_build_metadata(audit_findings),
@@ -169,3 +174,11 @@ def _copy_stylesheet(output_dir: Path) -> None:
     source = TEMPLATE_DIR / STYLE_FILE
     if source.exists():
         shutil.copyfile(source, output_dir / STYLE_FILE)
+
+
+def _copy_script(output_dir: Path) -> None:
+    """Copy report JavaScript next to the generated report."""
+
+    source = TEMPLATE_DIR / SCRIPT_FILE
+    if source.exists():
+        shutil.copyfile(source, output_dir / SCRIPT_FILE)

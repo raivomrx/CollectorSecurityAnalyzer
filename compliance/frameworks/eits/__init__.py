@@ -1,0 +1,1 @@
+"""E-ITS framework snapshot."""

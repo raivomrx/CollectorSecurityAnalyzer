@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from software.models import SoftwareInventory
 
 if TYPE_CHECKING:
+    from compliance.models import ComplianceSummary
     from cve.enrichment_models import EnrichedCveScanSummary
     from cve.models import CveScanSummary
 
@@ -20,3 +21,4 @@ class AnalysisContext:
     software_inventory: SoftwareInventory
     cve_summary: "CveScanSummary | None" = None
     cve_enrichment: "EnrichedCveScanSummary | None" = None
+    compliance_summary: "ComplianceSummary | None" = None

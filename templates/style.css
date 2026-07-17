@@ -184,6 +184,11 @@ h3 {
   background: #ffedd5;
 }
 
+.notice.info {
+  color: var(--blue);
+  background: #dbeafe;
+}
+
 .kev-badge,
 .priority-p1_immediate {
   color: white;
@@ -208,6 +213,81 @@ h3 {
 .priority-manual_review {
   color: #5b21b6;
   background: #ede9fe;
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.filter-bar label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.filter-bar select {
+  min-width: 170px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: white;
+  color: var(--text);
+  font: inherit;
+  text-transform: none;
+}
+
+.compliance-framework {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.evidence-list {
+  min-width: 260px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.compliance-compliant {
+  color: var(--green);
+  background: #dcfce7;
+}
+
+.compliance-non_compliant {
+  color: var(--red);
+  background: #fee2e2;
+}
+
+.compliance-partially_compliant,
+.compliance-manual_review {
+  color: var(--orange);
+  background: #ffedd5;
+}
+
+.compliance-not_assessed {
+  color: var(--blue);
+  background: #dbeafe;
+}
+
+.compliance-not_applicable {
+  color: var(--gray);
+  background: #f1f5f9;
 }
 
 .finding-header {

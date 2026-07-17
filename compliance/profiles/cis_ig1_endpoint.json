@@ -1,0 +1,18 @@
+{
+  "profileId": "cis_ig1_endpoint",
+  "name": "CIS IG1 Endpoint",
+  "version": "2026.1",
+  "description": "CIS Controls IG1 endpoint evidence profile.",
+  "operatingSystemPatterns": ["Windows"],
+  "joinTypes": ["unknown", "domain", "entra", "standalone"],
+  "deviceRoles": ["workstation"],
+  "frameworkVersions": {
+    "CIS_CONTROLS": "8.1"
+  },
+  "enabledControls": {},
+  "excludedControls": {},
+  "applicabilityTags": ["windows", "endpoint", "IG1"],
+  "policyOverrides": {
+    "CIS_IG": "IG1"
+  }
+}

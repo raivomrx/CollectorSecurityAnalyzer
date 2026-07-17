@@ -1,0 +1,86 @@
+{
+  "framework": {
+    "id": "EITS",
+    "type": "EITS",
+    "name": "E-ITS Endpoint Evidence Subset",
+    "version": "2025",
+    "publisher": "CSA local mapping",
+    "effectiveDate": "2025-01-01",
+    "language": "en",
+    "sourceUrl": "https://www.ria.ee/",
+    "description": "CSA-authored endpoint evidence subset for E-ITS style measures."
+  },
+  "controls": [
+    {
+      "id": "EITS-DEVICE-ENCRYPTION",
+      "title": "Endpoint storage encryption evidence",
+      "description": "Endpoint evidence indicates whether system drive encryption is enabled.",
+      "requirementLevel": "MUST",
+      "scope": ["ENDPOINT"],
+      "parentControlId": null,
+      "implementationGroups": [],
+      "applicabilityTags": ["windows", "endpoint"],
+      "evidenceRequirements": [
+        {
+          "id": "EITS-DEVICE-ENCRYPTION-E1",
+          "description": "BitLocker rule passes.",
+          "sourceType": "FINDING",
+          "sourceReference": "BIT-001",
+          "operator": "STATUS_IS",
+          "expectedResult": "PASS",
+          "weight": 1.0,
+          "mandatory": true
+        }
+      ],
+      "references": ["https://www.ria.ee/"],
+      "metadata": {
+        "alternative_measure_allowed": true,
+        "risk_based_exception_allowed": true,
+        "organisation_level_only": false
+      }
+    },
+    {
+      "id": "EITS-ENDPOINT-PROTECTION",
+      "title": "Endpoint malware protection evidence",
+      "description": "Endpoint evidence indicates whether Microsoft Defender is enabled.",
+      "requirementLevel": "MUST",
+      "scope": ["ENDPOINT"],
+      "parentControlId": null,
+      "implementationGroups": [],
+      "applicabilityTags": ["windows", "endpoint"],
+      "evidenceRequirements": [
+        {
+          "id": "EITS-ENDPOINT-PROTECTION-E1",
+          "description": "Defender rule passes.",
+          "sourceType": "FINDING",
+          "sourceReference": "DEF-001",
+          "operator": "STATUS_IS",
+          "expectedResult": "PASS",
+          "weight": 1.0,
+          "mandatory": true
+        }
+      ],
+      "references": ["https://www.ria.ee/"],
+      "metadata": {
+        "alternative_measure_allowed": true,
+        "risk_based_exception_allowed": true,
+        "organisation_level_only": false
+      }
+    },
+    {
+      "id": "EITS-PATCHING-PROCESS",
+      "title": "Patch management process evidence",
+      "description": "Endpoint update recency is available, but full process compliance requires organisational evidence.",
+      "requirementLevel": "MUST",
+      "scope": ["ORGANISATION"],
+      "parentControlId": null,
+      "implementationGroups": [],
+      "applicabilityTags": ["patching", "process"],
+      "evidenceRequirements": [],
+      "references": ["https://www.ria.ee/"],
+      "metadata": {
+        "organisation_level_only": true
+      }
+    }
+  ]
+}

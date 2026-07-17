@@ -1,0 +1,94 @@
+{
+  "framework": {
+    "id": "CIS_CONTROLS",
+    "type": "CIS_CONTROLS",
+    "name": "CIS Controls Endpoint Evidence Subset",
+    "version": "8.1",
+    "publisher": "CSA local mapping",
+    "effectiveDate": "2024-06-24",
+    "language": "en",
+    "sourceUrl": "https://www.cisecurity.org/controls",
+    "description": "CSA-authored endpoint evidence subset for CIS Controls v8.1."
+  },
+  "controls": [
+    {
+      "id": "CIS-4.1",
+      "title": "Secure configuration evidence",
+      "description": "Endpoint evidence indicates whether firewall profiles are enabled.",
+      "requirementLevel": "MUST",
+      "scope": ["ENDPOINT"],
+      "parentControlId": null,
+      "implementationGroups": ["IG1", "IG2", "IG3"],
+      "applicabilityTags": ["windows", "endpoint"],
+      "evidenceRequirements": [
+        {
+          "id": "CIS-4.1-E1",
+          "description": "Firewall rule passes.",
+          "sourceType": "FINDING",
+          "sourceReference": "FW-001",
+          "operator": "STATUS_IS",
+          "expectedResult": "PASS",
+          "weight": 1.0,
+          "mandatory": true
+        }
+      ],
+      "references": ["https://www.cisecurity.org/controls"]
+    },
+    {
+      "id": "CIS-7.1",
+      "title": "Vulnerability and patch evidence",
+      "description": "Endpoint update and known vulnerability evidence partially support vulnerability management.",
+      "requirementLevel": "MUST",
+      "scope": ["ENDPOINT"],
+      "parentControlId": null,
+      "implementationGroups": ["IG1", "IG2", "IG3"],
+      "applicabilityTags": ["patching", "endpoint"],
+      "evidenceRequirements": [
+        {
+          "id": "CIS-7.1-E1",
+          "description": "Update rule passes.",
+          "sourceType": "FINDING",
+          "sourceReference": "UPD-001",
+          "operator": "STATUS_IS",
+          "expectedResult": "PASS",
+          "weight": 0.5,
+          "mandatory": true
+        },
+        {
+          "id": "CIS-7.1-E2",
+          "description": "Known vulnerability rule passes.",
+          "sourceType": "FINDING",
+          "sourceReference": "CVE-001",
+          "operator": "STATUS_IS",
+          "expectedResult": "PASS",
+          "weight": 0.5,
+          "mandatory": false
+        }
+      ],
+      "references": ["https://www.cisecurity.org/controls"]
+    },
+    {
+      "id": "CIS-1.1",
+      "title": "Software inventory evidence",
+      "description": "Unknown software findings provide partial asset inventory evidence.",
+      "requirementLevel": "SHOULD",
+      "scope": ["ENDPOINT", "ORGANISATION"],
+      "parentControlId": null,
+      "implementationGroups": ["IG1", "IG2", "IG3"],
+      "applicabilityTags": ["inventory", "endpoint"],
+      "evidenceRequirements": [
+        {
+          "id": "CIS-1.1-E1",
+          "description": "Software inventory rule passes.",
+          "sourceType": "FINDING",
+          "sourceReference": "SW-001",
+          "operator": "STATUS_IS",
+          "expectedResult": "PASS",
+          "weight": 1.0,
+          "mandatory": false
+        }
+      ],
+      "references": ["https://www.cisecurity.org/controls"]
+    }
+  ]
+}

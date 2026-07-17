@@ -7,6 +7,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from analysis_context import AnalysisContext
+from compliance.engine import ComplianceEngine
+from compliance.repository import FrameworkRepository
 from knowledge.models import Knowledge, Reference
 from report import generate_html_report
 from risk import AuditFinding, Finding, Severity, Status
@@ -59,11 +62,14 @@ class HtmlReportTests(unittest.TestCase):
                 software_inventory=inventory,
                 rule_metadata={"BIT-001": _rule_metadata()},
                 cve_summary=_cve_summary(),
+                compliance_summary=_compliance_summary(audit_findings),
                 output_path=output_path,
             )
             html = report_path.read_text(encoding="utf-8")
+            script_exists = (report_path.parent / "report.js").exists()
 
         self.assertTrue(report_path.name.endswith(".html"))
+        self.assertTrue(script_exists)
         self.assertIn("EE-D3147", html)
         self.assertIn("Security Score", html)
         self.assertIn("BIT-001", html)
@@ -72,6 +78,12 @@ class HtmlReportTests(unittest.TestCase):
         self.assertIn("Known Vulnerabilities", html)
         self.assertIn("This product uses the NVD API", html)
         self.assertIn("Coverage percent", html)
+        self.assertIn("Compliance &amp; Policy Assessment", html)
+        self.assertIn("automated evidence-based endpoint assessment", html)
+        self.assertIn("MSB-BITLOCKER-001", html)
+        self.assertIn("Profile version", html)
+        self.assertIn("Assessment incomplete", html)
+        self.assertIn("data-compliance-filters", html)
 
     def test_reporter_does_not_load_registry(self) -> None:
         """Reporter should render with provided metadata and not load registry."""
@@ -205,6 +217,18 @@ def _cve_summary() -> CveScanSummary:
         errors=[],
         scan_complete=True,
     )
+
+
+def _compliance_summary(audit_findings: list[AuditFinding]):
+    """Create a report test compliance summary."""
+
+    repository = FrameworkRepository()
+    profile = repository.get_profile("windows_11_workstation")
+    context = AnalysisContext(raw_data={"OS": "Windows 11"}, software_inventory=build_inventory([]))
+    return ComplianceEngine(
+        repository=repository,
+        framework_filter=["MICROSOFT_BASELINE"],
+    ).assess(context, audit_findings, [profile])
 
 
 if __name__ == "__main__":

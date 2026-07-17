@@ -1,0 +1,40 @@
+{
+  "mappings": [
+    {
+      "ruleId": "FW-001",
+      "controlIds": ["CIS-4.1"],
+      "relationship": "SUPPORTS",
+      "confidence": 90,
+      "notes": "Endpoint evidence only.",
+      "mapping_source": "CSA Sprint 3.0",
+      "mapping_author": "CSA",
+      "mapping_version": "2026.1",
+      "validated": true,
+      "validated_at": "2026-07-17"
+    },
+    {
+      "ruleId": "UPD-001",
+      "controlIds": ["CIS-7.1"],
+      "relationship": "SUPPORTS",
+      "confidence": 85,
+      "notes": "Update recency is endpoint evidence, not full process evidence.",
+      "mapping_source": "CSA Sprint 3.0",
+      "mapping_author": "CSA",
+      "mapping_version": "2026.1",
+      "validated": true,
+      "validated_at": "2026-07-17"
+    },
+    {
+      "ruleId": "SW-001",
+      "controlIds": ["CIS-1.1"],
+      "relationship": "PARTIAL",
+      "confidence": 80,
+      "notes": "Unknown software is inventory coverage evidence.",
+      "mapping_source": "CSA Sprint 3.0",
+      "mapping_author": "CSA",
+      "mapping_version": "2026.1",
+      "validated": true,
+      "validated_at": "2026-07-17"
+    }
+  ]
+}

@@ -7,6 +7,9 @@ import logging
 from pathlib import Path
 
 from analysis_context import AnalysisContext
+from compliance.engine import ComplianceEngine
+from compliance.profile_resolver import ComplianceProfileResolver
+from compliance.repository import FrameworkRepository
 from config import load_config
 from cve.cache import NvdCache
 from cve.client import NvdClient
@@ -40,6 +43,11 @@ def analyze_file(
     skip_cve_program: bool = False,
     refresh_enrichment_cache: bool = False,
     cvelist_path: str | Path | None = None,
+    skip_compliance: bool = False,
+    compliance_profiles: list[str] | None = None,
+    framework_filter: list[str] | None = None,
+    framework_versions: dict[str, str] | None = None,
+    cis_ig: str | None = None,
 ) -> tuple[list[AuditFinding], int, SoftwareInventory, Path]:
     """Analyze a collector JSON file and generate an HTML report."""
 
@@ -71,6 +79,15 @@ def analyze_file(
 
     score = calculate_score(findings)
     audit_findings = enrich_findings(findings, repository)
+    _run_compliance_assessment(
+        context=context,
+        audit_findings=audit_findings,
+        skip_compliance=skip_compliance,
+        compliance_profiles=compliance_profiles,
+        framework_filter=framework_filter,
+        framework_versions=framework_versions,
+        cis_ig=cis_ig,
+    )
     rule_metadata = {
         execution.rule_id: metadata
         for execution in registry.get_execution_info()
@@ -86,6 +103,7 @@ def analyze_file(
         rule_metadata=rule_metadata,
         cve_summary=context.cve_summary,
         cve_enrichment=context.cve_enrichment,
+        compliance_summary=context.compliance_summary,
         output_path=output_path,
     )
     LOGGER.info("Total Findings: %s", len(findings))
@@ -217,9 +235,39 @@ def _run_cve_enrichment(
             prioritization_weights=priority_config,
             enrich_not_affected=bool(enrichment_config.get("EnrichNotAffected", False)),
         ).enrich_summary(context.cve_summary)
-    except Exception as error:
+    except Exception:
         LOGGER.exception("CVE enrichment failed")
         context.cve_enrichment = None
+
+
+def _run_compliance_assessment(
+    context: AnalysisContext,
+    audit_findings: list[AuditFinding],
+    skip_compliance: bool,
+    compliance_profiles: list[str] | None,
+    framework_filter: list[str] | None,
+    framework_versions: dict[str, str] | None,
+    cis_ig: str | None,
+) -> None:
+    """Run compliance assessment and store it on context."""
+
+    if skip_compliance:
+        context.compliance_summary = None
+        return
+    try:
+        repository = FrameworkRepository()
+        resolver = ComplianceProfileResolver(repository)
+        profiles = resolver.resolve(context, compliance_profiles, cis_ig)
+        engine = ComplianceEngine(
+            repository=repository,
+            framework_filter=framework_filter,
+            framework_versions=framework_versions,
+        )
+        context.compliance_summary = engine.assess(context, audit_findings, profiles)
+        context.compliance_summary.warnings.extend(resolver.warnings)
+    except Exception:
+        LOGGER.exception("Compliance assessment failed")
+        context.compliance_summary = None
 
 
 def enrich_findings(
@@ -239,7 +287,7 @@ def main() -> None:
     """Run the analyzer from command-line arguments."""
 
     argument_parser = argparse.ArgumentParser(description="Collector Security Analyzer")
-    argument_parser.add_argument("input", help="Path to collector JSON file")
+    argument_parser.add_argument("input", nargs="?", help="Path to collector JSON file")
     argument_parser.add_argument(
         "--log-level",
         default="INFO",
@@ -261,9 +309,34 @@ def main() -> None:
         help="Clear enrichment cache before scanning",
     )
     argument_parser.add_argument("--cvelist-path", help="Path to local cvelistV5 repository")
+    argument_parser.add_argument("--skip-compliance", action="store_true", help="Skip compliance assessment")
+    argument_parser.add_argument(
+        "--compliance-profile",
+        action="append",
+        help="Compliance profile ID to use; may be repeated",
+    )
+    argument_parser.add_argument(
+        "--framework",
+        action="append",
+        help="Framework ID to assess; may be repeated",
+    )
+    argument_parser.add_argument(
+        "--framework-version",
+        action="append",
+        default=[],
+        help="Framework version override in FRAMEWORK=VERSION format",
+    )
+    argument_parser.add_argument("--cis-ig", choices=["IG1", "IG2", "IG3"], help="Add CIS IG endpoint profile")
+    argument_parser.add_argument("--list-compliance-profiles", action="store_true", help="List compliance profiles")
+    argument_parser.add_argument("--list-frameworks", action="store_true", help="List compliance frameworks")
     args = argument_parser.parse_args()
 
     setup_logging(level=args.log_level)
+    if args.list_compliance_profiles or args.list_frameworks:
+        _print_compliance_catalog(args.list_compliance_profiles, args.list_frameworks)
+        return
+    if not args.input:
+        argument_parser.error("input is required unless listing compliance profiles or frameworks")
     analyze_file(
         args.input,
         skip_cve=args.skip_cve,
@@ -274,7 +347,36 @@ def main() -> None:
         skip_cve_program=args.skip_cve_program,
         refresh_enrichment_cache=args.refresh_enrichment_cache,
         cvelist_path=args.cvelist_path,
+        skip_compliance=args.skip_compliance,
+        compliance_profiles=args.compliance_profile,
+        framework_filter=args.framework,
+        framework_versions=_parse_framework_versions(args.framework_version),
+        cis_ig=args.cis_ig,
     )
+
+
+def _parse_framework_versions(values: list[str]) -> dict[str, str]:
+    """Parse FRAMEWORK=VERSION CLI values."""
+
+    versions: dict[str, str] = {}
+    for value in values:
+        if "=" not in value:
+            raise ValueError(f"Invalid framework version override: {value}")
+        framework_id, version = value.split("=", 1)
+        versions[framework_id] = version
+    return versions
+
+
+def _print_compliance_catalog(list_profiles: bool, list_frameworks: bool) -> None:
+    """Print compliance catalog details."""
+
+    repository = FrameworkRepository()
+    if list_profiles:
+        for profile in repository.list_profiles():
+            print(f"{profile.profile_id}\t{profile.version}\t{profile.name}")
+    if list_frameworks:
+        for framework in repository.list_frameworks():
+            print(f"{framework.framework_id}\t{framework.version}\t{framework.name}")
 
 
 if __name__ == "__main__":

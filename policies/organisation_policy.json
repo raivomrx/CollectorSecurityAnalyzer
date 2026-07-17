@@ -1,0 +1,5 @@
+{
+  "policyVersion": "2026.1",
+  "MaximumUpdateAgeDays": 45,
+  "LocalAdminExpectedMaximum": 2
+}

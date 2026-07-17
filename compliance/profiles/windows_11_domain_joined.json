@@ -1,0 +1,20 @@
+{
+  "profileId": "windows_11_domain_joined",
+  "name": "Windows 11 Domain Joined",
+  "version": "2026.1",
+  "description": "Windows 11 endpoint profile for domain joined devices.",
+  "operatingSystemPatterns": ["Windows 11"],
+  "joinTypes": ["domain"],
+  "deviceRoles": ["workstation"],
+  "frameworkVersions": {
+    "EITS": "2025",
+    "CIS_CONTROLS": "8.1",
+    "MICROSOFT_BASELINE": "WINDOWS_11_25H2_1.0"
+  },
+  "enabledControls": {},
+  "excludedControls": {},
+  "applicabilityTags": ["windows", "windows11", "endpoint", "domain"],
+  "policyOverrides": {
+    "MaximumUpdateAgeDays": 45
+  }
+}

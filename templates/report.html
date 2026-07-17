@@ -312,6 +312,162 @@
     </section>
 
     <section>
+      <h2>Compliance &amp; Policy Assessment</h2>
+      <p class="notice info">
+        This is an automated evidence-based endpoint assessment. It is not a certification of organisation-wide compliance.
+      </p>
+      <p class="notice info">
+        Tegemist on automatiseeritud lõppseadme tõenduspõhise hinnanguga. Tulemus ei kinnita organisatsiooni täielikku vastavust standardile.
+      </p>
+      {% if compliance_summary %}
+        {% if compliance_summary.warnings %}
+          <div class="notice warning">
+            {% for warning in compliance_summary.warnings %}
+              <div>{{ warning }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+        <div class="summary-grid compact">
+          <div><span>Profiles</span><strong>{{ compliance_summary.profile_ids|join(", ") }}</strong></div>
+          <div><span>Total controls</span><strong>{{ compliance_summary.total_controls }}</strong></div>
+          <div><span>Applicable controls</span><strong>{{ compliance_summary.applicable_controls }}</strong></div>
+          <div><span>Assessed controls</span><strong>{{ compliance_summary.assessed_controls }}</strong></div>
+          <div><span>Evidence coverage</span><strong>{{ compliance_summary.evidence_coverage_percent }}%</strong></div>
+          <div><span>Overall status</span><strong>{{ compliance_summary.overall_status.value }}</strong></div>
+        </div>
+        <div class="filter-bar" data-compliance-filters>
+          <label>
+            Framework
+            <select data-filter="framework">
+              <option value="">All</option>
+              {% for assessment in compliance_summary.framework_assessments %}
+                <option value="{{ assessment.framework.framework_id }}">{{ assessment.framework.framework_id }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            Status
+            <select data-filter="status">
+              <option value="">All</option>
+              {% for status in ["COMPLIANT", "NON_COMPLIANT", "PARTIALLY_COMPLIANT", "NOT_ASSESSED", "NOT_APPLICABLE", "MANUAL_REVIEW"] %}
+                <option value="{{ status }}">{{ status }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            Scope
+            <select data-filter="scope">
+              <option value="">All</option>
+              {% for scope in ["ENDPOINT", "SERVER", "ORGANISATION", "IDENTITY", "NETWORK", "CLOUD", "APPLICATION", "OT"] %}
+                <option value="{{ scope }}">{{ scope }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+
+        {% for assessment in compliance_summary.framework_assessments %}
+          <article class="compliance-framework">
+            <h3>{{ assessment.framework.name }} {{ assessment.framework.version }}</h3>
+            <div class="summary-grid compact">
+              <div><span>Framework</span><strong>{{ assessment.framework.framework_id }}</strong></div>
+              <div><span>Profile</span><strong>{{ assessment.profile_id }}</strong></div>
+              <div><span>Profile version</span><strong>{{ assessment.profile_version }}</strong></div>
+              <div><span>Assessed at</span><strong>{{ assessment.assessed_at }}</strong></div>
+              <div><span>Compliant</span><strong>{{ assessment.compliant_count }}</strong></div>
+              <div><span>Non-compliant</span><strong>{{ assessment.non_compliant_count }}</strong></div>
+              <div><span>Partial</span><strong>{{ assessment.partially_compliant_count }}</strong></div>
+              <div><span>Not assessed</span><strong>{{ assessment.not_assessed_count }}</strong></div>
+              <div><span>Not applicable</span><strong>{{ assessment.not_applicable_count }}</strong></div>
+              <div><span>Manual review</span><strong>{{ assessment.manual_review_count }}</strong></div>
+              <div><span>Weighted score</span><strong>{{ assessment.weighted_score_percent if assessment.weighted_score_percent is not none else "N/A" }}%</strong></div>
+              <div><span>Evidence coverage</span><strong>{{ assessment.evidence_coverage_percent }}%</strong></div>
+              <div><span>Complete</span><strong>{{ "Yes" if assessment.assessment_complete else "No" }}</strong></div>
+            </div>
+            {% if assessment.warnings %}
+              <div class="notice warning">
+                {% for warning in assessment.warnings %}
+                  <div>{{ warning }}</div>
+                {% endfor %}
+              </div>
+            {% endif %}
+            {% if not assessment.assessment_complete %}
+              <p class="notice warning">Assessment incomplete: some controls were not assessed or require manual review.</p>
+            {% endif %}
+            <p class="muted">Controls are grouped by framework and show status, scope, evidence, related findings, rationale, remediation, and manual-review state.</p>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Framework</th>
+                    <th>Control ID</th>
+                    <th>Title</th>
+                    <th>Status</th>
+                    <th>Score</th>
+                    <th>Confidence</th>
+                    <th>Evidence</th>
+                    <th>Related Findings</th>
+                    <th>Rationale</th>
+                    <th>Remediation</th>
+                    <th>Scope</th>
+                    <th>Manual Review</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for control in assessment.controls %}
+                    <tr
+                      class="compliance-control-row compliance-{{ control.status.value|lower }}"
+                      data-framework="{{ assessment.framework.framework_id }}"
+                      data-status="{{ control.status.value }}"
+                      data-scope="{{ control.control.scope|map(attribute='value')|join(' ') }}"
+                    >
+                      <td>{{ assessment.framework.framework_id }}</td>
+                      <td>{{ control.control.control_id }}</td>
+                      <td>{{ control.control.title }}</td>
+                      <td><span class="pill compliance-{{ control.status.value|lower }}">{{ control.status.value }}</span></td>
+                      <td>{{ control.score if control.score is not none else "N/A" }}</td>
+                      <td>{{ control.confidence }}%</td>
+                      <td>
+                        {% if control.evidence %}
+                          <ul class="evidence-list">
+                            {% for evidence in control.evidence %}
+                              <li>
+                                <strong>{{ evidence.evidence_id }}</strong>:
+                                {{ evidence.result.value }};
+                                actual={{ evidence.actual_value }};
+                                expected={{ evidence.expected_value }};
+                                source={{ evidence.source_type.value }} {{ evidence.source_reference }};
+                                provenance={{ evidence.provenance }}
+                              </li>
+                            {% endfor %}
+                          </ul>
+                        {% else %}
+                          <span class="muted">No evidence.</span>
+                        {% endif %}
+                      </td>
+                      <td>{{ control.related_findings|join(", ") if control.related_findings else "" }}</td>
+                      <td>{{ control.rationale }}</td>
+                      <td>{{ control.remediation or "" }}</td>
+                      <td>
+                        {% for scope in control.control.scope %}
+                          <span class="framework">{{ scope.value }}</span>
+                        {% endfor %}
+                      </td>
+                      <td>{{ "Yes" if control.manual_review_required else "No" }}</td>
+                    </tr>
+                  {% else %}
+                    <tr><td colspan="12" class="muted">No controls assessed.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </article>
+        {% endfor %}
+      {% else %}
+        <p class="muted">Compliance assessment was not executed.</p>
+      {% endif %}
+    </section>
+
+    <section>
       <h2>Rule / Audit Metadata</h2>
       <table>
         <thead>
@@ -333,5 +489,6 @@
       </table>
     </section>
   </main>
+  <script src="report.js"></script>
 </body>
 </html>
