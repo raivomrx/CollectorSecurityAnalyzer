@@ -6,9 +6,10 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from analysis_context import AnalysisContext
-from compliance.engine import ComplianceEngine
+from compliance.engine import ComplianceEngine, _overall_status
 from compliance.enums import (
     ComplianceStatus,
     EvidenceResult,
@@ -29,6 +30,63 @@ from compliance.validation import ComplianceDefinitionValidator
 from knowledge.models import Knowledge
 from risk import AuditFinding, Finding, Severity, Status
 from software.inventory import build_inventory
+
+
+class ComplianceOverallStatusTests(unittest.TestCase):
+    """Validate overall compliance status priority."""
+
+    def test_only_partial_controls_are_partially_compliant(self) -> None:
+        """Partial controls should not produce an overall compliant status."""
+
+        self.assertEqual(
+            _overall_status([_framework_counts(partial=1)], []),
+            ComplianceStatus.PARTIALLY_COMPLIANT,
+        )
+
+    def test_compliant_and_partial_controls_are_partially_compliant(self) -> None:
+        """A partial control should dominate otherwise compliant controls."""
+
+        self.assertEqual(
+            _overall_status([_framework_counts(compliant=1, partial=1)], []),
+            ComplianceStatus.PARTIALLY_COMPLIANT,
+        )
+
+    def test_non_compliant_and_partial_controls_are_non_compliant(self) -> None:
+        """Non-compliant controls should dominate partial controls."""
+
+        self.assertEqual(
+            _overall_status([_framework_counts(non_compliant=1, partial=1)], []),
+            ComplianceStatus.NON_COMPLIANT,
+        )
+
+    def test_manual_review_and_partial_controls_need_manual_review(self) -> None:
+        """Manual review should dominate partial controls."""
+
+        self.assertEqual(
+            _overall_status([_framework_counts(manual_review=1, partial=1)], []),
+            ComplianceStatus.MANUAL_REVIEW,
+        )
+
+    def test_no_assessments_are_not_assessed(self) -> None:
+        """No assessments should not produce compliance."""
+
+        self.assertEqual(_overall_status([], []), ComplianceStatus.NOT_ASSESSED)
+
+    def test_zero_applicable_controls_are_not_assessed(self) -> None:
+        """Assessments with zero applicable controls should not produce compliance."""
+
+        self.assertEqual(
+            _overall_status([_framework_counts(compliant=1, applicable=0)], []),
+            ComplianceStatus.NOT_ASSESSED,
+        )
+
+    def test_all_compliant_controls_are_compliant(self) -> None:
+        """Only fully compliant applicable assessments should be overall compliant."""
+
+        self.assertEqual(
+            _overall_status([_framework_counts(compliant=2)], []),
+            ComplianceStatus.COMPLIANT,
+        )
 
 
 class ComplianceRepositoryTests(unittest.TestCase):
@@ -464,6 +522,30 @@ def _context(data: dict | None = None) -> AnalysisContext:
     """Create a test analysis context."""
 
     return AnalysisContext(raw_data=data or {}, software_inventory=build_inventory([]))
+
+
+def _framework_counts(
+    compliant: int = 0,
+    non_compliant: int = 0,
+    partial: int = 0,
+    not_assessed: int = 0,
+    manual_review: int = 0,
+    applicable: int | None = None,
+):
+    """Create a minimal framework assessment stub."""
+
+    return SimpleNamespace(
+        compliant_count=compliant,
+        non_compliant_count=non_compliant,
+        partially_compliant_count=partial,
+        not_assessed_count=not_assessed,
+        manual_review_count=manual_review,
+        applicable_controls=(
+            compliant + non_compliant + partial + not_assessed + manual_review
+            if applicable is None
+            else applicable
+        ),
+    )
 
 
 def _audit_finding(rule_id: str, status: Status) -> AuditFinding:

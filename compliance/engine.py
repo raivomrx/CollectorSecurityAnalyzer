@@ -212,14 +212,14 @@ def _overall_status(assessments: list[FrameworkAssessment], warnings: list[str])
 
     if warnings:
         return ComplianceStatus.MANUAL_REVIEW
+    if not assessments:
+        return ComplianceStatus.NOT_ASSESSED
+    if sum(item.applicable_controls for item in assessments) == 0:
+        return ComplianceStatus.NOT_ASSESSED
     if any(item.non_compliant_count for item in assessments):
         return ComplianceStatus.NON_COMPLIANT
     if any(item.manual_review_count for item in assessments):
         return ComplianceStatus.MANUAL_REVIEW
-    if any(item.not_assessed_count for item in assessments):
+    if any(item.not_assessed_count or item.partially_compliant_count for item in assessments):
         return ComplianceStatus.PARTIALLY_COMPLIANT
-    if assessments and sum(item.applicable_controls for item in assessments) == 0:
-        return ComplianceStatus.NOT_ASSESSED
-    if assessments:
-        return ComplianceStatus.COMPLIANT
-    return ComplianceStatus.NOT_ASSESSED
+    return ComplianceStatus.COMPLIANT
