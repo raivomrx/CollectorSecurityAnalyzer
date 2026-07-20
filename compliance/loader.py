@@ -26,7 +26,8 @@ def load_framework(path: str | Path) -> FrameworkDefinition:
     data = _load_json(path)
     framework = data["framework"]
     framework_id = str(framework["id"])
-    controls = [_parse_control(framework_id, item) for item in data.get("controls", [])]
+    framework_version = str(framework["version"])
+    controls = [_parse_control(framework_id, framework_version, item) for item in data.get("controls", [])]
     return FrameworkDefinition(
         framework_id=framework_id,
         framework_type=FrameworkType(framework.get("type", framework_id)),
@@ -39,6 +40,11 @@ def load_framework(path: str | Path) -> FrameworkDefinition:
         language=str(framework.get("language", "en")),
         controls=controls,
         metadata=framework.get("metadata", {}) if isinstance(framework.get("metadata", {}), dict) else {},
+        official_version=str(framework.get("officialVersion", framework.get("version", ""))),
+        snapshot_version=str(framework.get("snapshotVersion", framework.get("version", ""))),
+        mapping_version=str(framework.get("mappingVersion", framework.get("snapshotVersion", framework.get("version", "")))),
+        source_retrieved_at=_parse_date(framework.get("sourceRetrievedAt")),
+        source_hash=framework.get("sourceHash"),
     )
 
 
@@ -74,12 +80,19 @@ def discover_profile_paths(root: str | Path = PROFILES_DIR) -> list[Path]:
     return sorted(Path(root).glob("*.json"))
 
 
-def _parse_control(framework_id: str, item: dict[str, Any]) -> ControlDefinition:
+def discover_mapping_paths(root: str | Path = FRAMEWORKS_DIR) -> list[Path]:
+    """Return rule-control mapping definition paths."""
+
+    return sorted(Path(root).glob("**/mappings.json"))
+
+
+def _parse_control(framework_id: str, framework_version: str, item: dict[str, Any]) -> ControlDefinition:
     """Parse one control definition."""
 
     return ControlDefinition(
         control_id=str(item["id"]),
         framework_id=framework_id,
+        framework_version=framework_version,
         title=str(item.get("title", "")),
         description=str(item.get("description", "")),
         requirement_level=RequirementLevel(item.get("requirementLevel", "MUST")),
@@ -90,6 +103,8 @@ def _parse_control(framework_id: str, item: dict[str, Any]) -> ControlDefinition
         evidence_requirements=[_parse_requirement(req) for req in item.get("evidenceRequirements", [])],
         references=[str(value) for value in item.get("references", [])],
         metadata=item.get("metadata", {}) if isinstance(item.get("metadata", {}), dict) else {},
+        official_control_id=item.get("officialControlId"),
+        csa_objective_id=item.get("csaObjectiveId") or str(item["id"]),
     )
 
 
@@ -113,7 +128,7 @@ def _parse_requirement(item: dict[str, Any]) -> EvidenceRequirement:
 def _load_json(path: str | Path) -> dict[str, Any]:
     """Load a JSON object."""
 
-    with Path(path).open("r", encoding="utf-8") as handle:
+    with Path(path).open("r", encoding="utf-8-sig") as handle:
         data = json.load(handle)
     if not isinstance(data, dict):
         raise ValueError(f"JSON root must be an object: {path}")

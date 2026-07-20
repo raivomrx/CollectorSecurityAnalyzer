@@ -47,4 +47,6 @@ def evidence_record(
         collected_at=None,
         evaluated_at=datetime.now(timezone.utc),
         provenance=provenance,
+        weight=requirement.weight,
+        mandatory=requirement.mandatory,
     )

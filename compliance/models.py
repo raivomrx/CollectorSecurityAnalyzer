@@ -39,6 +39,7 @@ class ControlDefinition:
 
     control_id: str
     framework_id: str
+    framework_version: str
     title: str
     description: str
     requirement_level: RequirementLevel
@@ -49,6 +50,8 @@ class ControlDefinition:
     evidence_requirements: list[EvidenceRequirement]
     references: list[str]
     metadata: dict[str, Any] = field(default_factory=dict)
+    official_control_id: str | None = None
+    csa_objective_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -66,6 +69,11 @@ class FrameworkDefinition:
     language: str
     controls: list[ControlDefinition]
     metadata: dict[str, Any] = field(default_factory=dict)
+    official_version: str = ""
+    snapshot_version: str = ""
+    mapping_version: str = ""
+    source_retrieved_at: date | None = None
+    source_hash: str | None = None
 
 
 @dataclass(slots=True)
@@ -83,6 +91,12 @@ class EvidenceRecord:
     collected_at: datetime | None
     evaluated_at: datetime
     provenance: str
+    weight: float = 1.0
+    mandatory: bool = True
+    mapping_relationship: MappingRelationship | None = None
+    mapping_confidence: int | None = None
+    mapping_validated: bool | None = None
+    child_provenance: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -100,6 +114,15 @@ class ControlAssessment:
     manual_review_required: bool
     related_findings: list[str]
     assessed_at: datetime
+    evidence_coverage_percent: float = 0.0
+    mandatory_evidence_coverage_percent: float = 0.0
+    decision_confidence: int = 0
+    assessed_scopes: list[AssessmentScope] = field(default_factory=list)
+    unassessed_scopes: list[AssessmentScope] = field(default_factory=list)
+    evidence_requirement_count: int = 0
+    covered_evidence_requirement_count: int = 0
+    mandatory_requirement_count: int = 0
+    covered_mandatory_requirement_count: int = 0
 
 
 @dataclass(slots=True)
@@ -119,10 +142,15 @@ class FrameworkAssessment:
     assessed_controls: int
     applicable_controls: int
     evidence_coverage_percent: float
+    mandatory_evidence_coverage_percent: float
     weighted_score_percent: float | None
     assessment_complete: bool
     warnings: list[str]
     assessed_at: datetime
+    evidence_requirement_count: int = 0
+    covered_evidence_requirement_count: int = 0
+    mandatory_requirement_count: int = 0
+    covered_mandatory_requirement_count: int = 0
 
 
 @dataclass(slots=True)
@@ -135,6 +163,7 @@ class ComplianceSummary:
     applicable_controls: int
     assessed_controls: int
     evidence_coverage_percent: float
+    mandatory_evidence_coverage_percent: float
     overall_status: ComplianceStatus
     warnings: list[str]
 
@@ -171,3 +200,5 @@ class RuleControlMapping:
     mapping_version: str
     validated: bool
     validated_at: str | None
+    framework_id: str = ""
+    framework_version: str = ""

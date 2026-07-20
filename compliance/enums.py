@@ -78,6 +78,13 @@ class MappingRelationship(str, Enum):
     CONTEXT_ONLY = "CONTEXT_ONLY"
 
 
+class CompositeMode(str, Enum):
+    """Supported composite evidence modes."""
+
+    AND = "AND"
+    OR = "OR"
+
+
 class EvidenceOperator(str, Enum):
     """Supported evidence operators."""
 

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from analysis_context import AnalysisContext
-from compliance.enums import EvidenceResult, EvidenceSourceType
+from dataclasses import replace
+
+from compliance.enums import CompositeMode, EvidenceResult, EvidenceSourceType
 from compliance.evidence.base import EvidenceExtractor, evidence_record
 from compliance.evidence.field_evidence import FieldEvidenceExtractor
 from compliance.evidence.finding_evidence import FindingEvidenceExtractor
@@ -32,10 +34,17 @@ class CompositeEvidenceExtractor(EvidenceExtractor):
     ):
         """Evaluate composite child requirements."""
 
-        mode = str(requirement.parameters.get("mode", "AND")).upper()
+        try:
+            mode = CompositeMode(str(requirement.parameters.get("mode", "AND")).upper())
+        except ValueError:
+            return evidence_record(requirement, EvidenceResult.INCONCLUSIVE, None, 0, "Unknown composite mode")
         children = requirement.parameters.get("requirements", [])
         records = []
         for item in children if isinstance(children, list) else []:
+            if not isinstance(item, dict):
+                return evidence_record(requirement, EvidenceResult.INCONCLUSIVE, None, 0, "Invalid composite child")
+            if item.get("extractor") == "composite":
+                return evidence_record(requirement, EvidenceResult.INCONCLUSIVE, None, 0, "Nested composite evidence unsupported")
             child = EvidenceRequirement(
                 evidence_id=str(item.get("id", requirement.evidence_id)),
                 description=str(item.get("description", "")),
@@ -49,14 +58,17 @@ class CompositeEvidenceExtractor(EvidenceExtractor):
                 parameters=item.get("parameters", {}) if isinstance(item.get("parameters", {}), dict) else {},
             )
             extractor = self.extractors.get(child.source_type.value)
-            if extractor is not None:
-                records.append(extractor.extract(child, context, findings))
+            if extractor is None:
+                return evidence_record(requirement, EvidenceResult.INCONCLUSIVE, None, 0, "Unknown composite child source")
+            records.append(extractor.extract(child, context, findings))
 
         if not records:
             return evidence_record(requirement, EvidenceResult.MISSING, None, 0, "Composite evidence missing")
-        if mode == "OR":
+        if mode == CompositeMode.OR:
             if any(record.result == EvidenceResult.SUPPORTS for record in records):
                 result = EvidenceResult.SUPPORTS
+            elif all(record.result == EvidenceResult.NOT_APPLICABLE for record in records):
+                result = EvidenceResult.NOT_APPLICABLE
             elif any(record.result in {EvidenceResult.INCONCLUSIVE, EvidenceResult.MISSING} for record in records):
                 result = EvidenceResult.INCONCLUSIVE
             else:
@@ -64,14 +76,29 @@ class CompositeEvidenceExtractor(EvidenceExtractor):
         else:
             if all(record.result == EvidenceResult.SUPPORTS for record in records):
                 result = EvidenceResult.SUPPORTS
+            elif any(record.result == EvidenceResult.NOT_APPLICABLE for record in records):
+                result = EvidenceResult.NOT_APPLICABLE
             elif any(record.result == EvidenceResult.CONTRADICTS for record in records):
                 result = EvidenceResult.CONTRADICTS
             else:
                 result = EvidenceResult.INCONCLUSIVE
-        return evidence_record(
+        record = evidence_record(
             requirement,
             result,
             [record.actual_value for record in records],
-            min(record.confidence for record in records),
-            f"Composite {mode} evidence",
+            _weighted_confidence(records),
+            f"Composite {mode.value} evidence",
         )
+        return replace(
+            record,
+            child_provenance=[child.provenance for child in records],
+        )
+
+
+def _weighted_confidence(records) -> int:
+    """Return child-weighted confidence."""
+
+    total = sum(record.weight for record in records)
+    if total <= 0:
+        return 0
+    return round(sum(record.weight * record.confidence for record in records) / total)

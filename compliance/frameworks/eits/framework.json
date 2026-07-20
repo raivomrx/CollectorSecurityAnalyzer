@@ -4,6 +4,11 @@
     "type": "EITS",
     "name": "E-ITS Endpoint Evidence Subset",
     "version": "2025",
+    "officialVersion": "2025",
+    "snapshotVersion": "CSA-EITS-ENDPOINT-2026.1",
+    "mappingVersion": "CSA-MAP-2026.1",
+    "sourceRetrievedAt": "2026-07-17",
+    "sourceHash": null,
     "publisher": "CSA local mapping",
     "effectiveDate": "2025-01-01",
     "language": "en",
@@ -13,6 +18,8 @@
   "controls": [
     {
       "id": "EITS-DEVICE-ENCRYPTION",
+      "officialControlId": null,
+      "csaObjectiveId": "CSA-EITS-DEVICE-ENCRYPTION",
       "title": "Endpoint storage encryption evidence",
       "description": "Endpoint evidence indicates whether system drive encryption is enabled.",
       "requirementLevel": "MUST",
@@ -41,6 +48,8 @@
     },
     {
       "id": "EITS-ENDPOINT-PROTECTION",
+      "officialControlId": null,
+      "csaObjectiveId": "CSA-EITS-ENDPOINT-PROTECTION",
       "title": "Endpoint malware protection evidence",
       "description": "Endpoint evidence indicates whether Microsoft Defender is enabled.",
       "requirementLevel": "MUST",
@@ -69,6 +78,8 @@
     },
     {
       "id": "EITS-PATCHING-PROCESS",
+      "officialControlId": null,
+      "csaObjectiveId": "CSA-EITS-PATCHING-PROCESS",
       "title": "Patch management process evidence",
       "description": "Endpoint update recency is available, but full process compliance requires organisational evidence.",
       "requirementLevel": "MUST",

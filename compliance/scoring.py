@@ -20,15 +20,17 @@ def weighted_score(controls: list[ControlAssessment]) -> float | None:
     ]
     if not scored:
         return None
-    value = sum(_score_value(control.status) for control in scored) / len(scored)
+    value = sum(_score_value(control) for control in scored) / len(scored)
     return round(value * 100, 1)
 
 
-def _score_value(status: ComplianceStatus) -> float:
+def _score_value(control: ControlAssessment) -> float:
     """Return numeric score for one status."""
 
-    if status == ComplianceStatus.COMPLIANT:
+    if control.score is not None:
+        return control.score
+    if control.status == ComplianceStatus.COMPLIANT:
         return 1.0
-    if status == ComplianceStatus.PARTIALLY_COMPLIANT:
+    if control.status == ComplianceStatus.PARTIALLY_COMPLIANT:
         return 0.5
     return 0.0

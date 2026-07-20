@@ -333,6 +333,7 @@
           <div><span>Applicable controls</span><strong>{{ compliance_summary.applicable_controls }}</strong></div>
           <div><span>Assessed controls</span><strong>{{ compliance_summary.assessed_controls }}</strong></div>
           <div><span>Evidence coverage</span><strong>{{ compliance_summary.evidence_coverage_percent }}%</strong></div>
+          <div><span>Mandatory evidence coverage</span><strong>{{ compliance_summary.mandatory_evidence_coverage_percent }}%</strong></div>
           <div><span>Overall status</span><strong>{{ compliance_summary.overall_status.value }}</strong></div>
         </div>
         <div class="filter-bar" data-compliance-filters>
@@ -370,6 +371,9 @@
             <h3>{{ assessment.framework.name }} {{ assessment.framework.version }}</h3>
             <div class="summary-grid compact">
               <div><span>Framework</span><strong>{{ assessment.framework.framework_id }}</strong></div>
+              <div><span>Official version</span><strong>{{ assessment.framework.official_version }}</strong></div>
+              <div><span>CSA snapshot</span><strong>{{ assessment.framework.snapshot_version }}</strong></div>
+              <div><span>Mapping version</span><strong>{{ assessment.framework.mapping_version }}</strong></div>
               <div><span>Profile</span><strong>{{ assessment.profile_id }}</strong></div>
               <div><span>Profile version</span><strong>{{ assessment.profile_version }}</strong></div>
               <div><span>Assessed at</span><strong>{{ assessment.assessed_at }}</strong></div>
@@ -381,6 +385,7 @@
               <div><span>Manual review</span><strong>{{ assessment.manual_review_count }}</strong></div>
               <div><span>Weighted score</span><strong>{{ assessment.weighted_score_percent if assessment.weighted_score_percent is not none else "N/A" }}%</strong></div>
               <div><span>Evidence coverage</span><strong>{{ assessment.evidence_coverage_percent }}%</strong></div>
+              <div><span>Mandatory coverage</span><strong>{{ assessment.mandatory_evidence_coverage_percent }}%</strong></div>
               <div><span>Complete</span><strong>{{ "Yes" if assessment.assessment_complete else "No" }}</strong></div>
             </div>
             {% if assessment.warnings %}
@@ -409,6 +414,8 @@
                     <th>Rationale</th>
                     <th>Remediation</th>
                     <th>Scope</th>
+                    <th>Assessed Scope</th>
+                    <th>Unassessed Scope</th>
                     <th>Manual Review</th>
                   </tr>
                 </thead>
@@ -435,6 +442,9 @@
                                 {{ evidence.result.value }};
                                 actual={{ evidence.actual_value }};
                                 expected={{ evidence.expected_value }};
+                                confidence={{ evidence.confidence }}%;
+                                weight={{ evidence.weight }};
+                                mapping={{ evidence.mapping_relationship.value if evidence.mapping_relationship else "" }};
                                 source={{ evidence.source_type.value }} {{ evidence.source_reference }};
                                 provenance={{ evidence.provenance }}
                               </li>
@@ -452,10 +462,20 @@
                           <span class="framework">{{ scope.value }}</span>
                         {% endfor %}
                       </td>
+                      <td>
+                        {% for scope in control.assessed_scopes %}
+                          <span class="framework">{{ scope.value }}</span>
+                        {% endfor %}
+                      </td>
+                      <td>
+                        {% for scope in control.unassessed_scopes %}
+                          <span class="framework">{{ scope.value }}</span>
+                        {% endfor %}
+                      </td>
                       <td>{{ "Yes" if control.manual_review_required else "No" }}</td>
                     </tr>
                   {% else %}
-                    <tr><td colspan="12" class="muted">No controls assessed.</td></tr>
+                    <tr><td colspan="14" class="muted">No controls assessed.</td></tr>
                   {% endfor %}
                 </tbody>
               </table>

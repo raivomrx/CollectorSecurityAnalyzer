@@ -9,7 +9,7 @@
   "frameworkVersions": {
     "EITS": "2025",
     "CIS_CONTROLS": "8.1",
-    "MICROSOFT_BASELINE": "WINDOWS_11_25H2_1.0"
+    "MICROSOFT_BASELINE": "WINDOWS_11_25H2_CSA_2026.1"
   },
   "enabledControls": {},
   "excludedControls": {},
