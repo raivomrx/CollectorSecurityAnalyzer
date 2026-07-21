@@ -1,14 +1,15 @@
-$collectorRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\collector\windows")).Path
-$moduleRoot = Join-Path $collectorRoot "modules"
-$manifest = Get-Content -Raw -LiteralPath (Join-Path $collectorRoot "evidence-manifest.json") | ConvertFrom-Json
+BeforeAll {
+    $collectorRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\collector\windows")).Path
+    $moduleRoot = Join-Path $collectorRoot "modules"
+    $manifest = Get-Content -Raw -LiteralPath (Join-Path $collectorRoot "evidence-manifest.json") | ConvertFrom-Json
+    Import-Module (Join-Path $moduleRoot "General.psm1") -Force
 
-Import-Module (Join-Path $moduleRoot "General.psm1") -Force
+    function Resolve-TestModuleResult {
+        param([string]$Module, $Result)
 
-function Resolve-TestModuleResult {
-    param([string]$Module, $Result)
-
-    $manifestModule = @($manifest.modules | Where-Object { $_.module -eq $Module })[0]
-    Resolve-CSAModuleEvidence -Result $Result -ManifestModule $manifestModule
+        $manifestModule = @($manifest.modules | Where-Object { $_.module -eq $Module })[0]
+        Resolve-CSAModuleEvidence -Result $Result -ManifestModule $manifestModule
+    }
 }
 
 Describe "CSA Windows Collector runtime evidence contracts" {
@@ -37,19 +38,21 @@ Describe "CSA Windows Collector runtime evidence contracts" {
             } -ModuleName Defender
 
             $result = Resolve-TestModuleResult "Defender" (Get-CSADefenderEvidence -PrivacyMode Strict)
-            $result.Status | Should Be "SUCCESS"
-            $result.Settings.Count | Should Be 18
-            $result.ExpectedEvidenceCount | Should Be 18
-            $result.CollectedEvidenceCount | Should Be 18
-            ($result.Settings | ConvertTo-Json -Depth 8) | Should Not Match 'Sensitive|Client'
-            @($result.Settings | Where-Object { $_.settingId -eq "DEFENDER_SIGNATURE_AGE_DAYS" }).Count | Should Be 1
-            @($result.Settings | Where-Object { $_.settingId -eq "DEFENDER_EXCLUSION_COUNT" }).Count | Should Be 1
+            $result.Status | Should -Be "SUCCESS"
+            $result.Settings.Count | Should -Be 18
+            $result.ExpectedEvidenceCount | Should -Be 18
+            $result.CollectedEvidenceCount | Should -Be 18
+            ($result.Settings | ConvertTo-Json -Depth 8) | Should -Not -Match 'Sensitive|Client'
+            @($result.Settings | Where-Object { $_.settingId -eq "DEFENDER_SIGNATURE_AGE_DAYS" }).Count | Should -Be 1
+            @($result.Settings | Where-Object { $_.settingId -eq "DEFENDER_EXCLUSION_COUNT" }).Count | Should -Be 1
         }
     }
 
     Context "Firewall" {
-        Get-Module Firewall -All | Remove-Module -Force -ErrorAction SilentlyContinue
-        Import-Module (Join-Path $moduleRoot "Firewall.psm1") -Force
+        BeforeAll {
+            Get-Module Firewall -All | Remove-Module -Force -ErrorAction SilentlyContinue
+            Import-Module (Join-Path $moduleRoot "Firewall.psm1") -Force
+        }
 
         BeforeEach {
             Mock Get-Service { [pscustomobject]@{ StartType = "Automatic" } } -ModuleName Firewall
@@ -64,11 +67,11 @@ Describe "CSA Windows Collector runtime evidence contracts" {
             ) } -ModuleName Firewall
 
             $result = Resolve-TestModuleResult "Firewall" (Get-CSAFirewallEvidence -PrivacyMode Strict)
-            $result.Status | Should Be "SUCCESS"
-            $result.Settings.Count | Should Be 40
-            $result.ExpectedEvidenceCount | Should Be 40
-            $result.CollectedEvidenceCount | Should Be 40
-            @($result.Settings | Where-Object { $_.settingId -eq "WINDOWS_FIREWALL_PUBLIC_ENABLED" -and $_.effectiveValue -eq $false }).Count | Should Be 1
+            $result.Status | Should -Be "SUCCESS"
+            $result.Settings.Count | Should -Be 40
+            $result.ExpectedEvidenceCount | Should -Be 40
+            $result.CollectedEvidenceCount | Should -Be 40
+            @($result.Settings | Where-Object { $_.settingId -eq "WINDOWS_FIREWALL_PUBLIC_ENABLED" -and $_.effectiveValue -eq $false }).Count | Should -Be 1
         }
 
         It "marks a missing standard profile as PARTIAL" {
@@ -78,9 +81,9 @@ Describe "CSA Windows Collector runtime evidence contracts" {
             ) } -ModuleName Firewall
 
             $result = Resolve-TestModuleResult "Firewall" (Get-CSAFirewallEvidence)
-            $result.Status | Should Be "PARTIAL"
-            $result.ExpectedEvidenceCount | Should Be 40
-            $result.CollectedEvidenceCount | Should Be 28
+            $result.Status | Should -Be "PARTIAL"
+            $result.ExpectedEvidenceCount | Should -Be 40
+            $result.CollectedEvidenceCount | Should -Be 28
         }
     }
 
@@ -98,10 +101,10 @@ Describe "CSA Windows Collector runtime evidence contracts" {
             Mock Get-CSARegistryValue { $DefaultValue } -ModuleName Updates
 
             $result = Resolve-TestModuleResult "Updates" (Get-CSAUpdatesEvidence)
-            $result.Status | Should Be "SUCCESS"
-            $result.Settings.Count | Should Be 20
-            $result.ExpectedEvidenceCount | Should Be 16
-            $result.CollectedEvidenceCount | Should Be 16
+            $result.Status | Should -Be "SUCCESS"
+            $result.Settings.Count | Should -Be 20
+            $result.ExpectedEvidenceCount | Should -Be 16
+            $result.CollectedEvidenceCount | Should -Be 16
         }
     }
 
@@ -116,10 +119,10 @@ Describe "CSA Windows Collector runtime evidence contracts" {
             } -ModuleName DeviceGuard
 
             $result = Resolve-TestModuleResult "DeviceGuard" (Get-CSADeviceGuardEvidence)
-            $result.Status | Should Be "SUCCESS"
-            $result.Settings.Count | Should Be 12
-            $result.ExpectedEvidenceCount | Should Be 12
-            $result.CollectedMandatoryEvidenceCount | Should Be 5
+            $result.Status | Should -Be "SUCCESS"
+            $result.Settings.Count | Should -Be 12
+            $result.ExpectedEvidenceCount | Should -Be 12
+            $result.CollectedMandatoryEvidenceCount | Should -Be 5
         }
     }
 
@@ -132,24 +135,26 @@ Describe "CSA Windows Collector runtime evidence contracts" {
             Mock Get-ItemProperty { @() } -ModuleName RemoteAccess
 
             $result = Resolve-TestModuleResult "RemoteAccess" (Get-CSARemoteAccessEvidence)
-            $result.Status | Should Be "SUCCESS"
-            $result.Settings.Count | Should Be 15
-            $result.ExpectedEvidenceCount | Should Be 14
-            $result.CollectedEvidenceCount | Should Be 13
+            $result.Status | Should -Be "SUCCESS"
+            $result.Settings.Count | Should -Be 15
+            $result.ExpectedEvidenceCount | Should -Be 14
+            $result.CollectedEvidenceCount | Should -Be 13
         }
     }
 
     Context "BitLocker" {
-        Get-Module BitLocker -All | Remove-Module -Force -ErrorAction SilentlyContinue
-        Import-Module (Join-Path $moduleRoot "BitLocker.psm1") -Force
+        BeforeAll {
+            Get-Module BitLocker -All | Remove-Module -Force -ErrorAction SilentlyContinue
+            Import-Module (Join-Path $moduleRoot "BitLocker.psm1") -Force
+        }
 
         It "counts one operating-system volume as eight canonical units" {
             $provider = { @([pscustomobject]@{ MountPoint="C:"; VolumeType="OperatingSystem"; ProtectionStatus="On"; EncryptionPercentage=100; EncryptionMethod="XtsAes256"; LockStatus="Unlocked"; AutoUnlockEnabled=$false; KeyProtector=@([pscustomobject]@{KeyProtectorType="Tpm"}) }) }
             $result = Resolve-TestModuleResult "BitLocker" (Get-CSABitLockerEvidence -VolumeProvider $provider -BitLockerSupported $true)
-            $result.Status | Should Be "SUCCESS"
-            $result.Settings.Count | Should Be 9
-            $result.ExpectedEvidenceCount | Should Be 8
-            $result.CollectedEvidenceCount | Should Be 8
+            $result.Status | Should -Be "SUCCESS"
+            $result.Settings.Count | Should -Be 9
+            $result.ExpectedEvidenceCount | Should -Be 8
+            $result.CollectedEvidenceCount | Should -Be 8
         }
 
         It "expands cardinality for an OS and a data volume" {
@@ -158,26 +163,26 @@ Describe "CSA Windows Collector runtime evidence contracts" {
                 [pscustomobject]@{ MountPoint="D:"; VolumeType="FixedData"; ProtectionStatus="Off"; EncryptionPercentage=0; EncryptionMethod="None"; LockStatus="Unlocked"; AutoUnlockEnabled=$false; KeyProtector=@() }
             ) }
             $result = Resolve-TestModuleResult "BitLocker" (Get-CSABitLockerEvidence -VolumeProvider $provider -BitLockerSupported $true)
-            $result.Settings.Count | Should Be 17
-            $result.ExpectedEvidenceCount | Should Be 16
-            $result.CollectedEvidenceCount | Should Be 16
+            $result.Settings.Count | Should -Be 17
+            $result.ExpectedEvidenceCount | Should -Be 16
+            $result.CollectedEvidenceCount | Should -Be 16
         }
 
         It "returns NOT_AVAILABLE when no fixed volumes apply" {
             $result = Resolve-TestModuleResult "BitLocker" (Get-CSABitLockerEvidence -VolumeProvider { @() } -BitLockerSupported $true)
-            $result.Status | Should Be "NOT_AVAILABLE"
-            $result.ExpectedEvidenceCount | Should Be 0
+            $result.Status | Should -Be "NOT_AVAILABLE"
+            $result.ExpectedEvidenceCount | Should -Be 0
         }
 
         It "preserves NOT_SUPPORTED" {
             $result = Resolve-TestModuleResult "BitLocker" (Get-CSABitLockerEvidence -BitLockerSupported $false)
-            $result.Status | Should Be "NOT_SUPPORTED"
+            $result.Status | Should -Be "NOT_SUPPORTED"
         }
 
         It "preserves ACCESS_DENIED" {
             $provider = { throw (New-Object System.UnauthorizedAccessException "denied") }
             $result = Resolve-TestModuleResult "BitLocker" (Get-CSABitLockerEvidence -VolumeProvider $provider -BitLockerSupported $true)
-            $result.Status | Should Be "ACCESS_DENIED"
+            $result.Status | Should -Be "ACCESS_DENIED"
         }
     }
 }

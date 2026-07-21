@@ -24,12 +24,20 @@ jobs:
           python -c "import json; from pathlib import Path; from collector_schema.validation import validate_v2_document; p=Path('test-artifacts/mocked-collector-sample.json'); warnings=validate_v2_document(json.loads(p.read_text(encoding='utf-8'))); Path('test-artifacts/schema-validation.json').write_text(json.dumps({'valid': True, 'warnings': warnings}, indent=2), encoding='utf-8')"
       - name: Install Pester
         shell: pwsh
-        run: Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck
+        run: Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force -SkipPublisherCheck
       - name: Run collector tests
         shell: pwsh
         run: |
-          $result = Invoke-Pester -Path tests/powershell -CI -PassThru -OutputFormat NUnitXml -OutputFile test-artifacts/pester-results.xml
+          $configuration = New-PesterConfiguration
+          $configuration.Run.Path = "tests/powershell"
+          $configuration.Run.PassThru = $true
+          $configuration.Output.Verbosity = "Detailed"
+          $configuration.TestResult.Enabled = $true
+          $configuration.TestResult.OutputFormat = "NUnitXml"
+          $configuration.TestResult.OutputPath = "test-artifacts/pester-results.xml"
+          $result = Invoke-Pester -Configuration $configuration
           if ($result.FailedCount -gt 0) { exit 1 }
+          if (-not (Test-Path test-artifacts/pester-results.xml)) { throw "Pester result XML was not created." }
       - name: Upload collector test evidence
         if: always()
         uses: actions/upload-artifact@v4
