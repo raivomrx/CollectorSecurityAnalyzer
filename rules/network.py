@@ -38,6 +38,40 @@ class NetworkRule(BaseRule):
 
         LOGGER.info("Running NetworkRule")
         try:
+            setting = (
+                context.evidence_registry.get("ACTIVE_NETWORK_CATEGORY")
+                if context and context.evidence_registry
+                else None
+            )
+            if setting is not None:
+                if setting.collection_status.value != "SUCCESS":
+                    return [
+                        Finding(
+                            rule_id=self.id,
+                            severity=Severity.INFO,
+                            status=Status.NOT_EVALUATED,
+                            evidence={
+                                "setting_id": setting.setting_id,
+                                "collection_status": setting.collection_status.value,
+                            },
+                            score=0,
+                        )
+                    ]
+                categories = (
+                    setting.effective_value
+                    if isinstance(setting.effective_value, list)
+                    else [setting.effective_value]
+                )
+                is_public = any(str(item).casefold() == "public" for item in categories)
+                return [
+                    Finding(
+                        rule_id=self.id,
+                        severity=Severity.MEDIUM if is_public else Severity.LOW,
+                        status=Status.FAIL if is_public else Status.PASS,
+                        evidence={"NetworkCategory": categories},
+                        score=10 if is_public else 0,
+                    )
+                ]
             category = str(
                 safe_get(data, "Net_connection_profile.NetworkCategory", "")
             ).strip()

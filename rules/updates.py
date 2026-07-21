@@ -40,6 +40,41 @@ class UpdatesRule(BaseRule):
 
         LOGGER.info("Running UpdatesRule")
         try:
+            setting = (
+                context.evidence_registry.get(
+                    "WINDOWS_UPDATE_LAST_INSTALL_AGE_DAYS"
+                )
+                if context and context.evidence_registry
+                else None
+            )
+            if setting is not None:
+                if (
+                    setting.collection_status.value != "SUCCESS"
+                    or setting.effective_value is None
+                ):
+                    return [
+                        Finding(
+                            rule_id=self.id,
+                            severity=Severity.INFO,
+                            status=Status.NOT_EVALUATED,
+                            evidence={
+                                "setting_id": setting.setting_id,
+                                "collection_status": setting.collection_status.value,
+                            },
+                            score=0,
+                        )
+                    ]
+                age_days = int(setting.effective_value)
+                stale = age_days > MAX_UPDATE_AGE_DAYS
+                return [
+                    Finding(
+                        rule_id=self.id,
+                        severity=Severity.MEDIUM if stale else Severity.LOW,
+                        status=Status.FAIL if stale else Status.PASS,
+                        evidence={"age_days": age_days},
+                        score=10 if stale else 0,
+                    )
+                ]
             value = safe_get(data, "Updates_lastInstallationSuccessDate")
             parsed = parse_date(value)
             if parsed is None:

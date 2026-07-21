@@ -38,6 +38,39 @@ class BitLockerRule(BaseRule):
 
         LOGGER.info("Running BitLockerRule")
         try:
+            setting = (
+                context.evidence_registry.get("BITLOCKER_OS_PROTECTION")
+                if context and context.evidence_registry
+                else None
+            )
+            if setting is not None:
+                if setting.collection_status.value != "SUCCESS":
+                    return [
+                        Finding(
+                            rule_id=self.id,
+                            severity=Severity.INFO,
+                            status=Status.NOT_EVALUATED,
+                            evidence={
+                                "setting_id": setting.setting_id,
+                                "collection_status": setting.collection_status.value,
+                            },
+                            score=0,
+                        )
+                    ]
+                enabled = bool(setting.effective_value)
+                return [
+                    Finding(
+                        rule_id=self.id,
+                        severity=Severity.LOW if enabled else Severity.HIGH,
+                        status=Status.PASS if enabled else Status.FAIL,
+                        evidence={
+                            "setting_id": setting.setting_id,
+                            "effective_value": setting.effective_value,
+                        },
+                        affected_asset="system_drive",
+                        score=0 if enabled else 20,
+                    )
+                ]
             enabled = bool(safe_get(data, "Bitlocker-C", False))
             if enabled:
                 return [

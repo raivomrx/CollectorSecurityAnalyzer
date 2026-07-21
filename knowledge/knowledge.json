@@ -1,6 +1,7 @@
 {
   "metadata": {
-    "knowledge_version": "CSA-KB-2026.1"
+    "knowledge_version": "CSA-KB-2026.2",
+    "includes": ["windows_security.json"]
   },
   "entries": {
     "BIT-001": {

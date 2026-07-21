@@ -62,7 +62,7 @@ def generate_html_report(
     collection_quality = _build_collection_quality(collector_document, privacy_mode)
     html = template.render(
         data=data,
-        summary=_build_summary(data, audit_findings, score),
+        summary=_build_summary(data, audit_findings, score, privacy_mode),
         collection_quality=collection_quality,
         windows_evidence=_group_evidence(evidence_registry),
         missing_evidence=_missing_evidence(evidence_registry),
@@ -87,6 +87,7 @@ def _build_summary(
     data: dict[str, Any],
     audit_findings: list[AuditFinding],
     score: int,
+    privacy_mode: PrivacyMode = PrivacyMode.STANDARD,
 ) -> dict[str, Any]:
     """Build executive summary values for the report template."""
 
@@ -94,11 +95,24 @@ def _build_summary(
     status_counts = Counter(finding.status.value for finding in findings)
     severity_counts = Counter(finding.severity.value for finding in findings)
     return {
-        "computer_name": _first_value(data, "ComputerName", "Computer.Name"),
-        "os": _first_value(data, "OS", "OperatingSystem", "Computer.OS"),
-        "domain": _first_value(data, "Domain", "Workgroup", "Computer.Domain"),
-        "forensics_date": _first_value(data, "ForensicsDate", "Forensics.Date"),
-        "current_user": _first_value(data, "Current_user", "CurrentUser"),
+        "computer_name": pseudonymize_hostname(
+            str(_first_value(data, "ComputerName", "Computer.Name", "device.hostname")),
+            privacy_mode,
+        ),
+        "os": _first_value(data, "OS", "OperatingSystem", "Computer.OS", "operatingSystem.name"),
+        "domain": _first_value(data, "Domain", "Workgroup", "Computer.Domain", "device.domain", "device.workgroup"),
+        "forensics_date": _first_value(data, "ForensicsDate", "Forensics.Date", "collectionCompletedAt"),
+        "current_user": (
+            pseudonymize_hostname(
+                str(_first_value(data, "Current_user", "CurrentUser", "device.currentUser")),
+                privacy_mode,
+            )
+            if privacy_mode == PrivacyMode.STRICT
+            else redact_value(
+                _first_value(data, "Current_user", "CurrentUser", "device.currentUser"),
+                privacy_mode,
+            )
+        ),
         "score": score,
         "finding_count": len(audit_findings),
         "status_counts": status_counts,
@@ -126,8 +140,12 @@ def _build_collection_quality(
         "failed_modules": document.collection_summary.failed_collectors,
         "unsupported_modules": document.collection_summary.unsupported_collectors,
         "access_denied_modules": document.collection_summary.access_denied_collectors,
+        "module_execution_coverage": document.collection_summary.module_execution_coverage_percent,
+        "evidence_collection_coverage": document.collection_summary.evidence_collection_coverage_percent,
         "collection_coverage": document.collection_summary.collection_coverage_percent,
         "mandatory_collection_coverage": document.collection_summary.mandatory_collection_coverage_percent,
+        "mandatory_evidence_applicable": document.collection_summary.mandatory_evidence_applicable,
+        "mandatory_evidence_collected": document.collection_summary.mandatory_evidence_collected,
         "warnings": document.collection_summary.warnings,
         "errors": document.errors,
     }

@@ -104,6 +104,7 @@ def create_setting_rule(spec: SettingRuleSpec) -> type[BaseRule]:
 
     WindowsSettingRule.__name__ = _class_name(spec.rule_id)
     WindowsSettingRule.__qualname__ = WindowsSettingRule.__name__
+    setattr(WindowsSettingRule, "spec", spec)
     return WindowsSettingRule
 
 
@@ -116,7 +117,11 @@ def _evaluate_setting(
 
     value = setting.effective_value
     if spec.approved_remote_products:
-        approved = set((context.policy_profile.approved_remote_access_products if context and context.policy_profile else []))
+        approved = set(
+            context.policy_profile.approved_remote_access_products
+            if context and context.policy_profile
+            else []
+        )
         products = value if isinstance(value, list) else []
         unknown = [str(product) for product in products if str(product) not in approved]
         return not unknown, f"Unapproved remote products: {unknown}"

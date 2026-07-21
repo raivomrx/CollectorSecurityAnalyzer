@@ -39,6 +39,36 @@ class AdminRule(BaseRule):
 
         LOGGER.info("Running AdminRule")
         try:
+            setting = (
+                context.evidence_registry.get("LOCAL_ADMINISTRATOR_COUNT")
+                if context and context.evidence_registry
+                else None
+            )
+            if setting is not None:
+                if setting.collection_status.value != "SUCCESS":
+                    return [
+                        Finding(
+                            rule_id=self.id,
+                            severity=Severity.INFO,
+                            status=Status.NOT_EVALUATED,
+                            evidence={
+                                "setting_id": setting.setting_id,
+                                "collection_status": setting.collection_status.value,
+                            },
+                            score=0,
+                        )
+                    ]
+                count = int(setting.effective_value)
+                elevated = count > 2
+                return [
+                    Finding(
+                        rule_id=self.id,
+                        severity=Severity.MEDIUM if elevated else Severity.LOW,
+                        status=Status.FAIL if elevated else Status.PASS,
+                        evidence={"count": count},
+                        score=10 if elevated else 0,
+                    )
+                ]
             admins = safe_get(data, "All_local_admins")
             if admins is None:
                 return [

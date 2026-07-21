@@ -22,8 +22,12 @@
     <div><dt>Category</dt><dd>{{ rule.category.value if rule else "Unknown" }}</dd></div>
     <div><dt>Description</dt><dd>{{ knowledge.description }}</dd></div>
     <div><dt>Risk</dt><dd>{{ knowledge.risk }}</dd></div>
+    <div><dt>Impact</dt><dd>{{ knowledge.impact }}</dd></div>
     <div><dt>Evidence</dt><dd><pre>{{ finding.evidence|json }}</pre></dd></div>
     <div><dt>Recommendation</dt><dd>{{ knowledge.recommendation }}</dd></div>
+    {% if knowledge.policy_caveat %}
+      <div><dt>Policy caveat</dt><dd>{{ knowledge.policy_caveat }}</dd></div>
+    {% endif %}
     <div>
       <dt>Framework references</dt>
       <dd>

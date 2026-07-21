@@ -38,6 +38,11 @@ class Knowledge:
     frameworks: dict[str, list[str]] = field(default_factory=dict)
     references: list[Reference] = field(default_factory=list)
     knowledge_version: str = DEFAULT_KNOWLEDGE_VERSION
+    impact: str = UNKNOWN_TEXT
+    remediation: str = UNKNOWN_TEXT
+    category: str = UNKNOWN_TEXT
+    framework_context: str = UNKNOWN_TEXT
+    policy_caveat: str | None = None
 
     @classmethod
     def unknown(
@@ -56,4 +61,9 @@ class Knowledge:
             frameworks={},
             references=[],
             knowledge_version=knowledge_version,
+            impact=UNKNOWN_TEXT,
+            remediation=UNKNOWN_TEXT,
+            category=UNKNOWN_TEXT,
+            framework_context=UNKNOWN_TEXT,
+            policy_caveat=None,
         )

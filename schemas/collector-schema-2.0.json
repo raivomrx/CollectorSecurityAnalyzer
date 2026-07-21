@@ -40,7 +40,29 @@
         }
       }
     },
-    "collectionSummary": { "type": "object" },
+    "software": {
+      "type": "object",
+      "properties": {
+        "items": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "services": {
+      "type": "object",
+      "properties": {
+        "services": {"type": "array", "items": {"type": "object"}},
+        "scheduledTasks": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "collectionSummary": {
+      "type": "object",
+      "properties": {
+        "moduleExecutionCoveragePercent": {"type": "number", "minimum": 0, "maximum": 100},
+        "evidenceCollectionCoveragePercent": {"type": "number", "minimum": 0, "maximum": 100},
+        "mandatoryCollectionCoveragePercent": {"type": "number", "minimum": 0, "maximum": 100},
+        "mandatoryEvidenceApplicable": {"type": "integer", "minimum": 0},
+        "mandatoryEvidenceCollected": {"type": "integer", "minimum": 0}
+      }
+    },
     "errors": { "type": "array" }
   },
   "$defs": {

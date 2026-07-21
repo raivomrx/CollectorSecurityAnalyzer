@@ -123,6 +123,14 @@ def _parse_summary(data: dict[str, Any]) -> CollectionSummary:
         elevated=bool(data.get("elevated", False)),
         reboot_pending=data.get("rebootPending"),
         warnings=[str(item) for item in data.get("warnings", [])],
+        module_execution_coverage_percent=float(
+            data.get("moduleExecutionCoveragePercent", data.get("collectionCoveragePercent", 0.0))
+        ),
+        evidence_collection_coverage_percent=float(
+            data.get("evidenceCollectionCoveragePercent", data.get("collectionCoveragePercent", 0.0))
+        ),
+        mandatory_evidence_applicable=int(data.get("mandatoryEvidenceApplicable", 0)),
+        mandatory_evidence_collected=int(data.get("mandatoryEvidenceCollected", 0)),
     )
 
 

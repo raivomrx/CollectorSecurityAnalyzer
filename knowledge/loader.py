@@ -41,11 +41,15 @@ def load_knowledge(path: str | Path = DEFAULT_KNOWLEDGE_PATH) -> KnowledgeBase:
 
     version = _read_version(raw_entries)
     raw_knowledge_entries = _read_entries(raw_entries)
+    category_defaults = _read_category_defaults(raw_entries)
     entries = {
-        rule_id: _build_knowledge(rule_id, payload, version)
+        rule_id: _build_knowledge(rule_id, payload, version, category_defaults)
         for rule_id, payload in raw_knowledge_entries.items()
         if isinstance(payload, dict)
     }
+    for include_path in _read_includes(raw_entries, knowledge_path):
+        included = _load_included_entries(include_path, version)
+        entries.update(included)
     LOGGER.info("Knowledge Base loaded")
     LOGGER.info("Entries: %s", len(entries))
     return KnowledgeBase(version=version, entries=entries)
@@ -69,22 +73,78 @@ def _read_entries(raw_entries: dict[str, Any]) -> dict[str, Any]:
     return raw_entries
 
 
+def _read_category_defaults(raw_entries: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Return optional category-level defaults for compact knowledge catalogs."""
+
+    value = raw_entries.get("category_defaults", {})
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(category): payload
+        for category, payload in value.items()
+        if isinstance(payload, dict)
+    }
+
+
+def _read_includes(raw_entries: dict[str, Any], source_path: Path) -> list[Path]:
+    """Resolve explicitly included knowledge catalogs next to the root file."""
+
+    metadata = raw_entries.get("metadata", {})
+    if not isinstance(metadata, dict) or not isinstance(metadata.get("includes"), list):
+        return []
+    return [source_path.parent / str(item) for item in metadata["includes"]]
+
+
+def _load_included_entries(path: Path, knowledge_version: str) -> dict[str, Knowledge]:
+    """Load one included knowledge catalog without recursive includes."""
+
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        LOGGER.exception("Unable to load included knowledge catalog: %s", path)
+        return {}
+    if not isinstance(payload, dict):
+        LOGGER.warning("Included knowledge catalog root is not an object: %s", path)
+        return {}
+    defaults = _read_category_defaults(payload)
+    return {
+        rule_id: _build_knowledge(rule_id, entry, knowledge_version, defaults)
+        for rule_id, entry in _read_entries(payload).items()
+        if isinstance(entry, dict)
+    }
+
+
 def _build_knowledge(
     rule_id: str,
     payload: dict[str, Any],
     knowledge_version: str,
+    category_defaults: dict[str, dict[str, Any]] | None = None,
 ) -> Knowledge:
     """Build a Knowledge object from a JSON payload."""
 
+    category = str(payload.get("category", "General"))
+    defaults = (category_defaults or {}).get(category, {})
+
+    def value(name: str, fallback: Any = UNKNOWN_TEXT) -> Any:
+        return payload.get(name, defaults.get(name, fallback))
+
+    remediation = str(value("remediation", value("recommendation")))
+
     return Knowledge(
         id=rule_id,
-        title=str(payload.get("title", UNKNOWN_TEXT)),
-        description=str(payload.get("description", UNKNOWN_TEXT)),
-        risk=str(payload.get("risk", UNKNOWN_TEXT)),
-        recommendation=str(payload.get("recommendation", UNKNOWN_TEXT)),
-        frameworks=_coerce_frameworks(payload.get("frameworks", {})),
-        references=_coerce_references(payload.get("references", [])),
+        title=str(value("title")),
+        description=str(value("description")),
+        risk=str(value("risk")),
+        recommendation=str(value("recommendation", remediation)),
+        frameworks=_coerce_frameworks(value("frameworks", {})),
+        references=_coerce_references(value("references", [])),
         knowledge_version=knowledge_version,
+        impact=str(value("impact", value("risk"))),
+        remediation=remediation,
+        category=category,
+        framework_context=str(value("framework_context", "Security control evidence.")),
+        policy_caveat=(str(value("policy_caveat", "")) or None),
     )
 
 

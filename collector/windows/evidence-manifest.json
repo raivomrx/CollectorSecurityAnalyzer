@@ -1,0 +1,261 @@
+{
+  "version": "1.0",
+  "modules": [
+    {
+      "module": "General",
+      "domain": "inventory",
+      "mandatorySettingIds": [],
+      "optionalSettingIds": [],
+      "inventoryDomains": ["software.items", "services.services", "services.scheduledTasks"]
+    },
+    {
+      "module": "BitLocker",
+      "domain": "security.settings",
+      "mandatorySettingIds": ["BITLOCKER_OS_PROTECTION"],
+      "optionalSettingIds": [
+        "BITLOCKER_<VOLUME>_PROTECTION_STATUS",
+        "BITLOCKER_<VOLUME>_ENCRYPTION_PERCENTAGE",
+        "BITLOCKER_<VOLUME>_ENCRYPTION_METHOD",
+        "BITLOCKER_<VOLUME>_LOCK_STATUS",
+        "BITLOCKER_<VOLUME>_AUTO_UNLOCK_ENABLED",
+        "BITLOCKER_<VOLUME>_TPM_PROTECTOR_PRESENT",
+        "BITLOCKER_<VOLUME>_PIN_PROTECTOR_PRESENT",
+        "BITLOCKER_<VOLUME>_RECOVERY_PASSWORD_PRESENT"
+      ]
+    },
+    {
+      "module": "Defender",
+      "domain": "security.settings",
+      "mandatorySettingIds": [
+        "DEFENDER_ENABLED",
+        "DEFENDER_REALTIME_PROTECTION_ENABLED",
+        "DEFENDER_SIGNATURE_AGE_DAYS",
+        "DEFENDER_CLOUD_PROTECTION_ENABLED",
+        "DEFENDER_PUA_PROTECTION_ENABLED",
+        "DEFENDER_NETWORK_PROTECTION_ENABLED",
+        "DEFENDER_EXCLUSION_RISKY_COUNT",
+        "DEFENDER_TAMPER_PROTECTION_ENABLED"
+      ],
+      "optionalSettingIds": [
+        "DEFENDER_BEHAVIOR_MONITORING_ENABLED",
+        "DEFENDER_IOAV_PROTECTION_ENABLED",
+        "DEFENDER_SCRIPT_SCANNING_ENABLED",
+        "DEFENDER_SAMPLE_SUBMISSION",
+        "DEFENDER_CONTROLLED_FOLDER_ACCESS_ENABLED",
+        "DEFENDER_SIGNATURE_VERSION",
+        "DEFENDER_SIGNATURE_UPDATED_AT",
+        "DEFENDER_LAST_FULL_SCAN_AT",
+        "DEFENDER_LAST_QUICK_SCAN_AT",
+        "DEFENDER_EXCLUSION_COUNT"
+      ]
+    },
+    {
+      "module": "Firewall",
+      "domain": "security.settings",
+      "mandatorySettingIds": [
+        "WINDOWS_FIREWALL_DOMAIN_ENABLED",
+        "WINDOWS_FIREWALL_PRIVATE_ENABLED",
+        "WINDOWS_FIREWALL_PUBLIC_ENABLED",
+        "WINDOWS_FIREWALL_INBOUND_DEFAULT_BLOCK",
+        "WINDOWS_FIREWALL_LOG_BLOCKED_ENABLED"
+      ],
+      "optionalSettingIds": [
+        "WINDOWS_FIREWALL_<PROFILE>_DEFAULT_INBOUND_ACTION",
+        "WINDOWS_FIREWALL_<PROFILE>_DEFAULT_OUTBOUND_ACTION",
+        "WINDOWS_FIREWALL_<PROFILE>_NOTIFY_ON_LISTEN",
+        "WINDOWS_FIREWALL_<PROFILE>_ALLOW_INBOUND_RULES",
+        "WINDOWS_FIREWALL_<PROFILE>_ALLOW_LOCAL_FIREWALL_RULES",
+        "WINDOWS_FIREWALL_<PROFILE>_ALLOW_LOCAL_IPSEC_RULES",
+        "WINDOWS_FIREWALL_<PROFILE>_LOG_ALLOWED",
+        "WINDOWS_FIREWALL_<PROFILE>_LOG_BLOCKED",
+        "WINDOWS_FIREWALL_<PROFILE>_LOG_IGNORED",
+        "WINDOWS_FIREWALL_<PROFILE>_LOG_FILE_NAME",
+        "WINDOWS_FIREWALL_<PROFILE>_LOG_MAX_SIZE_KILOBYTES",
+        "WINDOWS_FIREWALL_SERVICE_ENABLED",
+        "ACTIVE_FIREWALL_PROFILE"
+      ]
+    },
+    {
+      "module": "Accounts",
+      "domain": "security.settings",
+      "mandatorySettingIds": [
+        "GUEST_ACCOUNT_ENABLED",
+        "BUILTIN_ADMINISTRATOR_ENABLED",
+        "PASSWORD_NEVER_EXPIRES_INTERACTIVE_COUNT",
+        "LOCAL_ADMINISTRATOR_COUNT",
+        "STALE_ENABLED_LOCAL_ACCOUNT_COUNT",
+        "PASSWORD_POLICY_MIN_LENGTH",
+        "ACCOUNT_LOCKOUT_THRESHOLD"
+      ],
+      "optionalSettingIds": [
+        "LOCAL_USERS",
+        "LOCAL_ADMINISTRATORS",
+        "PASSWORD_POLICY_MINIMUM_LENGTH",
+        "PASSWORD_POLICY_MAXIMUM_AGE_DAYS",
+        "PASSWORD_POLICY_HISTORY",
+        "ACCOUNT_LOCKOUT_DURATION_MINUTES"
+      ]
+    },
+    {
+      "module": "DeviceGuard",
+      "domain": "security.settings",
+      "mandatorySettingIds": [
+        "SECURE_BOOT_ENABLED",
+        "TPM_READY",
+        "VBS_RUNNING",
+        "CREDENTIAL_GUARD_RUNNING",
+        "MEMORY_INTEGRITY_ENABLED"
+      ],
+      "optionalSettingIds": [
+        "TPM_PRESENT",
+        "TPM_ENABLED",
+        "TPM_ACTIVATED",
+        "TPM_SPEC_VERSION",
+        "VBS_STATUS",
+        "CREDENTIAL_GUARD_STATUS",
+        "SYSTEM_GUARD_SECURE_LAUNCH"
+      ]
+    },
+    {
+      "module": "Protocols",
+      "domain": "security.settings",
+      "mandatorySettingIds": [
+        "SMBV1_ENABLED",
+        "SMB_SIGNING_REQUIRED",
+        "LLMNR_ENABLED",
+        "NETBIOS_TCPIP_ENABLED",
+        "INSECURE_GUEST_LOGONS_ENABLED",
+        "LAN_MANAGER_AUTH_LEVEL"
+      ],
+      "optionalSettingIds": [
+        "SMBV1_CLIENT_ENABLED",
+        "SMBV1_SERVER_ENABLED",
+        "SMB_CLIENT_SIGNING_REQUIRED",
+        "SMB_SERVER_SIGNING_REQUIRED",
+        "SMB_INSECURE_GUEST_LOGONS_ENABLED",
+        "NETBIOS_ENABLED_ADAPTER_COUNT",
+        "NTLM_RESTRICTION_LEVEL",
+        "LAN_MANAGER_AUTHENTICATION_LEVEL",
+        "WPAD_RELEVANT_STATE"
+      ]
+    },
+    {
+      "module": "RemoteAccess",
+      "domain": "security.settings",
+      "mandatorySettingIds": [
+        "RDP_ENABLED",
+        "RDP_NLA_REQUIRED",
+        "RDP_SECURITY_LAYER_WEAK",
+        "WINRM_ALLOW_UNENCRYPTED",
+        "WINRM_BASIC_AUTH_ENABLED",
+        "REMOTE_REGISTRY_ENABLED",
+        "REMOTE_ACCESS_PRODUCTS"
+      ],
+      "optionalSettingIds": [
+        "RDP_SECURITY_LAYER",
+        "RDP_ENCRYPTION_LEVEL",
+        "REMOTE_ASSISTANCE_ENABLED",
+        "WINRM_SERVICE_ENABLED",
+        "WINRM_LISTENER_COUNT",
+        "WINRM_UNENCRYPTED_TRAFFIC_ALLOWED",
+        "OPENSSH_SERVER_ENABLED",
+        "UNAPPROVED_REMOTE_ACCESS_PRODUCT_COUNT"
+      ]
+    },
+    {
+      "module": "AuditPolicy",
+      "domain": "security.settings",
+      "mandatorySettingIds": [
+        "AUDIT_ADVANCED_POLICY_COVERAGE_PERCENT",
+        "AUDIT_LOGON_FAILURE_ENABLED",
+        "AUDIT_ACCOUNT_MANAGEMENT_ENABLED",
+        "AUDIT_PROCESS_CREATION_ENABLED",
+        "AUDIT_POLICY_CHANGE_ENABLED"
+      ],
+      "optionalSettingIds": [
+        "AUDIT_LOGON_SUCCESS",
+        "AUDIT_LOGON_FAILURE",
+        "AUDIT_ACCOUNT_MANAGEMENT_SUCCESS",
+        "AUDIT_ACCOUNT_MANAGEMENT_FAILURE",
+        "AUDIT_PROCESS_CREATION_SUCCESS",
+        "AUDIT_POLICY_CHANGE_SUCCESS",
+        "AUDIT_POLICY_CHANGE_FAILURE",
+        "AUDIT_FORCE_SUBCATEGORY_SETTINGS",
+        "AUDIT_POLICY_COVERAGE_PERCENT"
+      ]
+    },
+    {
+      "module": "Updates",
+      "domain": "updates.settings",
+      "mandatorySettingIds": [
+        "WINDOWS_UPDATE_PENDING_REBOOT",
+        "WINDOWS_UPDATE_PENDING_REBOOT_AGE_DAYS",
+        "WINDOWS_UPDATE_LAST_SCAN_AGE_DAYS",
+        "WINDOWS_UPDATE_LAST_INSTALL_AGE_DAYS",
+        "WINDOWS_UPDATE_SERVICE_ENABLED",
+        "WINDOWS_RELEASE_TARGET_MATCH"
+      ],
+      "optionalSettingIds": [
+        "UPDATE_LAST_SCAN_AT",
+        "UPDATE_LAST_INSTALL_AT",
+        "UPDATE_SCAN_AGE_DAYS",
+        "UPDATE_INSTALL_AGE_DAYS",
+        "PENDING_REBOOT",
+        "PENDING_REBOOT_SINCE",
+        "PENDING_REBOOT_AGE_DAYS",
+        "UPDATE_ORCHESTRATOR_SERVICE_ENABLED",
+        "WSUS_CONFIGURED",
+        "MICROSOFT_UPDATE_ENABLED",
+        "TARGET_RELEASE_VERSION",
+        "QUALITY_UPDATE_DEFERRAL_DAYS",
+        "FEATURE_UPDATE_DEFERRAL_DAYS",
+        "UPDATE_PAUSED"
+      ]
+    },
+    {
+      "module": "Network",
+      "domain": "security.settings",
+      "mandatorySettingIds": ["ACTIVE_NETWORK_CATEGORY"],
+      "optionalSettingIds": [
+        "ACTIVE_NETWORK_PROFILE",
+        "ACTIVE_NETWORK_ADAPTERS",
+        "PUBLIC_NETWORK_ADAPTER_COUNT",
+        "NETBIOS_STATE_PER_ADAPTER"
+      ]
+    },
+    {
+      "module": "PowerShell",
+      "domain": "security.settings",
+      "mandatorySettingIds": [
+        "POWERSHELL_2_ENABLED",
+        "POWERSHELL_SCRIPT_BLOCK_LOGGING_ENABLED",
+        "POWERSHELL_MODULE_LOGGING_ENABLED",
+        "POWERSHELL_TRANSCRIPTION_ENABLED"
+      ],
+      "optionalSettingIds": [
+        "POWERSHELL_PROTECTED_EVENT_LOGGING_ENABLED",
+        "POWERSHELL_EXECUTION_POLICY_BY_SCOPE",
+        "POWERSHELL_LANGUAGE_MODE",
+        "AMSI_AVAILABLE"
+      ]
+    },
+    {
+      "module": "UAC",
+      "domain": "security.settings",
+      "mandatorySettingIds": [
+        "UAC_ENABLE_LUA",
+        "UAC_ADMIN_CONSENT_PROMPT_WEAK",
+        "UAC_PROMPT_ON_SECURE_DESKTOP",
+        "LOCAL_ACCOUNT_TOKEN_FILTER_POLICY_WEAK"
+      ],
+      "optionalSettingIds": [
+        "UAC_CONSENT_PROMPT_BEHAVIOR_ADMIN",
+        "UAC_CONSENT_PROMPT_BEHAVIOR_USER",
+        "UAC_FILTER_ADMINISTRATOR_TOKEN",
+        "UAC_LOCAL_ACCOUNT_TOKEN_FILTER_POLICY",
+        "UAC_ENABLE_INSTALLER_DETECTION",
+        "UAC_ENABLE_VIRTUALIZATION"
+      ]
+    }
+  ]
+}
