@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "collector-schema-2.0.json",
+  "title": "Collector Security Analyzer Collector Schema 2.0",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "collectorVersion",
+    "collectionId",
+    "collectionStartedAt",
+    "collectionCompletedAt",
+    "device",
+    "operatingSystem",
+    "security",
+    "collectionSummary"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string", "pattern": "^2\\.[0-9]+$" },
+    "collectorVersion": { "type": "string" },
+    "collectionId": { "type": "string" },
+    "collectionStartedAt": { "type": "string", "format": "date-time" },
+    "collectionCompletedAt": { "type": "string", "format": "date-time" },
+    "device": { "type": "object" },
+    "operatingSystem": { "type": "object" },
+    "security": {
+      "type": "object",
+      "properties": {
+        "settings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/securitySetting" }
+        }
+      }
+    },
+    "updates": {
+      "type": "object",
+      "properties": {
+        "settings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/securitySetting" }
+        }
+      }
+    },
+    "collectionSummary": { "type": "object" },
+    "errors": { "type": "array" }
+  },
+  "$defs": {
+    "securitySetting": {
+      "type": "object",
+      "required": [
+        "settingId",
+        "category",
+        "collectionStatus",
+        "confidence",
+        "collectedAt",
+        "provider"
+      ],
+      "properties": {
+        "settingId": { "type": "string" },
+        "category": { "type": "string" },
+        "configuredValue": {},
+        "effectiveValue": {},
+        "source": {
+          "enum": [
+            "LOCAL_POLICY",
+            "GROUP_POLICY",
+            "MDM_POLICY",
+            "REGISTRY",
+            "DEFAULT",
+            "RUNTIME_STATE",
+            "SECURITY_PRODUCT",
+            "UNKNOWN"
+          ]
+        },
+        "collectionStatus": {
+          "enum": [
+            "SUCCESS",
+            "PARTIAL",
+            "FAILED",
+            "NOT_SUPPORTED",
+            "ACCESS_DENIED",
+            "NOT_AVAILABLE"
+          ]
+        },
+        "confidence": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "collectedAt": { "type": "string", "format": "date-time" },
+        "provider": { "type": "string" },
+        "sourcePath": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

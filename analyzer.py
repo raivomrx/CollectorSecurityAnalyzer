@@ -7,6 +7,9 @@ import logging
 from pathlib import Path
 
 from analysis_context import AnalysisContext
+from collector_schema.enums import PrivacyMode
+from collector_schema.loader import load_collector_document
+from collector_schema.validation import validate_schema_version, validate_v2_document
 from compliance.engine import ComplianceEngine
 from compliance.profile_resolver import ComplianceProfileResolver
 from compliance.repository import FrameworkRepository
@@ -22,6 +25,8 @@ from cve.service import CveService, empty_summary
 from logger import setup_logging
 from knowledge.repository import KnowledgeRepository
 from parser import parse_collector_file
+from evidence.normalization import normalize_windows_evidence
+from policies.loader import load_policy_profile
 from report import generate_html_report
 from risk import AuditFinding, Finding
 from rules.loader import load_registry
@@ -48,20 +53,34 @@ def analyze_file(
     framework_filter: list[str] | None = None,
     framework_versions: dict[str, str] | None = None,
     cis_ig: str | None = None,
+    validate_input: bool = False,
+    policy_profile: str | Path | None = None,
+    privacy_mode: str = "standard",
+    skipped_categories: list[str] | None = None,
 ) -> tuple[list[AuditFinding], int, SoftwareInventory, Path]:
     """Analyze a collector JSON file and generate an HTML report."""
 
     input_path = Path(path)
+    if validate_input and input_path.suffix.casefold() == ".tmp":
+        raise ValueError("Atomic incomplete collector output rejected")
     data = parse_collector_file(input_path)
+    collector_document = load_collector_document(data, validate=validate_input)
+    evidence_registry = normalize_windows_evidence(collector_document)
+    policy = load_policy_profile(policy_profile)
     repository = KnowledgeRepository()
     registry = load_registry()
-    software_items = data.get("Software", [])
+    software_items = collector_document.software.items or data.get("Software", [])
     software_inventory = build_inventory(
         software_items if isinstance(software_items, list) else []
     )
     context = AnalysisContext(
         raw_data=data,
         software_inventory=software_inventory,
+        collector_document=collector_document,
+        evidence_registry=evidence_registry,
+        policy_profile=policy,
+        privacy_mode=PrivacyMode(privacy_mode),
+        skipped_categories=skipped_categories or [],
     )
     _run_cve_scan(context, skip_cve, refresh_cve_cache, cve_debug)
     _run_cve_enrichment(
@@ -104,6 +123,10 @@ def analyze_file(
         cve_summary=context.cve_summary,
         cve_enrichment=context.cve_enrichment,
         compliance_summary=context.compliance_summary,
+        collector_document=context.collector_document,
+        evidence_registry=context.evidence_registry,
+        policy_profile=context.policy_profile,
+        privacy_mode=context.privacy_mode,
         output_path=output_path,
     )
     LOGGER.info("Total Findings: %s", len(findings))
@@ -329,14 +352,44 @@ def main() -> None:
     argument_parser.add_argument("--cis-ig", choices=["IG1", "IG2", "IG3"], help="Add CIS IG endpoint profile")
     argument_parser.add_argument("--list-compliance-profiles", action="store_true", help="List compliance profiles")
     argument_parser.add_argument("--list-frameworks", action="store_true", help="List compliance frameworks")
+    argument_parser.add_argument("--validate-input", action="store_true", help="Validate collector schema before analysis")
+    argument_parser.add_argument("--show-schema-version", action="store_true", help="Print input collector schema version")
+    argument_parser.add_argument("--policy-profile", help="Policy profile path or ID")
+    argument_parser.add_argument(
+        "--privacy-mode",
+        choices=[mode.value for mode in PrivacyMode],
+        default=PrivacyMode.STANDARD.value,
+        help="Report privacy mode",
+    )
+    argument_parser.add_argument("--list-evidence-categories", action="store_true", help="List normalized evidence categories")
+    argument_parser.add_argument("--skip-category", action="append", default=[], help="Skip rules in an evidence category")
     args = argument_parser.parse_args()
 
     setup_logging(level=args.log_level)
     if args.list_compliance_profiles or args.list_frameworks:
         _print_compliance_catalog(args.list_compliance_profiles, args.list_frameworks)
         return
+    if args.show_schema_version or args.list_evidence_categories:
+        if not args.input:
+            argument_parser.error("input is required for schema or evidence listing")
+        data = parse_collector_file(args.input)
+        if args.show_schema_version:
+            validate_schema_version(data)
+            print(str(data.get("schemaVersion") or data.get("schema_version") or "1.x"))
+        if args.list_evidence_categories:
+            document = load_collector_document(data, validate=args.validate_input)
+            registry = normalize_windows_evidence(document)
+            for category in sorted({setting.category for setting in registry.all()}):
+                print(category)
+        return
     if not args.input:
         argument_parser.error("input is required unless listing compliance profiles or frameworks")
+    if args.validate_input:
+        if Path(args.input).suffix.casefold() == ".tmp":
+            raise ValueError("Atomic incomplete collector output rejected")
+        data = parse_collector_file(args.input)
+        if str(data.get("schemaVersion") or data.get("schema_version") or "1.0").startswith("2."):
+            validate_v2_document(data)
     analyze_file(
         args.input,
         skip_cve=args.skip_cve,
@@ -352,6 +405,10 @@ def main() -> None:
         framework_filter=args.framework,
         framework_versions=_parse_framework_versions(args.framework_version),
         cis_ig=args.cis_ig,
+        validate_input=args.validate_input,
+        policy_profile=args.policy_profile,
+        privacy_mode=args.privacy_mode,
+        skipped_categories=args.skip_category,
     )
 
 

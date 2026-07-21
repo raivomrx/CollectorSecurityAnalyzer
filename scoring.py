@@ -23,7 +23,7 @@ def calculate_score(findings: Iterable[Finding], base_score: int = DEFAULT_BASE_
 
     score = base_score
     for finding in findings:
-        if finding.status == Status.PASS:
+        if finding.status in {Status.PASS, Status.INFO, Status.NOT_EVALUATED, Status.NOT_APPLICABLE, Status.ERROR}:
             delta = 0
         elif finding.score is not None:
             delta = -abs(int(finding.score))

@@ -89,6 +89,189 @@
         }
       ],
       "references": ["https://learn.microsoft.com/windows/security/operating-system-security/network-security/windows-firewall/"]
+    },
+    {
+      "id": "MSB-DEFENDER-HARDENING",
+      "title": "Defender advanced protection evidence",
+      "description": "Endpoint evidence indicates whether Defender runtime protections and protection quality settings are enabled.",
+      "requirementLevel": "MUST",
+      "scope": ["ENDPOINT"],
+      "parentControlId": null,
+      "implementationGroups": [],
+      "applicabilityTags": ["windows11", "workstation", "defender"],
+      "evidenceRequirements": [
+        {"id": "MSB-DEFENDER-HARDENING-E1", "description": "Real-time protection passes.", "sourceType": "FINDING", "sourceReference": "DEF-002", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.3, "mandatory": true},
+        {"id": "MSB-DEFENDER-HARDENING-E2", "description": "Signature freshness passes.", "sourceType": "FINDING", "sourceReference": "DEF-003", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.2, "mandatory": true},
+        {"id": "MSB-DEFENDER-HARDENING-E3", "description": "Cloud protection passes.", "sourceType": "FINDING", "sourceReference": "DEF-004", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": false},
+        {"id": "MSB-DEFENDER-HARDENING-E4", "description": "PUA protection passes.", "sourceType": "FINDING", "sourceReference": "DEF-005", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": false},
+        {"id": "MSB-DEFENDER-HARDENING-E5", "description": "Network protection passes.", "sourceType": "FINDING", "sourceReference": "DEF-006", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.1, "mandatory": false},
+        {"id": "MSB-DEFENDER-HARDENING-E6", "description": "Tamper protection passes.", "sourceType": "FINDING", "sourceReference": "DEF-008", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.1, "mandatory": false}
+      ],
+      "references": ["https://learn.microsoft.com/microsoft-365/security/defender-endpoint/"]
+    },
+    {
+      "id": "MSB-FIREWALL-HARDENING",
+      "title": "Firewall hardening evidence",
+      "description": "Endpoint evidence indicates whether firewall profiles, default inbound posture, and blocked logging are configured.",
+      "requirementLevel": "MUST",
+      "scope": ["ENDPOINT"],
+      "parentControlId": null,
+      "implementationGroups": [],
+      "applicabilityTags": ["windows11", "workstation", "firewall"],
+      "evidenceRequirements": [
+        {"id": "MSB-FIREWALL-HARDENING-E1", "description": "Domain firewall passes.", "sourceType": "FINDING", "sourceReference": "FW-002", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.2, "mandatory": true},
+        {"id": "MSB-FIREWALL-HARDENING-E2", "description": "Private firewall passes.", "sourceType": "FINDING", "sourceReference": "FW-003", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.2, "mandatory": true},
+        {"id": "MSB-FIREWALL-HARDENING-E3", "description": "Public firewall passes.", "sourceType": "FINDING", "sourceReference": "FW-004", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.2, "mandatory": true},
+        {"id": "MSB-FIREWALL-HARDENING-E4", "description": "Default inbound action passes.", "sourceType": "FINDING", "sourceReference": "FW-005", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.25, "mandatory": true},
+        {"id": "MSB-FIREWALL-HARDENING-E5", "description": "Blocked logging passes.", "sourceType": "FINDING", "sourceReference": "FW-006", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": false}
+      ],
+      "references": ["https://learn.microsoft.com/windows/security/operating-system-security/network-security/windows-firewall/"]
+    },
+    {
+      "id": "MSB-DEVICE-SECURITY",
+      "title": "Device security evidence",
+      "description": "Endpoint evidence indicates Secure Boot, TPM, virtualization-based security, Credential Guard, and Memory Integrity state.",
+      "requirementLevel": "SHOULD",
+      "scope": ["ENDPOINT"],
+      "parentControlId": null,
+      "implementationGroups": [],
+      "applicabilityTags": ["windows11", "workstation", "device-security"],
+      "evidenceRequirements": [
+        {"id": "MSB-DEVICE-SECURITY-E1", "description": "Secure Boot passes.", "sourceType": "FINDING", "sourceReference": "DEV-001", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.25, "mandatory": true},
+        {"id": "MSB-DEVICE-SECURITY-E2", "description": "TPM passes.", "sourceType": "FINDING", "sourceReference": "DEV-002", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.25, "mandatory": true},
+        {"id": "MSB-DEVICE-SECURITY-E3", "description": "VBS passes.", "sourceType": "FINDING", "sourceReference": "DEV-003", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.2, "mandatory": false},
+        {"id": "MSB-DEVICE-SECURITY-E4", "description": "Credential Guard passes.", "sourceType": "FINDING", "sourceReference": "DEV-004", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": false},
+        {"id": "MSB-DEVICE-SECURITY-E5", "description": "Memory Integrity passes.", "sourceType": "FINDING", "sourceReference": "DEV-005", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": false}
+      ],
+      "references": ["https://learn.microsoft.com/windows/security/hardware-security/"]
+    },
+    {
+      "id": "MSB-PROTOCOL-HARDENING",
+      "title": "Protocol hardening evidence",
+      "description": "Endpoint evidence indicates legacy or weak protocol configuration state.",
+      "requirementLevel": "MUST",
+      "scope": ["ENDPOINT"],
+      "parentControlId": null,
+      "implementationGroups": [],
+      "applicabilityTags": ["windows11", "workstation", "protocols"],
+      "evidenceRequirements": [
+        {"id": "MSB-PROTOCOL-HARDENING-E1", "description": "SMBv1 passes.", "sourceType": "FINDING", "sourceReference": "PROTO-001", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.25, "mandatory": true},
+        {"id": "MSB-PROTOCOL-HARDENING-E2", "description": "SMB signing passes.", "sourceType": "FINDING", "sourceReference": "PROTO-002", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.2, "mandatory": true},
+        {"id": "MSB-PROTOCOL-HARDENING-E3", "description": "LLMNR passes.", "sourceType": "FINDING", "sourceReference": "PROTO-003", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": false},
+        {"id": "MSB-PROTOCOL-HARDENING-E4", "description": "NetBIOS passes.", "sourceType": "FINDING", "sourceReference": "PROTO-004", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": false},
+        {"id": "MSB-PROTOCOL-HARDENING-E5", "description": "Guest logons pass.", "sourceType": "FINDING", "sourceReference": "PROTO-005", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": true},
+        {"id": "MSB-PROTOCOL-HARDENING-E6", "description": "LAN Manager level passes.", "sourceType": "FINDING", "sourceReference": "PROTO-006", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.1, "mandatory": true}
+      ],
+      "references": ["https://learn.microsoft.com/windows/security/"]
+    },
+    {
+      "id": "MSB-REMOTE-ACCESS",
+      "title": "Remote access hardening evidence",
+      "description": "Endpoint evidence indicates RDP, WinRM, Remote Registry, and remote access software posture.",
+      "requirementLevel": "MUST",
+      "scope": ["ENDPOINT"],
+      "parentControlId": null,
+      "implementationGroups": [],
+      "applicabilityTags": ["windows11", "workstation", "remote-access"],
+      "evidenceRequirements": [
+        {"id": "MSB-REMOTE-ACCESS-E1", "description": "RDP NLA passes.", "sourceType": "FINDING", "sourceReference": "REMOTE-001", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.2, "mandatory": true},
+        {"id": "MSB-REMOTE-ACCESS-E2", "description": "RDP security layer passes.", "sourceType": "FINDING", "sourceReference": "REMOTE-002", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": false},
+        {"id": "MSB-REMOTE-ACCESS-E3", "description": "WinRM unencrypted traffic passes.", "sourceType": "FINDING", "sourceReference": "REMOTE-003", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.2, "mandatory": true},
+        {"id": "MSB-REMOTE-ACCESS-E4", "description": "WinRM Basic auth passes.", "sourceType": "FINDING", "sourceReference": "REMOTE-004", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.2, "mandatory": true},
+        {"id": "MSB-REMOTE-ACCESS-E5", "description": "Remote Registry passes.", "sourceType": "FINDING", "sourceReference": "REMOTE-005", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": false},
+        {"id": "MSB-REMOTE-ACCESS-E6", "description": "Remote software policy passes.", "sourceType": "FINDING", "sourceReference": "REMOTE-006", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.1, "mandatory": false}
+      ],
+      "references": ["https://learn.microsoft.com/windows/security/"]
+    },
+    {
+      "id": "MSB-ACCOUNT-SECURITY",
+      "title": "Account security evidence",
+      "description": "Endpoint evidence indicates local account, administrator, and password policy posture.",
+      "requirementLevel": "MUST",
+      "scope": ["ENDPOINT"],
+      "parentControlId": null,
+      "implementationGroups": [],
+      "applicabilityTags": ["windows11", "workstation", "accounts"],
+      "evidenceRequirements": [
+        {"id": "MSB-ACCOUNT-SECURITY-E1", "description": "Guest account passes.", "sourceType": "FINDING", "sourceReference": "ACC-001", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": true},
+        {"id": "MSB-ACCOUNT-SECURITY-E2", "description": "Built-in admin passes.", "sourceType": "FINDING", "sourceReference": "ACC-002", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": false},
+        {"id": "MSB-ACCOUNT-SECURITY-E3", "description": "Password never expires passes.", "sourceType": "FINDING", "sourceReference": "ACC-003", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": false},
+        {"id": "MSB-ACCOUNT-SECURITY-E4", "description": "Local admins pass.", "sourceType": "FINDING", "sourceReference": "ACC-004", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": false},
+        {"id": "MSB-ACCOUNT-SECURITY-E5", "description": "Stale accounts pass.", "sourceType": "FINDING", "sourceReference": "ACC-005", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": false},
+        {"id": "MSB-ACCOUNT-SECURITY-E6", "description": "Password policy passes.", "sourceType": "FINDING", "sourceReference": "ACC-006", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": true},
+        {"id": "MSB-ACCOUNT-SECURITY-E7", "description": "Lockout policy passes.", "sourceType": "FINDING", "sourceReference": "ACC-007", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.1, "mandatory": true}
+      ],
+      "references": ["https://learn.microsoft.com/windows/security/identity-protection/"]
+    },
+    {
+      "id": "MSB-POWERSHELL-LOGGING",
+      "title": "PowerShell logging evidence",
+      "description": "Endpoint evidence indicates PowerShell 2.0 and logging posture.",
+      "requirementLevel": "SHOULD",
+      "scope": ["ENDPOINT"],
+      "parentControlId": null,
+      "implementationGroups": [],
+      "applicabilityTags": ["windows11", "workstation", "powershell"],
+      "evidenceRequirements": [
+        {"id": "MSB-POWERSHELL-LOGGING-E1", "description": "PowerShell 2.0 passes.", "sourceType": "FINDING", "sourceReference": "PS-001", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.4, "mandatory": true},
+        {"id": "MSB-POWERSHELL-LOGGING-E2", "description": "Script Block Logging passes.", "sourceType": "FINDING", "sourceReference": "PS-002", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.25, "mandatory": false},
+        {"id": "MSB-POWERSHELL-LOGGING-E3", "description": "Module Logging passes.", "sourceType": "FINDING", "sourceReference": "PS-003", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.2, "mandatory": false},
+        {"id": "MSB-POWERSHELL-LOGGING-E4", "description": "Transcription passes.", "sourceType": "FINDING", "sourceReference": "PS-004", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": false}
+      ],
+      "references": ["https://learn.microsoft.com/powershell/"]
+    },
+    {
+      "id": "MSB-UAC",
+      "title": "UAC hardening evidence",
+      "description": "Endpoint evidence indicates User Account Control policy posture.",
+      "requirementLevel": "MUST",
+      "scope": ["ENDPOINT"],
+      "parentControlId": null,
+      "implementationGroups": [],
+      "applicabilityTags": ["windows11", "workstation", "uac"],
+      "evidenceRequirements": [
+        {"id": "MSB-UAC-E1", "description": "UAC enabled passes.", "sourceType": "FINDING", "sourceReference": "UAC-001", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.4, "mandatory": true},
+        {"id": "MSB-UAC-E2", "description": "Admin consent passes.", "sourceType": "FINDING", "sourceReference": "UAC-002", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.25, "mandatory": false},
+        {"id": "MSB-UAC-E3", "description": "Secure desktop passes.", "sourceType": "FINDING", "sourceReference": "UAC-003", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.25, "mandatory": false},
+        {"id": "MSB-UAC-E4", "description": "Remote token filtering passes.", "sourceType": "FINDING", "sourceReference": "UAC-004", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.1, "mandatory": false}
+      ],
+      "references": ["https://learn.microsoft.com/windows/security/application-security/application-control/user-account-control/"]
+    },
+    {
+      "id": "MSB-AUDIT-POLICY",
+      "title": "Audit policy evidence",
+      "description": "Endpoint evidence indicates audit policy coverage for security-relevant events.",
+      "requirementLevel": "SHOULD",
+      "scope": ["ENDPOINT"],
+      "parentControlId": null,
+      "implementationGroups": [],
+      "applicabilityTags": ["windows11", "workstation", "audit"],
+      "evidenceRequirements": [
+        {"id": "MSB-AUDIT-POLICY-E1", "description": "Audit coverage passes.", "sourceType": "FINDING", "sourceReference": "AUD-001", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.3, "mandatory": true},
+        {"id": "MSB-AUDIT-POLICY-E2", "description": "Logon failures pass.", "sourceType": "FINDING", "sourceReference": "AUD-002", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.2, "mandatory": true},
+        {"id": "MSB-AUDIT-POLICY-E3", "description": "Account management auditing passes.", "sourceType": "FINDING", "sourceReference": "AUD-003", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.2, "mandatory": true},
+        {"id": "MSB-AUDIT-POLICY-E4", "description": "Process creation auditing passes.", "sourceType": "FINDING", "sourceReference": "AUD-004", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": false},
+        {"id": "MSB-AUDIT-POLICY-E5", "description": "Policy change auditing passes.", "sourceType": "FINDING", "sourceReference": "AUD-005", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": true}
+      ],
+      "references": ["https://learn.microsoft.com/windows/security/threat-protection/auditing/"]
+    },
+    {
+      "id": "MSB-WINDOWS-UPDATE",
+      "title": "Windows Update evidence",
+      "description": "Endpoint evidence indicates update scan, installation, reboot, service, and release targeting posture.",
+      "requirementLevel": "MUST",
+      "scope": ["ENDPOINT"],
+      "parentControlId": null,
+      "implementationGroups": [],
+      "applicabilityTags": ["windows11", "workstation", "updates"],
+      "evidenceRequirements": [
+        {"id": "MSB-WINDOWS-UPDATE-E1", "description": "Pending reboot age passes.", "sourceType": "FINDING", "sourceReference": "UPD-002", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.15, "mandatory": false},
+        {"id": "MSB-WINDOWS-UPDATE-E2", "description": "Update scan age passes.", "sourceType": "FINDING", "sourceReference": "UPD-003", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.25, "mandatory": true},
+        {"id": "MSB-WINDOWS-UPDATE-E3", "description": "Update install age passes.", "sourceType": "FINDING", "sourceReference": "UPD-004", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.25, "mandatory": true},
+        {"id": "MSB-WINDOWS-UPDATE-E4", "description": "Windows Update service passes.", "sourceType": "FINDING", "sourceReference": "UPD-005", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.25, "mandatory": true},
+        {"id": "MSB-WINDOWS-UPDATE-E5", "description": "Target release passes.", "sourceType": "FINDING", "sourceReference": "UPD-006", "operator": "STATUS_IS", "expectedResult": "PASS", "weight": 0.1, "mandatory": false}
+      ],
+      "references": ["https://learn.microsoft.com/windows/deployment/update/"]
     }
   ]
 }

@@ -17,13 +17,14 @@ class RuleRegistryTests(unittest.TestCase):
     """Validate rule registry behavior."""
 
     def test_01_loader_registers_existing_rules(self) -> None:
-        """Loader should discover and register the eight existing rules."""
+        """Loader should discover existing and plug-in Windows evidence rules."""
 
         registry = load_registry()
 
-        self.assertEqual(len(registry.get_all()), 8)
-        self.assertEqual(len(registry.get_enabled()), 8)
+        self.assertGreaterEqual(len(registry.get_all()), 62)
+        self.assertGreaterEqual(len(registry.get_enabled()), 62)
         self.assertIsNotNone(registry.get("BIT-001"))
+        self.assertIsNotNone(registry.get("DEF-002"))
 
     def test_duplicate_rule_id_logs_warning(self) -> None:
         """Duplicate rule ids should be ignored with a warning."""

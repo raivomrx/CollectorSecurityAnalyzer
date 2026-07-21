@@ -38,10 +38,13 @@ def load_rules() -> list[BaseRule]:
 def _import_rule_modules(package_name: str, package_path: object) -> None:
     """Import every non-private module in the rules package."""
 
-    for module_info in pkgutil.iter_modules(package_path):
+    for module_info in pkgutil.walk_packages(package_path, prefix=f"{package_name}."):
         if module_info.name.startswith("_") or module_info.name in SKIPPED_MODULES:
             continue
-        importlib.import_module(f"{package_name}.{module_info.name}")
+        short_name = module_info.name.rsplit(".", 1)[-1]
+        if short_name.startswith("_") or short_name in SKIPPED_MODULES:
+            continue
+        importlib.import_module(module_info.name)
 
 
 def _iter_rule_classes() -> list[type[BaseRule]]:

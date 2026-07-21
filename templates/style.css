@@ -167,10 +167,34 @@ h3 {
 }
 
 .status-info,
+.status-not_evaluated,
+.status-not_applicable,
 .severity-info,
 .applicability-not_evaluated td {
   color: var(--blue);
   background: #dbeafe;
+}
+
+.status-error,
+.collection-failed td,
+.collection-access_denied td {
+  color: var(--red);
+  background: #fee2e2;
+}
+
+.collection-partial td,
+.collection-not_available td {
+  color: var(--orange);
+  background: #ffedd5;
+}
+
+.collection-not_supported td {
+  color: var(--gray);
+  background: #f1f5f9;
+}
+
+.collection-success td {
+  background: #ffffff;
 }
 
 .notice {

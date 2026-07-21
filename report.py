@@ -10,11 +10,16 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from collector_schema.enums import PrivacyMode
+from collector_schema.models import CollectorDocument
+from evidence.provenance import pseudonymize_hostname, redact_value
+from evidence.registry import WindowsEvidenceRegistry
 from risk import AuditFinding
 from compliance.models import ComplianceSummary
 from cve.enrichment_models import EnrichedCveScanSummary
 from cve.models import ApplicabilityStatus, CveScanSummary
 from rules.metadata import RuleMetadata
+from policies.loader import WindowsEndpointPolicy
 from software.models import SoftwareInventory, SoftwareProduct
 from utils import safe_get
 
@@ -34,6 +39,10 @@ def generate_html_report(
     output_path: str | Path,
     cve_enrichment: EnrichedCveScanSummary | None = None,
     compliance_summary: ComplianceSummary | None = None,
+    collector_document: CollectorDocument | None = None,
+    evidence_registry: WindowsEvidenceRegistry | None = None,
+    policy_profile: WindowsEndpointPolicy | None = None,
+    privacy_mode: PrivacyMode = PrivacyMode.STANDARD,
 ) -> Path:
     """Generate an HTML audit report from analyzer results."""
 
@@ -48,10 +57,16 @@ def generate_html_report(
     )
     environment.filters["json"] = _to_pretty_json
     environment.filters["confidence_class"] = _confidence_class
+    environment.filters["redact"] = lambda value: redact_value(value, privacy_mode)
     template = environment.get_template(REPORT_TEMPLATE)
+    collection_quality = _build_collection_quality(collector_document, privacy_mode)
     html = template.render(
         data=data,
         summary=_build_summary(data, audit_findings, score),
+        collection_quality=collection_quality,
+        windows_evidence=_group_evidence(evidence_registry),
+        missing_evidence=_missing_evidence(evidence_registry),
+        policy_profile=policy_profile,
         audit_findings=audit_findings,
         high_findings=_high_findings(audit_findings),
         score=score,
@@ -89,6 +104,52 @@ def _build_summary(
         "status_counts": status_counts,
         "severity_counts": severity_counts,
     }
+
+
+def _build_collection_quality(
+    document: CollectorDocument | None,
+    privacy_mode: PrivacyMode,
+) -> dict[str, Any] | None:
+    """Build collector quality values for the report."""
+
+    if document is None:
+        return None
+    duration = document.collection_completed_at - document.collection_started_at
+    return {
+        "schema_version": document.schema_version,
+        "collector_version": document.collector_version,
+        "hostname": pseudonymize_hostname(document.device.hostname, privacy_mode),
+        "elevated": document.collection_summary.elevated,
+        "duration_seconds": max(0, round(duration.total_seconds(), 1)),
+        "successful_modules": document.collection_summary.successful_collectors,
+        "partial_modules": document.collection_summary.partial_collectors,
+        "failed_modules": document.collection_summary.failed_collectors,
+        "unsupported_modules": document.collection_summary.unsupported_collectors,
+        "access_denied_modules": document.collection_summary.access_denied_collectors,
+        "collection_coverage": document.collection_summary.collection_coverage_percent,
+        "mandatory_collection_coverage": document.collection_summary.mandatory_collection_coverage_percent,
+        "warnings": document.collection_summary.warnings,
+        "errors": document.errors,
+    }
+
+
+def _group_evidence(registry: WindowsEvidenceRegistry | None) -> dict[str, list[Any]]:
+    """Group normalized Windows evidence by category."""
+
+    if registry is None:
+        return {}
+    grouped: dict[str, list[Any]] = {}
+    for setting in registry.all():
+        grouped.setdefault(setting.category, []).append(setting)
+    return dict(sorted(grouped.items()))
+
+
+def _missing_evidence(registry: WindowsEvidenceRegistry | None) -> list[Any]:
+    """Return settings whose collection did not succeed."""
+
+    if registry is None:
+        return []
+    return registry.missing_or_problematic()
 
 
 def _build_metadata(audit_findings: list[AuditFinding]) -> list[dict[str, Any]]:

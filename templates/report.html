@@ -35,7 +35,7 @@
     <section>
       <h2>Finding Summary</h2>
       <div class="pill-row">
-        {% for status in ["FAIL", "WARNING", "PASS", "INFO"] %}
+        {% for status in ["FAIL", "WARNING", "PASS", "INFO", "NOT_EVALUATED", "NOT_APPLICABLE", "ERROR"] %}
           <span class="pill status-{{ status|lower }}">{{ status }}: {{ summary.status_counts.get(status, 0) }}</span>
         {% endfor %}
       </div>
@@ -44,6 +44,129 @@
           <span class="pill severity-{{ severity|lower }}">{{ severity }}: {{ summary.severity_counts.get(severity, 0) }}</span>
         {% endfor %}
       </div>
+    </section>
+
+    <section>
+      <h2>Collection Quality</h2>
+      {% if collection_quality %}
+        <div class="summary-grid compact">
+          <div><span>Schema version</span><strong>{{ collection_quality.schema_version }}</strong></div>
+          <div><span>Collector version</span><strong>{{ collection_quality.collector_version }}</strong></div>
+          <div><span>Hostname</span><strong>{{ collection_quality.hostname or "Unknown" }}</strong></div>
+          <div><span>Elevated</span><strong>{{ collection_quality.elevated }}</strong></div>
+          <div><span>Collection duration</span><strong>{{ collection_quality.duration_seconds }}s</strong></div>
+          <div><span>Successful modules</span><strong>{{ collection_quality.successful_modules }}</strong></div>
+          <div><span>Partial modules</span><strong>{{ collection_quality.partial_modules }}</strong></div>
+          <div><span>Failed modules</span><strong>{{ collection_quality.failed_modules }}</strong></div>
+          <div><span>Unsupported modules</span><strong>{{ collection_quality.unsupported_modules }}</strong></div>
+          <div><span>Access denied modules</span><strong>{{ collection_quality.access_denied_modules }}</strong></div>
+          <div><span>Collection coverage</span><strong>{{ collection_quality.collection_coverage }}%</strong></div>
+          <div><span>Mandatory collection coverage</span><strong>{{ collection_quality.mandatory_collection_coverage }}%</strong></div>
+        </div>
+        {% if collection_quality.warnings %}
+          <div class="notice warning">
+            {% for warning in collection_quality.warnings %}
+              <div>{{ warning }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% if collection_quality.errors %}
+          <table>
+            <thead><tr><th>Module</th><th>Status</th><th>Error code</th><th>Message</th></tr></thead>
+            <tbody>
+              {% for error in collection_quality.errors %}
+                <tr><td>{{ error.module }}</td><td>{{ error.status.value }}</td><td>{{ error.error_code }}</td><td>{{ error.message }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+      {% else %}
+        <p class="muted">Collector quality data is not available.</p>
+      {% endif %}
+    </section>
+
+    <section>
+      <h2>Policy</h2>
+      {% if policy_profile %}
+        <div class="summary-grid compact">
+          <div><span>Policy profile</span><strong>{{ policy_profile.policy_id }}</strong></div>
+          <div><span>Policy version</span><strong>{{ policy_profile.version }}</strong></div>
+          <div><span>Required firewall logging</span><strong>{{ policy_profile.required_firewall_logging }}</strong></div>
+          <div><span>Require Credential Guard</span><strong>{{ policy_profile.require_credential_guard }}</strong></div>
+          <div><span>Require Memory Integrity</span><strong>{{ policy_profile.require_memory_integrity }}</strong></div>
+        </div>
+        <h3>Thresholds Used</h3>
+        <table>
+          <thead><tr><th>Threshold</th><th>Value</th></tr></thead>
+          <tbody>
+            {% for key, value in policy_profile.thresholds.items() %}
+              <tr><td>{{ key }}</td><td>{{ value }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <p><strong>Approved remote access products:</strong> {{ policy_profile.approved_remote_access_products|join(", ") if policy_profile.approved_remote_access_products else "None configured" }}</p>
+      {% else %}
+        <p class="muted">No policy profile loaded.</p>
+      {% endif %}
+    </section>
+
+    <section>
+      <h2>Windows Security Configuration</h2>
+      {% if windows_evidence %}
+        {% for category, settings in windows_evidence.items() %}
+          <h3>{{ category }}</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Setting</th>
+                <th>Configured</th>
+                <th>Effective</th>
+                <th>Source</th>
+                <th>Status</th>
+                <th>Confidence</th>
+                <th>Provider</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for setting in settings %}
+                <tr class="collection-{{ setting.collection_status.value|lower }}">
+                  <td>{{ setting.setting_id }}</td>
+                  <td>{{ setting.configured_value|redact }}</td>
+                  <td>{{ setting.effective_value|redact }}</td>
+                  <td>{{ setting.source.value }}</td>
+                  <td>{{ setting.collection_status.value }}</td>
+                  <td>{{ setting.confidence }}%</td>
+                  <td>{{ setting.provider }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endfor %}
+      {% else %}
+        <p class="muted">No normalized Windows security evidence available.</p>
+      {% endif %}
+    </section>
+
+    <section>
+      <h2>Missing Evidence</h2>
+      {% if missing_evidence %}
+        <table>
+          <thead><tr><th>Setting</th><th>Category</th><th>Status</th><th>Error</th><th>Message</th></tr></thead>
+          <tbody>
+            {% for setting in missing_evidence %}
+              <tr class="collection-{{ setting.collection_status.value|lower }}">
+                <td>{{ setting.setting_id }}</td>
+                <td>{{ setting.category }}</td>
+                <td>{{ setting.collection_status.value }}</td>
+                <td>{{ setting.error_code or "" }}</td>
+                <td>{{ setting.error_message or "" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="muted">No missing, unsupported, access denied, or failed evidence items.</p>
+      {% endif %}
     </section>
 
     <section>

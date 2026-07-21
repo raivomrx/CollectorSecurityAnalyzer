@@ -26,6 +26,9 @@ class Status(str, Enum):
     FAIL = "FAIL"
     WARNING = "WARNING"
     INFO = "INFO"
+    NOT_EVALUATED = "NOT_EVALUATED"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+    ERROR = "ERROR"
 
 
 @dataclass(slots=True)

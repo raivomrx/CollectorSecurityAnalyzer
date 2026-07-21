@@ -1,0 +1,16 @@
+{
+  "policyId": "WINDOWS_ENDPOINT_DEFAULT",
+  "version": "1.0",
+  "thresholds": {
+    "MaximumSignatureAgeDays": 3,
+    "MaximumUpdateScanAgeDays": 14,
+    "MaximumUpdateInstallAgeDays": 45,
+    "MaximumPendingRebootAgeDays": 7,
+    "MaximumLocalAdministrators": 3,
+    "MaximumStaleAccountAgeDays": 90
+  },
+  "approvedRemoteAccessProducts": [],
+  "requiredFirewallLogging": true,
+  "requireCredentialGuard": false,
+  "requireMemoryIntegrity": false
+}
