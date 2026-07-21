@@ -78,6 +78,10 @@ class CollectionSummary:
     elevated: bool
     reboot_pending: bool | None
     warnings: list[str] = field(default_factory=list)
+    module_invocation_coverage_percent: float = 0.0
+    successful_module_percent: float = 0.0
+    evidence_unit_coverage_percent: float = 0.0
+    mandatory_evidence_coverage_percent: float = 0.0
     module_execution_coverage_percent: float = 0.0
     evidence_collection_coverage_percent: float = 0.0
     mandatory_evidence_applicable: int = 0

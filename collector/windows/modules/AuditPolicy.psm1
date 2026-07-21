@@ -1,12 +1,18 @@
-Import-Module (Join-Path $PSScriptRoot "General.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "General.psm1")
 
 function ConvertFrom-CSAAuditSetting {
     param([string]$Value)
 
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
     $text = $Value.ToLowerInvariant()
+    $estonianSuccess = ([char]0x00F5) + "nnest"
+    $estonianFailure = "nurjum|eba" + ([char]0x00F5) + "nnest"
+    $recognized = $text -match "success|failure|no auditing|auditeer|$estonianSuccess|$estonianFailure"
+    if (-not $recognized) { return $null }
+    $isEstonianFailure = $text -match $estonianFailure
     [ordered]@{
-        Success = ($text -match 'success|õnnest')
-        Failure = ($text -match 'failure|nurjum|ebaõnnest')
+        Success = ($text -match "success|$estonianSuccess" -and -not ($text -match "eba$estonianSuccess"))
+        Failure = ($text -match "failure" -or $isEstonianFailure)
     }
 }
 
@@ -16,9 +22,12 @@ function Get-CSAAuditSubcategory {
     $rows = @(& auditpol.exe /get "/subcategory:$Guid" /r 2>$null | ConvertFrom-Csv)
     if ($rows.Count -eq 0) { return $null }
     $values = @($rows[0].PSObject.Properties | ForEach-Object { [string]$_.Value })
-    $settingText = @($values | Where-Object { $_ -match 'success|failure|õnnest|nurjum|ebaõnnest|no auditing|auditeer' } | Select-Object -Last 1)
-    if ($settingText.Count -eq 0) { return $null }
-    return ConvertFrom-CSAAuditSetting $settingText[0]
+    $result = $null
+    foreach ($value in $values) {
+        $candidate = ConvertFrom-CSAAuditSetting $value
+        if ($null -ne $candidate) { $result = $candidate }
+    }
+    return $result
 }
 
 function Get-CSAAuditPolicyEvidence {
@@ -38,7 +47,7 @@ function Get-CSAAuditPolicyEvidence {
     try {
         if (-not (Get-Command auditpol.exe -ErrorAction SilentlyContinue)) {
             $errorItem = New-CSACollectionError "AuditPolicy" "NOT_SUPPORTED" "CSA-AUDITPOL-NOT-SUPPORTED" "auditpol.exe is unavailable."
-            return New-CSAModuleResult -Module "AuditPolicy" -Errors @($errorItem) -ExpectedEvidenceCount 14 -StartedAt $startedAt -Status "NOT_SUPPORTED"
+            return New-CSAModuleResult -Module "AuditPolicy" -Errors @($errorItem) -StartedAt $startedAt -Status "NOT_SUPPORTED"
         }
         $results = @{}
         foreach ($name in $subcategories.Keys) {
@@ -76,12 +85,12 @@ function Get-CSAAuditPolicyEvidence {
         $settings += New-CSASetting "AUDIT_POLICY_CHANGE_ENABLED" "Audit" $policyEnabled "LOCAL_POLICY" $(if ($null -ne $results.AUDIT_POLICY_CHANGE) { "SUCCESS" } else { "NOT_AVAILABLE" }) 85 "auditpol.exe" $subcategories.AUDIT_POLICY_CHANGE
     } catch [System.UnauthorizedAccessException] {
         $errors += New-CSACollectionError "AuditPolicy" "ACCESS_DENIED" "CSA-AUDITPOL-ACCESS-DENIED" $_.Exception.Message
-        return New-CSAModuleResult -Module "AuditPolicy" -Settings $settings -Errors $errors -Warnings $warnings -ExpectedEvidenceCount 14 -StartedAt $startedAt -Status "ACCESS_DENIED"
+        return New-CSAModuleResult -Module "AuditPolicy" -Settings $settings -Errors $errors -Warnings $warnings -StartedAt $startedAt -Status "ACCESS_DENIED"
     } catch {
         $moduleStatus = Resolve-CSAExceptionStatus $_
         $errors += New-CSACollectionError "AuditPolicy" $moduleStatus "CSA-AUDITPOL-COLLECTION-FAILED" $_.Exception.Message
     }
-    New-CSAModuleResult -Module "AuditPolicy" -Settings $settings -Errors $errors -Warnings $warnings -ExpectedEvidenceCount 14 -StartedAt $startedAt -Status $moduleStatus
+    New-CSAModuleResult -Module "AuditPolicy" -Settings $settings -Errors $errors -Warnings $warnings -StartedAt $startedAt -Status $moduleStatus
 }
 
-Export-ModuleMember -Function Get-CSAAuditPolicyEvidence
+Export-ModuleMember -Function ConvertFrom-CSAAuditSetting, Get-CSAAuditPolicyEvidence

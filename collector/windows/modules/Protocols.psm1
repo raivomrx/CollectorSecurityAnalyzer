@@ -1,4 +1,4 @@
-Import-Module (Join-Path $PSScriptRoot "General.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "General.psm1")
 
 function Get-CSAProtocolsEvidence {
     param([string]$PrivacyMode = "Standard")
@@ -68,12 +68,12 @@ function Get-CSAProtocolsEvidence {
         $settings += New-CSASetting "WPAD_RELEVANT_STATE" "Protocols" $(if ([int]$wpadDisabled -eq 1) { "DISABLED" } else { "ENABLED_OR_DEFAULT" }) "REGISTRY" "SUCCESS" 75 "Registry" "WinHttp/DisableWpad"
     } catch [System.UnauthorizedAccessException] {
         $errors += New-CSACollectionError "Protocols" "ACCESS_DENIED" "CSA-PROTOCOLS-ACCESS-DENIED" $_.Exception.Message
-        return New-CSAModuleResult -Module "Protocols" -Settings $settings -Errors $errors -ExpectedEvidenceCount 15 -StartedAt $startedAt -Status "ACCESS_DENIED"
+        return New-CSAModuleResult -Module "Protocols" -Settings $settings -Errors $errors -StartedAt $startedAt -Status "ACCESS_DENIED"
     } catch {
         $moduleStatus = Resolve-CSAExceptionStatus $_
         $errors += New-CSACollectionError "Protocols" $moduleStatus "CSA-PROTOCOLS-COLLECTION-FAILED" $_.Exception.Message
     }
-    New-CSAModuleResult -Module "Protocols" -Settings $settings -Errors $errors -ExpectedEvidenceCount 15 -StartedAt $startedAt -Status $moduleStatus
+    New-CSAModuleResult -Module "Protocols" -Settings $settings -Errors $errors -StartedAt $startedAt -Status $moduleStatus
 }
 
 Export-ModuleMember -Function Get-CSAProtocolsEvidence

@@ -44,6 +44,10 @@ class CollectorV1ToV2Adapter:
             elevated=bool(source.get("Elevated", False)),
             reboot_pending=None,
             warnings=["Schema v1 input converted through compatibility adapter."],
+            module_invocation_coverage_percent=100.0,
+            successful_module_percent=100.0,
+            evidence_unit_coverage_percent=100.0,
+            mandatory_evidence_coverage_percent=100.0,
         )
         return CollectorDocument(
             schema_version="2.0",

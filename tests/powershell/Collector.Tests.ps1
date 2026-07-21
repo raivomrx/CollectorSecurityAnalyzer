@@ -23,7 +23,7 @@ Describe "CSA Windows Collector source contract" {
 
     It "uses the standard result contract and rejects an empty success" {
         Import-Module (Join-Path $moduleRoot "General.psm1") -Force
-        $result = New-CSAModuleResult -Module "Test" -ExpectedEvidenceCount 1
+        $result = New-CSAModuleResult -Module "Test"
         $result.Status | Should Be "NOT_AVAILABLE"
         $result.Settings.Count | Should Be 0
         $result.CollectedEvidenceCount | Should Be 0
@@ -56,9 +56,29 @@ Describe "CSA Windows Collector source contract" {
         (Protect-CSAIdentifier 'EXAMPLE\Alice' 'Strict') | Should Match '^id-[0-9a-f]{12}$'
     }
 
-    It "declares unique setting IDs" {
+    It "validates the evidence manifest contract" {
+        Import-Module (Join-Path $moduleRoot "General.psm1") -Force
         $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
-        $ids = @($manifest.modules | ForEach-Object { @($_.mandatorySettingIds) + @($_.optionalSettingIds) })
-        @($ids | Group-Object | Where-Object { $_.Count -gt 1 }).Count | Should Be 0
+        (Test-CSAEvidenceManifest -Manifest $manifest -ModuleRoot $moduleRoot) | Should Be $true
+    }
+
+    It "does not hard-code expected evidence counts in collector modules" {
+        foreach ($module in @(Get-ChildItem -LiteralPath $moduleRoot -Filter *.psm1 -File)) {
+            (Get-Content -Raw -LiteralPath $module.FullName) | Should Not Match '-ExpectedEvidenceCount\s+\d+'
+        }
+    }
+
+    It "parses documented English and Estonian audit policy states" {
+        Import-Module (Join-Path $moduleRoot "AuditPolicy.psm1") -Force
+        foreach ($fixtureName in @("audit_policy_en.json", "audit_policy_et.json")) {
+            $fixturePath = Join-Path $PSScriptRoot "..\fixtures\$fixtureName"
+            $fixture = Get-Content -Raw -Encoding UTF8 -LiteralPath $fixturePath | ConvertFrom-Json
+            foreach ($case in @($fixture.cases)) {
+                $actual = ConvertFrom-CSAAuditSetting ([string]$case.text)
+                $actual.Success | Should Be ([bool]$case.success)
+                $actual.Failure | Should Be ([bool]$case.failure)
+            }
+        }
+        (ConvertFrom-CSAAuditSetting "Erfolg") | Should Be $null
     }
 }

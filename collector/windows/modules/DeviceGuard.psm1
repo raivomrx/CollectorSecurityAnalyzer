@@ -1,4 +1,4 @@
-Import-Module (Join-Path $PSScriptRoot "General.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "General.psm1")
 
 function Get-CSADeviceGuardEvidence {
     param([string]$PrivacyMode = "Standard")
@@ -66,7 +66,7 @@ function Get-CSADeviceGuardEvidence {
     } catch {
         $errors += New-CSACollectionError "DeviceGuard" "FAILED" "CSA-DEVICE-GUARD-COLLECTION-FAILED" $_.Exception.Message
     }
-    New-CSAModuleResult -Module "DeviceGuard" -Settings $settings -Errors $errors -Warnings $warnings -ExpectedEvidenceCount 11 -StartedAt $startedAt
+    New-CSAModuleResult -Module "DeviceGuard" -Settings $settings -Errors $errors -Warnings $warnings -StartedAt $startedAt
 }
 
 Export-ModuleMember -Function Get-CSADeviceGuardEvidence

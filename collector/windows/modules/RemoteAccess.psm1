@@ -1,4 +1,4 @@
-Import-Module (Join-Path $PSScriptRoot "General.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "General.psm1")
 
 function Get-CSARemoteAccessEvidence {
     param([string]$PrivacyMode = "Standard")
@@ -59,12 +59,12 @@ function Get-CSARemoteAccessEvidence {
         $settings += New-CSASetting "UNAPPROVED_REMOTE_ACCESS_PRODUCT_COUNT" "Remote Access" $null "UNKNOWN" "NOT_AVAILABLE" 0 "Analyzer policy profile" "Not evaluated by collector" "CSA-POLICY-REQUIRED" "Approval is organization-specific and is evaluated by Analyzer."
     } catch [System.UnauthorizedAccessException] {
         $errors += New-CSACollectionError "RemoteAccess" "ACCESS_DENIED" "CSA-REMOTE-ACCESS-DENIED" $_.Exception.Message
-        return New-CSAModuleResult -Module "RemoteAccess" -Settings $settings -Errors $errors -Warnings $warnings -ExpectedEvidenceCount 14 -StartedAt $startedAt -Status "ACCESS_DENIED"
+        return New-CSAModuleResult -Module "RemoteAccess" -Settings $settings -Errors $errors -Warnings $warnings -StartedAt $startedAt -Status "ACCESS_DENIED"
     } catch {
         $moduleStatus = Resolve-CSAExceptionStatus $_
         $errors += New-CSACollectionError "RemoteAccess" $moduleStatus "CSA-REMOTE-COLLECTION-FAILED" $_.Exception.Message
     }
-    New-CSAModuleResult -Module "RemoteAccess" -Settings $settings -Errors $errors -Warnings $warnings -ExpectedEvidenceCount 14 -StartedAt $startedAt -Status $moduleStatus
+    New-CSAModuleResult -Module "RemoteAccess" -Settings $settings -Errors $errors -Warnings $warnings -StartedAt $startedAt -Status $moduleStatus
 }
 
 Export-ModuleMember -Function Get-CSARemoteAccessEvidence

@@ -1,4 +1,4 @@
-Import-Module (Join-Path $PSScriptRoot "General.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "General.psm1")
 
 function Get-CSADefenderEvidence {
     param([string]$PrivacyMode = "Standard")
@@ -9,7 +9,7 @@ function Get-CSADefenderEvidence {
     $moduleStatus = ""
     if (-not (Get-Command Get-MpComputerStatus -ErrorAction SilentlyContinue)) {
         $errorItem = New-CSACollectionError "Defender" "NOT_SUPPORTED" "CSA-DEFENDER-NOT-SUPPORTED" "Microsoft Defender cmdlets are unavailable."
-        return New-CSAModuleResult -Module "Defender" -Errors @($errorItem) -ExpectedEvidenceCount 19 -StartedAt $startedAt -Status "NOT_SUPPORTED"
+        return New-CSAModuleResult -Module "Defender" -Errors @($errorItem) -StartedAt $startedAt -Status "NOT_SUPPORTED"
     }
 
     try {
@@ -59,12 +59,12 @@ function Get-CSADefenderEvidence {
         }
     } catch [System.UnauthorizedAccessException] {
         $errors += New-CSACollectionError "Defender" "ACCESS_DENIED" "CSA-DEFENDER-ACCESS-DENIED" $_.Exception.Message
-        return New-CSAModuleResult -Module "Defender" -Settings $settings -Errors $errors -ExpectedEvidenceCount 18 -StartedAt $startedAt -Status "ACCESS_DENIED"
+        return New-CSAModuleResult -Module "Defender" -Settings $settings -Errors $errors -StartedAt $startedAt -Status "ACCESS_DENIED"
     } catch {
         $moduleStatus = Resolve-CSAExceptionStatus $_
         $errors += New-CSACollectionError "Defender" $moduleStatus "CSA-DEFENDER-COLLECTION-FAILED" $_.Exception.Message
     }
-    New-CSAModuleResult -Module "Defender" -Settings $settings -Errors $errors -ExpectedEvidenceCount 18 -StartedAt $startedAt -Status $moduleStatus
+    New-CSAModuleResult -Module "Defender" -Settings $settings -Errors $errors -StartedAt $startedAt -Status $moduleStatus
 }
 
 Export-ModuleMember -Function Get-CSADefenderEvidence

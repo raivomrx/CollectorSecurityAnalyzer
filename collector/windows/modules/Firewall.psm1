@@ -1,4 +1,4 @@
-Import-Module (Join-Path $PSScriptRoot "General.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "General.psm1")
 
 function Get-CSAFirewallEvidence {
     param([string]$PrivacyMode = "Standard")
@@ -9,13 +9,14 @@ function Get-CSAFirewallEvidence {
     $moduleStatus = ""
     if (-not (Get-Command Get-NetFirewallProfile -ErrorAction SilentlyContinue)) {
         $errorItem = New-CSACollectionError "Firewall" "NOT_SUPPORTED" "CSA-FIREWALL-NOT-SUPPORTED" "NetSecurity firewall cmdlets are unavailable."
-        return New-CSAModuleResult -Module "Firewall" -Errors @($errorItem) -ExpectedEvidenceCount 35 -StartedAt $startedAt -Status "NOT_SUPPORTED"
+        return New-CSAModuleResult -Module "Firewall" -Errors @($errorItem) -StartedAt $startedAt -Status "NOT_SUPPORTED"
     }
 
     try {
         $profiles = @(Get-NetFirewallProfile -ErrorAction Stop)
         foreach ($profile in $profiles) {
-            $prefix = "WINDOWS_FIREWALL_$([string]$profile.Name).ToUpperInvariant()"
+            $profileName = ([string]$profile.Name).ToUpperInvariant()
+            $prefix = "WINDOWS_FIREWALL_$profileName"
             $sourcePath = "MSFT_NetFirewallProfile/$($profile.Name)"
             $values = [ordered]@{
                 ENABLED = [bool]$profile.Enabled
@@ -50,12 +51,12 @@ function Get-CSAFirewallEvidence {
         $settings += New-CSASetting "ACTIVE_FIREWALL_PROFILE" "Firewall" $activeProfiles "RUNTIME_STATE" "SUCCESS" 85 "Get-NetConnectionProfile" "NetworkCategory"
     } catch [System.UnauthorizedAccessException] {
         $errors += New-CSACollectionError "Firewall" "ACCESS_DENIED" "CSA-FIREWALL-ACCESS-DENIED" $_.Exception.Message
-        return New-CSAModuleResult -Module "Firewall" -Settings $settings -Errors $errors -ExpectedEvidenceCount 35 -StartedAt $startedAt -Status "ACCESS_DENIED"
+        return New-CSAModuleResult -Module "Firewall" -Settings $settings -Errors $errors -StartedAt $startedAt -Status "ACCESS_DENIED"
     } catch {
         $moduleStatus = Resolve-CSAExceptionStatus $_
         $errors += New-CSACollectionError "Firewall" $moduleStatus "CSA-FIREWALL-COLLECTION-FAILED" $_.Exception.Message
     }
-    New-CSAModuleResult -Module "Firewall" -Settings $settings -Errors $errors -ExpectedEvidenceCount 35 -StartedAt $startedAt -Status $moduleStatus
+    New-CSAModuleResult -Module "Firewall" -Settings $settings -Errors $errors -StartedAt $startedAt -Status $moduleStatus
 }
 
 Export-ModuleMember -Function Get-CSAFirewallEvidence

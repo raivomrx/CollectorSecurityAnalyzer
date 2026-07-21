@@ -1,4 +1,4 @@
-Import-Module (Join-Path $PSScriptRoot "General.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "General.psm1")
 
 function Get-CSAUACEvidence {
     param([string]$PrivacyMode = "Standard")
@@ -34,12 +34,12 @@ function Get-CSAUACEvidence {
         }
     } catch [System.UnauthorizedAccessException] {
         $errors += New-CSACollectionError "UAC" "ACCESS_DENIED" "CSA-UAC-ACCESS-DENIED" $_.Exception.Message
-        return New-CSAModuleResult -Module "UAC" -Settings $settings -Errors $errors -ExpectedEvidenceCount 10 -StartedAt $startedAt -Status "ACCESS_DENIED"
+        return New-CSAModuleResult -Module "UAC" -Settings $settings -Errors $errors -StartedAt $startedAt -Status "ACCESS_DENIED"
     } catch {
         $moduleStatus = Resolve-CSAExceptionStatus $_
         $errors += New-CSACollectionError "UAC" $moduleStatus "CSA-UAC-COLLECTION-FAILED" $_.Exception.Message
     }
-    New-CSAModuleResult -Module "UAC" -Settings $settings -Errors $errors -ExpectedEvidenceCount 10 -StartedAt $startedAt -Status $moduleStatus
+    New-CSAModuleResult -Module "UAC" -Settings $settings -Errors $errors -StartedAt $startedAt -Status $moduleStatus
 }
 
 Export-ModuleMember -Function Get-CSAUACEvidence

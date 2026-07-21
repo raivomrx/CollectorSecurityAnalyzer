@@ -1,4 +1,4 @@
-Import-Module (Join-Path $PSScriptRoot "General.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "General.psm1")
 
 function Get-CSAUpdatesEvidence {
     param([string]$PrivacyMode = "Standard")
@@ -68,12 +68,12 @@ function Get-CSAUpdatesEvidence {
         $settings += New-CSASetting "UPDATE_PAUSED" "Updates" ($null -ne $pauseStart) "GROUP_POLICY" "SUCCESS" 80 "Registry" "WindowsUpdate/PauseUpdatesStartTime"
     } catch [System.UnauthorizedAccessException] {
         $errors += New-CSACollectionError "Updates" "ACCESS_DENIED" "CSA-UPDATES-ACCESS-DENIED" $_.Exception.Message
-        return New-CSAModuleResult -Module "Updates" -Settings $settings -Errors $errors -Warnings $warnings -ExpectedEvidenceCount 21 -StartedAt $startedAt -Status "ACCESS_DENIED"
+        return New-CSAModuleResult -Module "Updates" -Settings $settings -Errors $errors -Warnings $warnings -StartedAt $startedAt -Status "ACCESS_DENIED"
     } catch {
         $moduleStatus = Resolve-CSAExceptionStatus $_
         $errors += New-CSACollectionError "Updates" $moduleStatus "CSA-UPDATES-COLLECTION-FAILED" $_.Exception.Message
     }
-    New-CSAModuleResult -Module "Updates" -Settings $settings -Errors $errors -Warnings $warnings -ExpectedEvidenceCount 21 -StartedAt $startedAt -Status $moduleStatus
+    New-CSAModuleResult -Module "Updates" -Settings $settings -Errors $errors -Warnings $warnings -StartedAt $startedAt -Status $moduleStatus
 }
 
 Export-ModuleMember -Function Get-CSAUpdatesEvidence

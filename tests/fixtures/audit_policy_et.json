@@ -1,0 +1,8 @@
+{
+  "locale": "et-EE",
+  "cases": [
+    {"text": "Õnnestumine ja nurjumine", "success": true, "failure": true},
+    {"text": "Õnnestumine", "success": true, "failure": false},
+    {"text": "Auditeerimiseta", "success": false, "failure": false}
+  ]
+}

@@ -37,6 +37,10 @@ class CollectorSchemaTests(unittest.TestCase):
 
         self.assertEqual(document.schema_version, "2.0")
         self.assertIsNotNone(registry.get("DEFENDER_REALTIME_PROTECTION_ENABLED"))
+        self.assertEqual(document.collection_summary.module_invocation_coverage_percent, 100.0)
+        self.assertEqual(document.collection_summary.successful_module_percent, 50.0)
+        self.assertEqual(document.collection_summary.evidence_unit_coverage_percent, 50.0)
+        self.assertEqual(document.collection_summary.mandatory_evidence_coverage_percent, 50.0)
 
     def test_invalid_schema_values_are_rejected(self) -> None:
         """Validation should reject invalid enum, confidence, timestamps, and duplicates."""
@@ -302,6 +306,10 @@ def _v2_document() -> dict:
             "unsupportedCollectors": 0,
             "accessDeniedCollectors": 1,
             "evidenceItems": 2,
+            "moduleInvocationCoveragePercent": 100.0,
+            "successfulModulePercent": 50.0,
+            "evidenceUnitCoveragePercent": 50.0,
+            "mandatoryEvidenceCoveragePercent": 50.0,
             "collectionCoveragePercent": 50.0,
             "mandatoryCollectionCoveragePercent": 50.0,
             "elevated": True,

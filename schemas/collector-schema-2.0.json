@@ -56,6 +56,10 @@
     "collectionSummary": {
       "type": "object",
       "properties": {
+        "moduleInvocationCoveragePercent": {"type": "number", "minimum": 0, "maximum": 100},
+        "successfulModulePercent": {"type": "number", "minimum": 0, "maximum": 100},
+        "evidenceUnitCoveragePercent": {"type": "number", "minimum": 0, "maximum": 100},
+        "mandatoryEvidenceCoveragePercent": {"type": "number", "minimum": 0, "maximum": 100},
         "moduleExecutionCoveragePercent": {"type": "number", "minimum": 0, "maximum": 100},
         "evidenceCollectionCoveragePercent": {"type": "number", "minimum": 0, "maximum": 100},
         "mandatoryCollectionCoveragePercent": {"type": "number", "minimum": 0, "maximum": 100},

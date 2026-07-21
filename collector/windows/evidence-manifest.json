@@ -1,260 +1,271 @@
 {
-  "version": "1.0",
+  "version": "2.0",
+  "cardinalityTypes": [
+    "SINGLE",
+    "PER_FIREWALL_PROFILE",
+    "PER_FIXED_VOLUME",
+    "PER_NETWORK_ADAPTER",
+    "PER_LOCAL_ACCOUNT"
+  ],
   "modules": [
     {
       "module": "General",
       "domain": "inventory",
-      "mandatorySettingIds": [],
-      "optionalSettingIds": [],
+      "mandatoryEvidence": [],
+      "optionalEvidence": [],
       "inventoryDomains": ["software.items", "services.services", "services.scheduledTasks"]
     },
     {
       "module": "BitLocker",
       "domain": "security.settings",
-      "mandatorySettingIds": ["BITLOCKER_OS_PROTECTION"],
-      "optionalSettingIds": [
-        "BITLOCKER_<VOLUME>_PROTECTION_STATUS",
-        "BITLOCKER_<VOLUME>_ENCRYPTION_PERCENTAGE",
-        "BITLOCKER_<VOLUME>_ENCRYPTION_METHOD",
-        "BITLOCKER_<VOLUME>_LOCK_STATUS",
-        "BITLOCKER_<VOLUME>_AUTO_UNLOCK_ENABLED",
-        "BITLOCKER_<VOLUME>_TPM_PROTECTOR_PRESENT",
-        "BITLOCKER_<VOLUME>_PIN_PROTECTOR_PRESENT",
-        "BITLOCKER_<VOLUME>_RECOVERY_PASSWORD_PRESENT"
+      "mandatoryEvidence": [
+        {"id": "BITLOCKER_*_PROTECTION_STATUS", "matchType": "WILDCARD", "cardinality": "PER_FIXED_VOLUME", "evidenceUnitId": "BITLOCKER_VOLUME_PROTECTION", "canonical": true, "instanceMetadataField": "mountPoint"},
+        {"id": "BITLOCKER_OS_PROTECTION", "matchType": "LITERAL", "cardinality": "PER_FIXED_VOLUME", "evidenceUnitId": "BITLOCKER_VOLUME_PROTECTION", "canonical": false, "instanceMetadataField": "mountPoint"}
+      ],
+      "optionalEvidence": [
+        {"id": "BITLOCKER_*_ENCRYPTION_PERCENTAGE", "matchType": "WILDCARD", "cardinality": "PER_FIXED_VOLUME", "evidenceUnitId": "BITLOCKER_VOLUME_ENCRYPTION_PERCENTAGE", "canonical": true, "instanceMetadataField": "mountPoint"},
+        {"id": "BITLOCKER_*_ENCRYPTION_METHOD", "matchType": "WILDCARD", "cardinality": "PER_FIXED_VOLUME", "evidenceUnitId": "BITLOCKER_VOLUME_ENCRYPTION_METHOD", "canonical": true, "instanceMetadataField": "mountPoint"},
+        {"id": "BITLOCKER_*_LOCK_STATUS", "matchType": "WILDCARD", "cardinality": "PER_FIXED_VOLUME", "evidenceUnitId": "BITLOCKER_VOLUME_LOCK_STATUS", "canonical": true, "instanceMetadataField": "mountPoint"},
+        {"id": "BITLOCKER_*_AUTO_UNLOCK_ENABLED", "matchType": "WILDCARD", "cardinality": "PER_FIXED_VOLUME", "evidenceUnitId": "BITLOCKER_VOLUME_AUTO_UNLOCK", "canonical": true, "instanceMetadataField": "mountPoint"},
+        {"id": "BITLOCKER_*_TPM_PROTECTOR_PRESENT", "matchType": "WILDCARD", "cardinality": "PER_FIXED_VOLUME", "evidenceUnitId": "BITLOCKER_VOLUME_TPM_PROTECTOR", "canonical": true, "instanceMetadataField": "mountPoint"},
+        {"id": "BITLOCKER_*_PIN_PROTECTOR_PRESENT", "matchType": "WILDCARD", "cardinality": "PER_FIXED_VOLUME", "evidenceUnitId": "BITLOCKER_VOLUME_PIN_PROTECTOR", "canonical": true, "instanceMetadataField": "mountPoint"},
+        {"id": "BITLOCKER_*_RECOVERY_PASSWORD_PRESENT", "matchType": "WILDCARD", "cardinality": "PER_FIXED_VOLUME", "evidenceUnitId": "BITLOCKER_VOLUME_RECOVERY_PASSWORD", "canonical": true, "instanceMetadataField": "mountPoint"}
       ]
     },
     {
       "module": "Defender",
       "domain": "security.settings",
-      "mandatorySettingIds": [
-        "DEFENDER_ENABLED",
-        "DEFENDER_REALTIME_PROTECTION_ENABLED",
-        "DEFENDER_SIGNATURE_AGE_DAYS",
-        "DEFENDER_CLOUD_PROTECTION_ENABLED",
-        "DEFENDER_PUA_PROTECTION_ENABLED",
-        "DEFENDER_NETWORK_PROTECTION_ENABLED",
-        "DEFENDER_EXCLUSION_RISKY_COUNT",
-        "DEFENDER_TAMPER_PROTECTION_ENABLED"
+      "mandatoryEvidence": [
+        {"id": "DEFENDER_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_ENABLED", "canonical": true},
+        {"id": "DEFENDER_REALTIME_PROTECTION_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_REALTIME_PROTECTION_ENABLED", "canonical": true},
+        {"id": "DEFENDER_SIGNATURE_AGE_DAYS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_SIGNATURE_AGE_DAYS", "canonical": true},
+        {"id": "DEFENDER_CLOUD_PROTECTION_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_CLOUD_PROTECTION_ENABLED", "canonical": true},
+        {"id": "DEFENDER_PUA_PROTECTION_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_PUA_PROTECTION_ENABLED", "canonical": true},
+        {"id": "DEFENDER_NETWORK_PROTECTION_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_NETWORK_PROTECTION_ENABLED", "canonical": true},
+        {"id": "DEFENDER_EXCLUSION_RISKY_COUNT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_EXCLUSION_RISKY_COUNT", "canonical": true},
+        {"id": "DEFENDER_TAMPER_PROTECTION_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_TAMPER_PROTECTION_ENABLED", "canonical": true}
       ],
-      "optionalSettingIds": [
-        "DEFENDER_BEHAVIOR_MONITORING_ENABLED",
-        "DEFENDER_IOAV_PROTECTION_ENABLED",
-        "DEFENDER_SCRIPT_SCANNING_ENABLED",
-        "DEFENDER_SAMPLE_SUBMISSION",
-        "DEFENDER_CONTROLLED_FOLDER_ACCESS_ENABLED",
-        "DEFENDER_SIGNATURE_VERSION",
-        "DEFENDER_SIGNATURE_UPDATED_AT",
-        "DEFENDER_LAST_FULL_SCAN_AT",
-        "DEFENDER_LAST_QUICK_SCAN_AT",
-        "DEFENDER_EXCLUSION_COUNT"
+      "optionalEvidence": [
+        {"id": "DEFENDER_BEHAVIOR_MONITORING_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_BEHAVIOR_MONITORING_ENABLED", "canonical": true},
+        {"id": "DEFENDER_IOAV_PROTECTION_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_IOAV_PROTECTION_ENABLED", "canonical": true},
+        {"id": "DEFENDER_SCRIPT_SCANNING_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_SCRIPT_SCANNING_ENABLED", "canonical": true},
+        {"id": "DEFENDER_SAMPLE_SUBMISSION", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_SAMPLE_SUBMISSION", "canonical": true},
+        {"id": "DEFENDER_CONTROLLED_FOLDER_ACCESS_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_CONTROLLED_FOLDER_ACCESS_ENABLED", "canonical": true},
+        {"id": "DEFENDER_SIGNATURE_VERSION", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_SIGNATURE_VERSION", "canonical": true},
+        {"id": "DEFENDER_SIGNATURE_UPDATED_AT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_SIGNATURE_UPDATED_AT", "canonical": true},
+        {"id": "DEFENDER_LAST_FULL_SCAN_AT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_LAST_FULL_SCAN_AT", "canonical": true},
+        {"id": "DEFENDER_LAST_QUICK_SCAN_AT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_LAST_QUICK_SCAN_AT", "canonical": true},
+        {"id": "DEFENDER_EXCLUSION_COUNT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_EXCLUSION_COUNT", "canonical": true}
       ]
     },
     {
       "module": "Firewall",
       "domain": "security.settings",
-      "mandatorySettingIds": [
-        "WINDOWS_FIREWALL_DOMAIN_ENABLED",
-        "WINDOWS_FIREWALL_PRIVATE_ENABLED",
-        "WINDOWS_FIREWALL_PUBLIC_ENABLED",
-        "WINDOWS_FIREWALL_INBOUND_DEFAULT_BLOCK",
-        "WINDOWS_FIREWALL_LOG_BLOCKED_ENABLED"
+      "cardinalityContexts": {"PER_FIREWALL_PROFILE": ["DOMAIN", "PRIVATE", "PUBLIC"]},
+      "mandatoryEvidence": [
+        {"id": "WINDOWS_FIREWALL_*_ENABLED", "matchType": "WILDCARD", "cardinality": "PER_FIREWALL_PROFILE", "evidenceUnitId": "WINDOWS_FIREWALL_PROFILE_ENABLED", "canonical": true},
+        {"id": "WINDOWS_FIREWALL_INBOUND_DEFAULT_BLOCK", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WINDOWS_FIREWALL_INBOUND_DEFAULT_BLOCK", "canonical": true},
+        {"id": "WINDOWS_FIREWALL_LOG_BLOCKED_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WINDOWS_FIREWALL_LOG_BLOCKED_ENABLED", "canonical": true}
       ],
-      "optionalSettingIds": [
-        "WINDOWS_FIREWALL_<PROFILE>_DEFAULT_INBOUND_ACTION",
-        "WINDOWS_FIREWALL_<PROFILE>_DEFAULT_OUTBOUND_ACTION",
-        "WINDOWS_FIREWALL_<PROFILE>_NOTIFY_ON_LISTEN",
-        "WINDOWS_FIREWALL_<PROFILE>_ALLOW_INBOUND_RULES",
-        "WINDOWS_FIREWALL_<PROFILE>_ALLOW_LOCAL_FIREWALL_RULES",
-        "WINDOWS_FIREWALL_<PROFILE>_ALLOW_LOCAL_IPSEC_RULES",
-        "WINDOWS_FIREWALL_<PROFILE>_LOG_ALLOWED",
-        "WINDOWS_FIREWALL_<PROFILE>_LOG_BLOCKED",
-        "WINDOWS_FIREWALL_<PROFILE>_LOG_IGNORED",
-        "WINDOWS_FIREWALL_<PROFILE>_LOG_FILE_NAME",
-        "WINDOWS_FIREWALL_<PROFILE>_LOG_MAX_SIZE_KILOBYTES",
-        "WINDOWS_FIREWALL_SERVICE_ENABLED",
-        "ACTIVE_FIREWALL_PROFILE"
+      "optionalEvidence": [
+        {"id": "WINDOWS_FIREWALL_*_DEFAULT_INBOUND_ACTION", "matchType": "WILDCARD", "cardinality": "PER_FIREWALL_PROFILE", "evidenceUnitId": "WINDOWS_FIREWALL_PROFILE_DEFAULT_INBOUND_ACTION", "canonical": true},
+        {"id": "WINDOWS_FIREWALL_*_DEFAULT_OUTBOUND_ACTION", "matchType": "WILDCARD", "cardinality": "PER_FIREWALL_PROFILE", "evidenceUnitId": "WINDOWS_FIREWALL_PROFILE_DEFAULT_OUTBOUND_ACTION", "canonical": true},
+        {"id": "WINDOWS_FIREWALL_*_NOTIFY_ON_LISTEN", "matchType": "WILDCARD", "cardinality": "PER_FIREWALL_PROFILE", "evidenceUnitId": "WINDOWS_FIREWALL_PROFILE_NOTIFY_ON_LISTEN", "canonical": true},
+        {"id": "WINDOWS_FIREWALL_*_ALLOW_INBOUND_RULES", "matchType": "WILDCARD", "cardinality": "PER_FIREWALL_PROFILE", "evidenceUnitId": "WINDOWS_FIREWALL_PROFILE_ALLOW_INBOUND_RULES", "canonical": true},
+        {"id": "WINDOWS_FIREWALL_*_ALLOW_LOCAL_FIREWALL_RULES", "matchType": "WILDCARD", "cardinality": "PER_FIREWALL_PROFILE", "evidenceUnitId": "WINDOWS_FIREWALL_PROFILE_ALLOW_LOCAL_FIREWALL_RULES", "canonical": true},
+        {"id": "WINDOWS_FIREWALL_*_ALLOW_LOCAL_IPSEC_RULES", "matchType": "WILDCARD", "cardinality": "PER_FIREWALL_PROFILE", "evidenceUnitId": "WINDOWS_FIREWALL_PROFILE_ALLOW_LOCAL_IPSEC_RULES", "canonical": true},
+        {"id": "WINDOWS_FIREWALL_*_LOG_ALLOWED", "matchType": "WILDCARD", "cardinality": "PER_FIREWALL_PROFILE", "evidenceUnitId": "WINDOWS_FIREWALL_PROFILE_LOG_ALLOWED", "canonical": true},
+        {"id": "WINDOWS_FIREWALL_*_LOG_BLOCKED", "matchType": "WILDCARD", "cardinality": "PER_FIREWALL_PROFILE", "evidenceUnitId": "WINDOWS_FIREWALL_PROFILE_LOG_BLOCKED", "canonical": true},
+        {"id": "WINDOWS_FIREWALL_*_LOG_IGNORED", "matchType": "WILDCARD", "cardinality": "PER_FIREWALL_PROFILE", "evidenceUnitId": "WINDOWS_FIREWALL_PROFILE_LOG_IGNORED", "canonical": true},
+        {"id": "WINDOWS_FIREWALL_*_LOG_FILE_NAME", "matchType": "WILDCARD", "cardinality": "PER_FIREWALL_PROFILE", "evidenceUnitId": "WINDOWS_FIREWALL_PROFILE_LOG_FILE_NAME", "canonical": true},
+        {"id": "WINDOWS_FIREWALL_*_LOG_MAX_SIZE_KILOBYTES", "matchType": "WILDCARD", "cardinality": "PER_FIREWALL_PROFILE", "evidenceUnitId": "WINDOWS_FIREWALL_PROFILE_LOG_MAX_SIZE_KILOBYTES", "canonical": true},
+        {"id": "WINDOWS_FIREWALL_SERVICE_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WINDOWS_FIREWALL_SERVICE_ENABLED", "canonical": true},
+        {"id": "ACTIVE_FIREWALL_PROFILE", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "ACTIVE_FIREWALL_PROFILE", "canonical": true}
       ]
     },
     {
       "module": "Accounts",
       "domain": "security.settings",
-      "mandatorySettingIds": [
-        "GUEST_ACCOUNT_ENABLED",
-        "BUILTIN_ADMINISTRATOR_ENABLED",
-        "PASSWORD_NEVER_EXPIRES_INTERACTIVE_COUNT",
-        "LOCAL_ADMINISTRATOR_COUNT",
-        "STALE_ENABLED_LOCAL_ACCOUNT_COUNT",
-        "PASSWORD_POLICY_MIN_LENGTH",
-        "ACCOUNT_LOCKOUT_THRESHOLD"
+      "mandatoryEvidence": [
+        {"id": "GUEST_ACCOUNT_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "GUEST_ACCOUNT_ENABLED", "canonical": true},
+        {"id": "BUILTIN_ADMINISTRATOR_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "BUILTIN_ADMINISTRATOR_ENABLED", "canonical": true},
+        {"id": "PASSWORD_NEVER_EXPIRES_INTERACTIVE_COUNT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "PASSWORD_NEVER_EXPIRES_INTERACTIVE_COUNT", "canonical": true},
+        {"id": "LOCAL_ADMINISTRATOR_COUNT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "LOCAL_ADMINISTRATOR_COUNT", "canonical": true},
+        {"id": "STALE_ENABLED_LOCAL_ACCOUNT_COUNT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "STALE_ENABLED_LOCAL_ACCOUNT_COUNT", "canonical": true},
+        {"id": "PASSWORD_POLICY_MIN_LENGTH", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "PASSWORD_POLICY_MIN_LENGTH", "canonical": true},
+        {"id": "PASSWORD_POLICY_MINIMUM_LENGTH", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "PASSWORD_POLICY_MIN_LENGTH", "canonical": false},
+        {"id": "ACCOUNT_LOCKOUT_THRESHOLD", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "ACCOUNT_LOCKOUT_THRESHOLD", "canonical": true}
       ],
-      "optionalSettingIds": [
-        "LOCAL_USERS",
-        "LOCAL_ADMINISTRATORS",
-        "PASSWORD_POLICY_MINIMUM_LENGTH",
-        "PASSWORD_POLICY_MAXIMUM_AGE_DAYS",
-        "PASSWORD_POLICY_HISTORY",
-        "ACCOUNT_LOCKOUT_DURATION_MINUTES"
+      "optionalEvidence": [
+        {"id": "LOCAL_USERS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "LOCAL_USERS", "canonical": true},
+        {"id": "LOCAL_ADMINISTRATORS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "LOCAL_ADMINISTRATORS", "canonical": true},
+        {"id": "PASSWORD_POLICY_MAXIMUM_AGE_DAYS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "PASSWORD_POLICY_MAXIMUM_AGE_DAYS", "canonical": true},
+        {"id": "PASSWORD_POLICY_HISTORY", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "PASSWORD_POLICY_HISTORY", "canonical": true},
+        {"id": "ACCOUNT_LOCKOUT_DURATION_MINUTES", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "ACCOUNT_LOCKOUT_DURATION_MINUTES", "canonical": true}
       ]
     },
     {
       "module": "DeviceGuard",
       "domain": "security.settings",
-      "mandatorySettingIds": [
-        "SECURE_BOOT_ENABLED",
-        "TPM_READY",
-        "VBS_RUNNING",
-        "CREDENTIAL_GUARD_RUNNING",
-        "MEMORY_INTEGRITY_ENABLED"
+      "mandatoryEvidence": [
+        {"id": "SECURE_BOOT_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "SECURE_BOOT_ENABLED", "canonical": true},
+        {"id": "TPM_READY", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "TPM_READY", "canonical": true},
+        {"id": "VBS_RUNNING", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "VBS_RUNNING", "canonical": true},
+        {"id": "CREDENTIAL_GUARD_RUNNING", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "CREDENTIAL_GUARD_RUNNING", "canonical": true},
+        {"id": "MEMORY_INTEGRITY_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "MEMORY_INTEGRITY_ENABLED", "canonical": true}
       ],
-      "optionalSettingIds": [
-        "TPM_PRESENT",
-        "TPM_ENABLED",
-        "TPM_ACTIVATED",
-        "TPM_SPEC_VERSION",
-        "VBS_STATUS",
-        "CREDENTIAL_GUARD_STATUS",
-        "SYSTEM_GUARD_SECURE_LAUNCH"
+      "optionalEvidence": [
+        {"id": "TPM_PRESENT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "TPM_PRESENT", "canonical": true},
+        {"id": "TPM_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "TPM_ENABLED", "canonical": true},
+        {"id": "TPM_ACTIVATED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "TPM_ACTIVATED", "canonical": true},
+        {"id": "TPM_SPEC_VERSION", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "TPM_SPEC_VERSION", "canonical": true},
+        {"id": "VBS_STATUS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "VBS_STATUS", "canonical": true},
+        {"id": "CREDENTIAL_GUARD_STATUS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "CREDENTIAL_GUARD_STATUS", "canonical": true},
+        {"id": "SYSTEM_GUARD_SECURE_LAUNCH", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "SYSTEM_GUARD_SECURE_LAUNCH", "canonical": true}
       ]
     },
     {
       "module": "Protocols",
       "domain": "security.settings",
-      "mandatorySettingIds": [
-        "SMBV1_ENABLED",
-        "SMB_SIGNING_REQUIRED",
-        "LLMNR_ENABLED",
-        "NETBIOS_TCPIP_ENABLED",
-        "INSECURE_GUEST_LOGONS_ENABLED",
-        "LAN_MANAGER_AUTH_LEVEL"
+      "mandatoryEvidence": [
+        {"id": "SMBV1_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "SMBV1_ENABLED", "canonical": true},
+        {"id": "SMB_SIGNING_REQUIRED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "SMB_SIGNING_REQUIRED", "canonical": true},
+        {"id": "LLMNR_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "LLMNR_ENABLED", "canonical": true},
+        {"id": "NETBIOS_TCPIP_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "NETBIOS_TCPIP_ENABLED", "canonical": true},
+        {"id": "INSECURE_GUEST_LOGONS_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "INSECURE_GUEST_LOGONS_ENABLED", "canonical": true},
+        {"id": "SMB_INSECURE_GUEST_LOGONS_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "INSECURE_GUEST_LOGONS_ENABLED", "canonical": false},
+        {"id": "LAN_MANAGER_AUTH_LEVEL", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "LAN_MANAGER_AUTH_LEVEL", "canonical": true},
+        {"id": "LAN_MANAGER_AUTHENTICATION_LEVEL", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "LAN_MANAGER_AUTH_LEVEL", "canonical": false}
       ],
-      "optionalSettingIds": [
-        "SMBV1_CLIENT_ENABLED",
-        "SMBV1_SERVER_ENABLED",
-        "SMB_CLIENT_SIGNING_REQUIRED",
-        "SMB_SERVER_SIGNING_REQUIRED",
-        "SMB_INSECURE_GUEST_LOGONS_ENABLED",
-        "NETBIOS_ENABLED_ADAPTER_COUNT",
-        "NTLM_RESTRICTION_LEVEL",
-        "LAN_MANAGER_AUTHENTICATION_LEVEL",
-        "WPAD_RELEVANT_STATE"
+      "optionalEvidence": [
+        {"id": "SMBV1_CLIENT_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "SMBV1_CLIENT_ENABLED", "canonical": true},
+        {"id": "SMBV1_SERVER_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "SMBV1_SERVER_ENABLED", "canonical": true},
+        {"id": "SMB_CLIENT_SIGNING_REQUIRED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "SMB_CLIENT_SIGNING_REQUIRED", "canonical": true},
+        {"id": "SMB_SERVER_SIGNING_REQUIRED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "SMB_SERVER_SIGNING_REQUIRED", "canonical": true},
+        {"id": "NETBIOS_ENABLED_ADAPTER_COUNT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "NETBIOS_ENABLED_ADAPTER_COUNT", "canonical": true},
+        {"id": "NTLM_RESTRICTION_LEVEL", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "NTLM_RESTRICTION_LEVEL", "canonical": true},
+        {"id": "WPAD_RELEVANT_STATE", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WPAD_RELEVANT_STATE", "canonical": true}
       ]
     },
     {
       "module": "RemoteAccess",
       "domain": "security.settings",
-      "mandatorySettingIds": [
-        "RDP_ENABLED",
-        "RDP_NLA_REQUIRED",
-        "RDP_SECURITY_LAYER_WEAK",
-        "WINRM_ALLOW_UNENCRYPTED",
-        "WINRM_BASIC_AUTH_ENABLED",
-        "REMOTE_REGISTRY_ENABLED",
-        "REMOTE_ACCESS_PRODUCTS"
+      "mandatoryEvidence": [
+        {"id": "RDP_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "RDP_ENABLED", "canonical": true},
+        {"id": "RDP_NLA_REQUIRED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "RDP_NLA_REQUIRED", "canonical": true},
+        {"id": "RDP_SECURITY_LAYER_WEAK", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "RDP_SECURITY_LAYER_WEAK", "canonical": true},
+        {"id": "WINRM_ALLOW_UNENCRYPTED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WINRM_ALLOW_UNENCRYPTED", "canonical": true},
+        {"id": "WINRM_UNENCRYPTED_TRAFFIC_ALLOWED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WINRM_ALLOW_UNENCRYPTED", "canonical": false},
+        {"id": "WINRM_BASIC_AUTH_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WINRM_BASIC_AUTH_ENABLED", "canonical": true},
+        {"id": "REMOTE_REGISTRY_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "REMOTE_REGISTRY_ENABLED", "canonical": true},
+        {"id": "REMOTE_ACCESS_PRODUCTS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "REMOTE_ACCESS_PRODUCTS", "canonical": true}
       ],
-      "optionalSettingIds": [
-        "RDP_SECURITY_LAYER",
-        "RDP_ENCRYPTION_LEVEL",
-        "REMOTE_ASSISTANCE_ENABLED",
-        "WINRM_SERVICE_ENABLED",
-        "WINRM_LISTENER_COUNT",
-        "WINRM_UNENCRYPTED_TRAFFIC_ALLOWED",
-        "OPENSSH_SERVER_ENABLED",
-        "UNAPPROVED_REMOTE_ACCESS_PRODUCT_COUNT"
+      "optionalEvidence": [
+        {"id": "RDP_SECURITY_LAYER", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "RDP_SECURITY_LAYER", "canonical": true},
+        {"id": "RDP_ENCRYPTION_LEVEL", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "RDP_ENCRYPTION_LEVEL", "canonical": true},
+        {"id": "REMOTE_ASSISTANCE_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "REMOTE_ASSISTANCE_ENABLED", "canonical": true},
+        {"id": "WINRM_SERVICE_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WINRM_SERVICE_ENABLED", "canonical": true},
+        {"id": "WINRM_LISTENER_COUNT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WINRM_LISTENER_COUNT", "canonical": true},
+        {"id": "OPENSSH_SERVER_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "OPENSSH_SERVER_ENABLED", "canonical": true},
+        {"id": "UNAPPROVED_REMOTE_ACCESS_PRODUCT_COUNT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "UNAPPROVED_REMOTE_ACCESS_PRODUCT_COUNT", "canonical": true}
       ]
     },
     {
       "module": "AuditPolicy",
       "domain": "security.settings",
-      "mandatorySettingIds": [
-        "AUDIT_ADVANCED_POLICY_COVERAGE_PERCENT",
-        "AUDIT_LOGON_FAILURE_ENABLED",
-        "AUDIT_ACCOUNT_MANAGEMENT_ENABLED",
-        "AUDIT_PROCESS_CREATION_ENABLED",
-        "AUDIT_POLICY_CHANGE_ENABLED"
+      "supportedLocales": ["en-US", "et-EE"],
+      "mandatoryEvidence": [
+        {"id": "AUDIT_ADVANCED_POLICY_COVERAGE_PERCENT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "AUDIT_POLICY_COVERAGE_PERCENT", "canonical": true},
+        {"id": "AUDIT_POLICY_COVERAGE_PERCENT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "AUDIT_POLICY_COVERAGE_PERCENT", "canonical": false},
+        {"id": "AUDIT_LOGON_FAILURE_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "AUDIT_LOGON_FAILURE_ENABLED", "canonical": true},
+        {"id": "AUDIT_ACCOUNT_MANAGEMENT_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "AUDIT_ACCOUNT_MANAGEMENT_ENABLED", "canonical": true},
+        {"id": "AUDIT_PROCESS_CREATION_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "AUDIT_PROCESS_CREATION_ENABLED", "canonical": true},
+        {"id": "AUDIT_POLICY_CHANGE_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "AUDIT_POLICY_CHANGE_ENABLED", "canonical": true}
       ],
-      "optionalSettingIds": [
-        "AUDIT_LOGON_SUCCESS",
-        "AUDIT_LOGON_FAILURE",
-        "AUDIT_ACCOUNT_MANAGEMENT_SUCCESS",
-        "AUDIT_ACCOUNT_MANAGEMENT_FAILURE",
-        "AUDIT_PROCESS_CREATION_SUCCESS",
-        "AUDIT_POLICY_CHANGE_SUCCESS",
-        "AUDIT_POLICY_CHANGE_FAILURE",
-        "AUDIT_FORCE_SUBCATEGORY_SETTINGS",
-        "AUDIT_POLICY_COVERAGE_PERCENT"
+      "optionalEvidence": [
+        {"id": "AUDIT_LOGON_SUCCESS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "AUDIT_LOGON_SUCCESS", "canonical": true},
+        {"id": "AUDIT_LOGON_FAILURE", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "AUDIT_LOGON_FAILURE", "canonical": true},
+        {"id": "AUDIT_ACCOUNT_MANAGEMENT_SUCCESS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "AUDIT_ACCOUNT_MANAGEMENT_SUCCESS", "canonical": true},
+        {"id": "AUDIT_ACCOUNT_MANAGEMENT_FAILURE", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "AUDIT_ACCOUNT_MANAGEMENT_FAILURE", "canonical": true},
+        {"id": "AUDIT_PROCESS_CREATION_SUCCESS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "AUDIT_PROCESS_CREATION_SUCCESS", "canonical": true},
+        {"id": "AUDIT_POLICY_CHANGE_SUCCESS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "AUDIT_POLICY_CHANGE_SUCCESS", "canonical": true},
+        {"id": "AUDIT_POLICY_CHANGE_FAILURE", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "AUDIT_POLICY_CHANGE_FAILURE", "canonical": true},
+        {"id": "AUDIT_FORCE_SUBCATEGORY_SETTINGS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "AUDIT_FORCE_SUBCATEGORY_SETTINGS", "canonical": true}
       ]
     },
     {
       "module": "Updates",
       "domain": "updates.settings",
-      "mandatorySettingIds": [
-        "WINDOWS_UPDATE_PENDING_REBOOT",
-        "WINDOWS_UPDATE_PENDING_REBOOT_AGE_DAYS",
-        "WINDOWS_UPDATE_LAST_SCAN_AGE_DAYS",
-        "WINDOWS_UPDATE_LAST_INSTALL_AGE_DAYS",
-        "WINDOWS_UPDATE_SERVICE_ENABLED",
-        "WINDOWS_RELEASE_TARGET_MATCH"
+      "mandatoryEvidence": [
+        {"id": "WINDOWS_UPDATE_PENDING_REBOOT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WINDOWS_UPDATE_PENDING_REBOOT", "canonical": true},
+        {"id": "PENDING_REBOOT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WINDOWS_UPDATE_PENDING_REBOOT", "canonical": false},
+        {"id": "WINDOWS_UPDATE_PENDING_REBOOT_AGE_DAYS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WINDOWS_UPDATE_PENDING_REBOOT_AGE_DAYS", "canonical": true},
+        {"id": "PENDING_REBOOT_AGE_DAYS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WINDOWS_UPDATE_PENDING_REBOOT_AGE_DAYS", "canonical": false},
+        {"id": "WINDOWS_UPDATE_LAST_SCAN_AGE_DAYS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WINDOWS_UPDATE_LAST_SCAN_AGE_DAYS", "canonical": true},
+        {"id": "UPDATE_SCAN_AGE_DAYS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WINDOWS_UPDATE_LAST_SCAN_AGE_DAYS", "canonical": false},
+        {"id": "WINDOWS_UPDATE_LAST_INSTALL_AGE_DAYS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WINDOWS_UPDATE_LAST_INSTALL_AGE_DAYS", "canonical": true},
+        {"id": "UPDATE_INSTALL_AGE_DAYS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WINDOWS_UPDATE_LAST_INSTALL_AGE_DAYS", "canonical": false},
+        {"id": "WINDOWS_UPDATE_SERVICE_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WINDOWS_UPDATE_SERVICE_ENABLED", "canonical": true},
+        {"id": "WINDOWS_RELEASE_TARGET_MATCH", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WINDOWS_RELEASE_TARGET_MATCH", "canonical": true}
       ],
-      "optionalSettingIds": [
-        "UPDATE_LAST_SCAN_AT",
-        "UPDATE_LAST_INSTALL_AT",
-        "UPDATE_SCAN_AGE_DAYS",
-        "UPDATE_INSTALL_AGE_DAYS",
-        "PENDING_REBOOT",
-        "PENDING_REBOOT_SINCE",
-        "PENDING_REBOOT_AGE_DAYS",
-        "UPDATE_ORCHESTRATOR_SERVICE_ENABLED",
-        "WSUS_CONFIGURED",
-        "MICROSOFT_UPDATE_ENABLED",
-        "TARGET_RELEASE_VERSION",
-        "QUALITY_UPDATE_DEFERRAL_DAYS",
-        "FEATURE_UPDATE_DEFERRAL_DAYS",
-        "UPDATE_PAUSED"
+      "optionalEvidence": [
+        {"id": "UPDATE_LAST_SCAN_AT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "UPDATE_LAST_SCAN_AT", "canonical": true},
+        {"id": "UPDATE_LAST_INSTALL_AT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "UPDATE_LAST_INSTALL_AT", "canonical": true},
+        {"id": "PENDING_REBOOT_SINCE", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "PENDING_REBOOT_SINCE", "canonical": true},
+        {"id": "UPDATE_ORCHESTRATOR_SERVICE_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "UPDATE_ORCHESTRATOR_SERVICE_ENABLED", "canonical": true},
+        {"id": "WSUS_CONFIGURED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "WSUS_CONFIGURED", "canonical": true},
+        {"id": "MICROSOFT_UPDATE_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "MICROSOFT_UPDATE_ENABLED", "canonical": true},
+        {"id": "TARGET_RELEASE_VERSION", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "TARGET_RELEASE_VERSION", "canonical": true},
+        {"id": "QUALITY_UPDATE_DEFERRAL_DAYS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "QUALITY_UPDATE_DEFERRAL_DAYS", "canonical": true},
+        {"id": "FEATURE_UPDATE_DEFERRAL_DAYS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "FEATURE_UPDATE_DEFERRAL_DAYS", "canonical": true},
+        {"id": "UPDATE_PAUSED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "UPDATE_PAUSED", "canonical": true}
       ]
     },
     {
       "module": "Network",
       "domain": "security.settings",
-      "mandatorySettingIds": ["ACTIVE_NETWORK_CATEGORY"],
-      "optionalSettingIds": [
-        "ACTIVE_NETWORK_PROFILE",
-        "ACTIVE_NETWORK_ADAPTERS",
-        "PUBLIC_NETWORK_ADAPTER_COUNT",
-        "NETBIOS_STATE_PER_ADAPTER"
+      "mandatoryEvidence": [
+        {"id": "ACTIVE_NETWORK_CATEGORY", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "ACTIVE_NETWORK_CATEGORY", "canonical": true}
+      ],
+      "optionalEvidence": [
+        {"id": "ACTIVE_NETWORK_PROFILE", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "ACTIVE_NETWORK_PROFILE", "canonical": true},
+        {"id": "ACTIVE_NETWORK_ADAPTERS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "ACTIVE_NETWORK_ADAPTERS", "canonical": true},
+        {"id": "PUBLIC_NETWORK_ADAPTER_COUNT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "PUBLIC_NETWORK_ADAPTER_COUNT", "canonical": true},
+        {"id": "NETBIOS_STATE_PER_ADAPTER", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "NETBIOS_STATE_PER_ADAPTER", "canonical": true}
       ]
     },
     {
       "module": "PowerShell",
       "domain": "security.settings",
-      "mandatorySettingIds": [
-        "POWERSHELL_2_ENABLED",
-        "POWERSHELL_SCRIPT_BLOCK_LOGGING_ENABLED",
-        "POWERSHELL_MODULE_LOGGING_ENABLED",
-        "POWERSHELL_TRANSCRIPTION_ENABLED"
+      "mandatoryEvidence": [
+        {"id": "POWERSHELL_2_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "POWERSHELL_2_ENABLED", "canonical": true},
+        {"id": "POWERSHELL_SCRIPT_BLOCK_LOGGING_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "POWERSHELL_SCRIPT_BLOCK_LOGGING_ENABLED", "canonical": true},
+        {"id": "POWERSHELL_MODULE_LOGGING_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "POWERSHELL_MODULE_LOGGING_ENABLED", "canonical": true},
+        {"id": "POWERSHELL_TRANSCRIPTION_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "POWERSHELL_TRANSCRIPTION_ENABLED", "canonical": true}
       ],
-      "optionalSettingIds": [
-        "POWERSHELL_PROTECTED_EVENT_LOGGING_ENABLED",
-        "POWERSHELL_EXECUTION_POLICY_BY_SCOPE",
-        "POWERSHELL_LANGUAGE_MODE",
-        "AMSI_AVAILABLE"
+      "optionalEvidence": [
+        {"id": "POWERSHELL_PROTECTED_EVENT_LOGGING_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "POWERSHELL_PROTECTED_EVENT_LOGGING_ENABLED", "canonical": true},
+        {"id": "POWERSHELL_EXECUTION_POLICY_BY_SCOPE", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "POWERSHELL_EXECUTION_POLICY_BY_SCOPE", "canonical": true},
+        {"id": "POWERSHELL_LANGUAGE_MODE", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "POWERSHELL_LANGUAGE_MODE", "canonical": true},
+        {"id": "AMSI_AVAILABLE", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "AMSI_AVAILABLE", "canonical": true}
       ]
     },
     {
       "module": "UAC",
       "domain": "security.settings",
-      "mandatorySettingIds": [
-        "UAC_ENABLE_LUA",
-        "UAC_ADMIN_CONSENT_PROMPT_WEAK",
-        "UAC_PROMPT_ON_SECURE_DESKTOP",
-        "LOCAL_ACCOUNT_TOKEN_FILTER_POLICY_WEAK"
+      "mandatoryEvidence": [
+        {"id": "UAC_ENABLE_LUA", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "UAC_ENABLE_LUA", "canonical": true},
+        {"id": "UAC_ADMIN_CONSENT_PROMPT_WEAK", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "UAC_ADMIN_CONSENT_PROMPT_WEAK", "canonical": true},
+        {"id": "UAC_PROMPT_ON_SECURE_DESKTOP", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "UAC_PROMPT_ON_SECURE_DESKTOP", "canonical": true},
+        {"id": "LOCAL_ACCOUNT_TOKEN_FILTER_POLICY_WEAK", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "LOCAL_ACCOUNT_TOKEN_FILTER_POLICY_WEAK", "canonical": true}
       ],
-      "optionalSettingIds": [
-        "UAC_CONSENT_PROMPT_BEHAVIOR_ADMIN",
-        "UAC_CONSENT_PROMPT_BEHAVIOR_USER",
-        "UAC_FILTER_ADMINISTRATOR_TOKEN",
-        "UAC_LOCAL_ACCOUNT_TOKEN_FILTER_POLICY",
-        "UAC_ENABLE_INSTALLER_DETECTION",
-        "UAC_ENABLE_VIRTUALIZATION"
+      "optionalEvidence": [
+        {"id": "UAC_CONSENT_PROMPT_BEHAVIOR_ADMIN", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "UAC_CONSENT_PROMPT_BEHAVIOR_ADMIN", "canonical": true},
+        {"id": "UAC_CONSENT_PROMPT_BEHAVIOR_USER", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "UAC_CONSENT_PROMPT_BEHAVIOR_USER", "canonical": true},
+        {"id": "UAC_FILTER_ADMINISTRATOR_TOKEN", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "UAC_FILTER_ADMINISTRATOR_TOKEN", "canonical": true},
+        {"id": "UAC_LOCAL_ACCOUNT_TOKEN_FILTER_POLICY", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "UAC_LOCAL_ACCOUNT_TOKEN_FILTER_POLICY", "canonical": true},
+        {"id": "UAC_ENABLE_INSTALLER_DETECTION", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "UAC_ENABLE_INSTALLER_DETECTION", "canonical": true},
+        {"id": "UAC_ENABLE_VIRTUALIZATION", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "UAC_ENABLE_VIRTUALIZATION", "canonical": true}
       ]
     }
   ]

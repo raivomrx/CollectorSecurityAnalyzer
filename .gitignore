@@ -5,6 +5,7 @@ output/*
 logs/*
 !logs/.gitkeep
 cache/
+test-artifacts/
 *.sqlite3
 .env
 software/unknown_products.json

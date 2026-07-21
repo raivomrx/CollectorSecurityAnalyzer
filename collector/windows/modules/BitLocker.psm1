@@ -1,25 +1,36 @@
-Import-Module (Join-Path $PSScriptRoot "General.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "General.psm1")
 
 function Get-CSABitLockerEvidence {
-    param([string]$PrivacyMode = "Standard")
+    param(
+        [string]$PrivacyMode = "Standard",
+        [scriptblock]$VolumeProvider = $null,
+        $BitLockerSupported = $null
+    )
 
     $startedAt = (Get-Date).ToUniversalTime()
     $settings = @()
     $errors = @()
     $moduleStatus = ""
-    if (-not (Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue)) {
+    $supported = if ($null -ne $BitLockerSupported) {
+        [bool]$BitLockerSupported
+    } else {
+        [bool](Get-Command Get-BitLockerVolume -ErrorAction SilentlyContinue)
+    }
+    if (-not $supported) {
         $errorItem = New-CSACollectionError "BitLocker" "NOT_SUPPORTED" "CSA-BITLOCKER-NOT-SUPPORTED" "BitLocker cmdlets are unavailable."
-        return New-CSAModuleResult -Module "BitLocker" -Errors @($errorItem) -ExpectedEvidenceCount 9 -StartedAt $startedAt -Status "NOT_SUPPORTED"
+        return New-CSAModuleResult -Module "BitLocker" -Errors @($errorItem) -StartedAt $startedAt -Status "NOT_SUPPORTED"
     }
 
     try {
-        $volumes = @(Get-BitLockerVolume -ErrorAction Stop | Where-Object { $_.VolumeType -eq "OperatingSystem" -or $_.MountPoint })
+        $rawVolumes = if ($null -ne $VolumeProvider) { & $VolumeProvider } else { Get-BitLockerVolume -ErrorAction Stop }
+        $volumes = @($rawVolumes | Where-Object { $_.VolumeType -eq "OperatingSystem" -or $_.MountPoint })
         foreach ($volume in $volumes) {
             $volumeId = ([string]$volume.MountPoint).TrimEnd(':', '\').ToUpperInvariant()
             if ([string]::IsNullOrWhiteSpace($volumeId)) { $volumeId = "VOLUME" }
             $prefix = "BITLOCKER_$volumeId"
             $protectorTypes = @($volume.KeyProtector | ForEach-Object { [string]$_.KeyProtectorType })
-            $protectionEnabled = ([string]$volume.ProtectionStatus -eq "On" -or [int]$volume.ProtectionStatus -eq 1)
+            $protectionStatus = [string]$volume.ProtectionStatus
+            $protectionEnabled = ($protectionStatus -eq "On" -or $protectionStatus -eq "1")
             $metadata = @{ volumeType = [string]$volume.VolumeType; mountPoint = [string]$volume.MountPoint }
             $values = [ordered]@{
                 PROTECTION_STATUS = $protectionEnabled
@@ -40,12 +51,12 @@ function Get-CSABitLockerEvidence {
         }
     } catch [System.UnauthorizedAccessException] {
         $errors += New-CSACollectionError "BitLocker" "ACCESS_DENIED" "CSA-BITLOCKER-ACCESS-DENIED" $_.Exception.Message
-        return New-CSAModuleResult -Module "BitLocker" -Settings $settings -Errors $errors -ExpectedEvidenceCount 9 -StartedAt $startedAt -Status "ACCESS_DENIED"
+        return New-CSAModuleResult -Module "BitLocker" -Settings $settings -Errors $errors -StartedAt $startedAt -Status "ACCESS_DENIED"
     } catch {
         $moduleStatus = Resolve-CSAExceptionStatus $_
         $errors += New-CSACollectionError "BitLocker" $moduleStatus "CSA-BITLOCKER-COLLECTION-FAILED" $_.Exception.Message
     }
-    New-CSAModuleResult -Module "BitLocker" -Settings $settings -Errors $errors -ExpectedEvidenceCount 9 -StartedAt $startedAt -Status $moduleStatus
+    New-CSAModuleResult -Module "BitLocker" -Settings $settings -Errors $errors -StartedAt $startedAt -Status $moduleStatus
 }
 
 Export-ModuleMember -Function Get-CSABitLockerEvidence

@@ -8,32 +8,20 @@ param(
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
-$collectorVersion = "CSA-WINDOWS-COLLECTOR-3.1.1"
+$collectorVersion = "CSA-WINDOWS-COLLECTOR-3.1.2"
 $started = (Get-Date).ToUniversalTime()
 $moduleRoot = Join-Path $PSScriptRoot "modules"
 $manifestPath = Join-Path $PSScriptRoot "evidence-manifest.json"
-$modules = @(
-    "General",
-    "Firewall",
-    "Defender",
-    "BitLocker",
-    "Accounts",
-    "Protocols",
-    "AuditPolicy",
-    "DeviceGuard",
-    "Updates",
-    "RemoteAccess",
-    "Network",
-    "PowerShell",
-    "UAC"
-)
-
 Import-Module (Join-Path $moduleRoot "General.psm1") -Force
 $manifest = @{}
-if (Test-Path -LiteralPath $manifestPath) {
-    foreach ($entry in @((Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json).modules)) {
-        $manifest[$entry.module] = $entry
-    }
+if (-not (Test-Path -LiteralPath $manifestPath)) {
+    throw "Evidence manifest was not found: $manifestPath"
+}
+$manifestDocument = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+Test-CSAEvidenceManifest -Manifest $manifestDocument -ModuleRoot $moduleRoot | Out-Null
+$modules = @($manifestDocument.modules | ForEach-Object { [string]$_.module })
+foreach ($entry in @($manifestDocument.modules)) {
+    $manifest[$entry.module] = $entry
 }
 
 $securitySettings = New-Object System.Collections.Generic.List[object]
@@ -44,8 +32,10 @@ $scheduledTasks = New-Object System.Collections.Generic.List[object]
 $errors = New-Object System.Collections.Generic.List[object]
 $warnings = New-Object System.Collections.Generic.List[string]
 $moduleResults = New-Object System.Collections.Generic.List[object]
-$expectedEvidence = 0
-$collectedEvidence = 0
+$expectedEvidenceUnits = 0
+$collectedEvidenceUnits = 0
+$expectedMandatoryUnits = 0
+$collectedMandatoryUnits = 0
 $statusCounts = @{
     SUCCESS = 0; PARTIAL = 0; FAILED = 0; NOT_SUPPORTED = 0
     ACCESS_DENIED = 0; NOT_AVAILABLE = 0
@@ -75,9 +65,16 @@ foreach ($moduleName in $modules) {
         $result = New-CSAModuleResult -Module $moduleName -Errors @($moduleError) -StartedAt $started -Status "FAILED"
     }
 
+    if ($manifest.ContainsKey($moduleName)) {
+        $result = Resolve-CSAModuleEvidence -Result $result -ManifestModule $manifest[$moduleName]
+    }
     $moduleResults.Add($result)
-    $expectedEvidence += [int]$result.ExpectedEvidenceCount
-    $collectedEvidence += [int]$result.CollectedEvidenceCount
+    if ([string]$result.Status -ne "NOT_SUPPORTED") {
+        $expectedEvidenceUnits += [int]$result.ExpectedEvidenceCount
+        $collectedEvidenceUnits += [int]$result.CollectedEvidenceCount
+        $expectedMandatoryUnits += [int]$result.ExpectedMandatoryEvidenceCount
+        $collectedMandatoryUnits += [int]$result.CollectedMandatoryEvidenceCount
+    }
     $moduleStatus = [string]$result.Status
     if (-not $statusCounts.ContainsKey($moduleStatus)) { $moduleStatus = "FAILED" }
     $statusCounts[$moduleStatus]++
@@ -92,26 +89,11 @@ foreach ($moduleName in $modules) {
 }
 
 $completed = (Get-Date).ToUniversalTime()
-$executed = $modules.Count - $statusCounts.FAILED
-$executionCoverage = if ($modules.Count -gt 0) { [math]::Round(($executed / $modules.Count) * 100, 1) } else { 0.0 }
-$collectedEvidence = $securitySettings.Count + $updateSettings.Count
-$evidenceCoverage = if ($expectedEvidence -gt 0) { [math]::Round(([math]::Min($collectedEvidence, $expectedEvidence) / $expectedEvidence) * 100, 1) } else { 0.0 }
-
-$applicableMandatory = 0
-$collectedMandatory = 0
-$allSettings = $securitySettings.ToArray() + $updateSettings.ToArray()
-foreach ($moduleResult in $moduleResults) {
-    if (-not $manifest.ContainsKey($moduleResult.Module)) { continue }
-    if ($moduleResult.Status -eq "NOT_SUPPORTED") { continue }
-    foreach ($settingId in @($manifest[$moduleResult.Module].mandatorySettingIds)) {
-        $applicableMandatory++
-        $matched = @($allSettings | Where-Object { $_.settingId -eq $settingId -and $_.collectionStatus -eq "SUCCESS" })
-        if ($matched.Count -gt 0) { $collectedMandatory++ }
-    }
-}
-$mandatoryCoverage = if ($applicableMandatory -gt 0) { [math]::Round(($collectedMandatory / $applicableMandatory) * 100, 1) } else { 0.0 }
-$generalModulePath = Join-Path $moduleRoot "General.psm1"
-Import-Module $generalModulePath -Force
+$invocationCoverage = if ($modules.Count -gt 0) { [math]::Round(($moduleResults.Count / $modules.Count) * 100, 1) } else { 0.0 }
+$successfulModulePercent = if ($modules.Count -gt 0) { [math]::Round(($statusCounts.SUCCESS / $modules.Count) * 100, 1) } else { 0.0 }
+$evidenceCoverage = if ($expectedEvidenceUnits -gt 0) { [math]::Round(($collectedEvidenceUnits / $expectedEvidenceUnits) * 100, 1) } else { 0.0 }
+$mandatoryCoverage = if ($expectedMandatoryUnits -gt 0) { [math]::Round(($collectedMandatoryUnits / $expectedMandatoryUnits) * 100, 1) } else { 0.0 }
+$collectedEvidenceItems = $securitySettings.Count + $updateSettings.Count
 $elevated = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 $os = $null
 $computer = $null
@@ -167,13 +149,19 @@ $document = [ordered]@{
         failedCollectors = $statusCounts.FAILED + $statusCounts.NOT_AVAILABLE
         unsupportedCollectors = $statusCounts.NOT_SUPPORTED
         accessDeniedCollectors = $statusCounts.ACCESS_DENIED
-        evidenceItems = $collectedEvidence
-        moduleExecutionCoveragePercent = $executionCoverage
+        evidenceItems = $collectedEvidenceItems
+        moduleInvocationCoveragePercent = $invocationCoverage
+        successfulModulePercent = $successfulModulePercent
+        evidenceUnitCoveragePercent = $evidenceCoverage
+        mandatoryEvidenceCoveragePercent = $mandatoryCoverage
+        moduleExecutionCoveragePercent = $invocationCoverage
         evidenceCollectionCoveragePercent = $evidenceCoverage
         collectionCoveragePercent = $evidenceCoverage
         mandatoryCollectionCoveragePercent = $mandatoryCoverage
-        mandatoryEvidenceApplicable = $applicableMandatory
-        mandatoryEvidenceCollected = $collectedMandatory
+        evidenceUnitsApplicable = $expectedEvidenceUnits
+        evidenceUnitsCollected = $collectedEvidenceUnits
+        mandatoryEvidenceApplicable = $expectedMandatoryUnits
+        mandatoryEvidenceCollected = $collectedMandatoryUnits
         elevated = $elevated
         rebootPending = if ($pendingRebootSetting.Count -gt 0) { $pendingRebootSetting[0].effectiveValue } else { $null }
         warnings = $warnings.ToArray()

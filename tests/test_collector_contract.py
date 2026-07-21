@@ -10,6 +10,10 @@ import unittest
 from pathlib import Path
 
 from analyzer import analyze_file
+from collector_schema.evidence_manifest import (
+    load_evidence_manifest,
+    manifest_declares_setting_id,
+)
 from collector_schema.loader import load_collector_document
 from collector_schema.validation import validate_v2_document
 from evidence.normalization import normalize_windows_evidence
@@ -55,12 +59,7 @@ class CollectorContractTests(unittest.TestCase):
     def test_every_enabled_windows_rule_has_collector_source(self) -> None:
         """Every dynamic evidence rule should reference a manifested setting."""
 
-        manifest = json.loads((COLLECTOR_ROOT / "evidence-manifest.json").read_text(encoding="utf-8"))
-        setting_ids = {
-            setting_id
-            for module in manifest["modules"]
-            for setting_id in module["mandatorySettingIds"] + module["optionalSettingIds"]
-        }
+        manifest = load_evidence_manifest(COLLECTOR_ROOT / "evidence-manifest.json")
         registry = load_registry(log_startup=False)
         missing: list[str] = []
         for rule in registry.get_enabled():
@@ -68,7 +67,7 @@ class CollectorContractTests(unittest.TestCase):
             if spec is None:
                 continue
             for setting_id in (spec.setting_id, spec.only_when_setting_id):
-                if setting_id and setting_id not in setting_ids:
+                if setting_id and not manifest_declares_setting_id(manifest, setting_id):
                     missing.append(f"{rule.metadata.id}:{setting_id}")
         self.assertEqual(missing, [])
 
@@ -97,12 +96,12 @@ class CollectorContractTests(unittest.TestCase):
     def test_manifest_has_no_empty_production_module(self) -> None:
         """Every production collector module should declare output evidence."""
 
-        manifest = json.loads((COLLECTOR_ROOT / "evidence-manifest.json").read_text(encoding="utf-8"))
+        manifest = load_evidence_manifest(COLLECTOR_ROOT / "evidence-manifest.json")
         empty = [
             item["module"]
             for item in manifest["modules"]
-            if not item["mandatorySettingIds"]
-            and not item["optionalSettingIds"]
+            if not item["mandatoryEvidence"]
+            and not item["optionalEvidence"]
             and not item.get("inventoryDomains")
         ]
         self.assertEqual(empty, [])
@@ -143,7 +142,7 @@ class CollectorEndToEndTests(unittest.TestCase):
         self.assertLess(score, 100)
         self.assertIn("Compliance &amp; Policy Assessment", html)
         self.assertIn("TPM_READY", html)
-        self.assertIn("Module execution coverage", html)
+        self.assertIn("Module invocation coverage", html)
         self.assertNotIn("CLIENT-SENSITIVE-01", html)
         self.assertNotIn("Alice", html)
 

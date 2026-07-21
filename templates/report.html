@@ -60,9 +60,10 @@
           <div><span>Failed modules</span><strong>{{ collection_quality.failed_modules }}</strong></div>
           <div><span>Unsupported modules</span><strong>{{ collection_quality.unsupported_modules }}</strong></div>
           <div><span>Access denied modules</span><strong>{{ collection_quality.access_denied_modules }}</strong></div>
-          <div><span>Module execution coverage</span><strong>{{ collection_quality.module_execution_coverage }}%</strong></div>
-          <div><span>Evidence collection coverage</span><strong>{{ collection_quality.evidence_collection_coverage }}%</strong></div>
-          <div><span>Mandatory collection coverage</span><strong>{{ collection_quality.mandatory_collection_coverage }}%</strong></div>
+          <div><span>Module invocation coverage</span><strong>{{ collection_quality.module_invocation_coverage }}%</strong></div>
+          <div><span>Successful module rate</span><strong>{{ collection_quality.successful_module_percent }}%</strong></div>
+          <div><span>Evidence unit coverage</span><strong>{{ collection_quality.evidence_unit_coverage }}%</strong></div>
+          <div><span>Mandatory evidence coverage</span><strong>{{ collection_quality.mandatory_evidence_coverage }}%</strong></div>
           <div><span>Mandatory evidence</span><strong>{{ collection_quality.mandatory_evidence_collected }} / {{ collection_quality.mandatory_evidence_applicable }}</strong></div>
         </div>
         {% if collection_quality.warnings %}

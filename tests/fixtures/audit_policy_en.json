@@ -1,0 +1,8 @@
+{
+  "locale": "en-US",
+  "cases": [
+    {"text": "Success and Failure", "success": true, "failure": true},
+    {"text": "Success", "success": true, "failure": false},
+    {"text": "No Auditing", "success": false, "failure": false}
+  ]
+}

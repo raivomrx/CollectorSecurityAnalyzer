@@ -1,4 +1,4 @@
-Import-Module (Join-Path $PSScriptRoot "General.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "General.psm1")
 
 function Get-CSAPowerShellEvidence {
     param([string]$PrivacyMode = "Standard")
@@ -37,12 +37,12 @@ function Get-CSAPowerShellEvidence {
         $settings += New-CSASetting "AMSI_AVAILABLE" "PowerShell" $amsiAvailable "RUNTIME_STATE" "SUCCESS" 75 "System.Management.Automation" "AmsiUtils"
     } catch [System.UnauthorizedAccessException] {
         $errors += New-CSACollectionError "PowerShell" "ACCESS_DENIED" "CSA-POWERSHELL-ACCESS-DENIED" $_.Exception.Message
-        return New-CSAModuleResult -Module "PowerShell" -Settings $settings -Errors $errors -ExpectedEvidenceCount 8 -StartedAt $startedAt -Status "ACCESS_DENIED"
+        return New-CSAModuleResult -Module "PowerShell" -Settings $settings -Errors $errors -StartedAt $startedAt -Status "ACCESS_DENIED"
     } catch {
         $moduleStatus = Resolve-CSAExceptionStatus $_
         $errors += New-CSACollectionError "PowerShell" $moduleStatus "CSA-POWERSHELL-COLLECTION-FAILED" $_.Exception.Message
     }
-    New-CSAModuleResult -Module "PowerShell" -Settings $settings -Errors $errors -ExpectedEvidenceCount 8 -StartedAt $startedAt -Status $moduleStatus
+    New-CSAModuleResult -Module "PowerShell" -Settings $settings -Errors $errors -StartedAt $startedAt -Status $moduleStatus
 }
 
 Export-ModuleMember -Function Get-CSAPowerShellEvidence

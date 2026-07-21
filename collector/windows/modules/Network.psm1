@@ -1,4 +1,4 @@
-Import-Module (Join-Path $PSScriptRoot "General.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "General.psm1")
 
 function Get-CSANetworkEvidence {
     param([string]$PrivacyMode = "Standard")
@@ -9,7 +9,7 @@ function Get-CSANetworkEvidence {
     $moduleStatus = ""
     if (-not (Get-Command Get-NetConnectionProfile -ErrorAction SilentlyContinue)) {
         $errorItem = New-CSACollectionError "Network" "NOT_SUPPORTED" "CSA-NETWORK-NOT-SUPPORTED" "NetConnection profile cmdlets are unavailable."
-        return New-CSAModuleResult -Module "Network" -Errors @($errorItem) -ExpectedEvidenceCount 5 -StartedAt $startedAt -Status "NOT_SUPPORTED"
+        return New-CSAModuleResult -Module "Network" -Errors @($errorItem) -StartedAt $startedAt -Status "NOT_SUPPORTED"
     }
     try {
         $profiles = @(Get-NetConnectionProfile -ErrorAction Stop)
@@ -40,12 +40,12 @@ function Get-CSANetworkEvidence {
         $settings += New-CSASetting "NETBIOS_STATE_PER_ADAPTER" "Network" $netbiosAdapters "RUNTIME_STATE" "SUCCESS" 85 "Win32_NetworkAdapterConfiguration" "TcpipNetbiosOptions"
     } catch [System.UnauthorizedAccessException] {
         $errors += New-CSACollectionError "Network" "ACCESS_DENIED" "CSA-NETWORK-ACCESS-DENIED" $_.Exception.Message
-        return New-CSAModuleResult -Module "Network" -Settings $settings -Errors $errors -ExpectedEvidenceCount 5 -StartedAt $startedAt -Status "ACCESS_DENIED"
+        return New-CSAModuleResult -Module "Network" -Settings $settings -Errors $errors -StartedAt $startedAt -Status "ACCESS_DENIED"
     } catch {
         $moduleStatus = Resolve-CSAExceptionStatus $_
         $errors += New-CSACollectionError "Network" $moduleStatus "CSA-NETWORK-COLLECTION-FAILED" $_.Exception.Message
     }
-    New-CSAModuleResult -Module "Network" -Settings $settings -Errors $errors -ExpectedEvidenceCount 5 -StartedAt $startedAt -Status $moduleStatus
+    New-CSAModuleResult -Module "Network" -Settings $settings -Errors $errors -StartedAt $startedAt -Status $moduleStatus
 }
 
 Export-ModuleMember -Function Get-CSANetworkEvidence

@@ -1,4 +1,4 @@
-Import-Module (Join-Path $PSScriptRoot "General.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "General.psm1")
 
 function ConvertTo-CSAUserClassification {
     param($PrincipalSource, [string]$Name)
@@ -21,7 +21,7 @@ function Get-CSAAccountsEvidence {
     $moduleStatus = ""
     if (-not (Get-Command Get-LocalUser -ErrorAction SilentlyContinue)) {
         $errorItem = New-CSACollectionError "Accounts" "NOT_SUPPORTED" "CSA-ACCOUNTS-NOT-SUPPORTED" "Microsoft.PowerShell.LocalAccounts cmdlets are unavailable."
-        return New-CSAModuleResult -Module "Accounts" -Errors @($errorItem) -ExpectedEvidenceCount 13 -StartedAt $startedAt -Status "NOT_SUPPORTED"
+        return New-CSAModuleResult -Module "Accounts" -Errors @($errorItem) -StartedAt $startedAt -Status "NOT_SUPPORTED"
     }
 
     try {
@@ -82,12 +82,12 @@ function Get-CSAAccountsEvidence {
         }
     } catch [System.UnauthorizedAccessException] {
         $errors += New-CSACollectionError "Accounts" "ACCESS_DENIED" "CSA-ACCOUNTS-ACCESS-DENIED" $_.Exception.Message
-        return New-CSAModuleResult -Module "Accounts" -Settings $settings -Errors $errors -Warnings $warnings -ExpectedEvidenceCount 13 -StartedAt $startedAt -Status "ACCESS_DENIED"
+        return New-CSAModuleResult -Module "Accounts" -Settings $settings -Errors $errors -Warnings $warnings -StartedAt $startedAt -Status "ACCESS_DENIED"
     } catch {
         $moduleStatus = Resolve-CSAExceptionStatus $_
         $errors += New-CSACollectionError "Accounts" $moduleStatus "CSA-ACCOUNTS-COLLECTION-FAILED" $_.Exception.Message
     }
-    New-CSAModuleResult -Module "Accounts" -Settings $settings -Errors $errors -Warnings $warnings -ExpectedEvidenceCount 13 -StartedAt $startedAt -Status $moduleStatus
+    New-CSAModuleResult -Module "Accounts" -Settings $settings -Errors $errors -Warnings $warnings -StartedAt $startedAt -Status $moduleStatus
 }
 
 Export-ModuleMember -Function Get-CSAAccountsEvidence
