@@ -18,6 +18,8 @@ from frameworks.enums import (
     MappingStatus,
     MappingStrength,
     PackStatus,
+    ReviewMethod,
+    ReviewPendingReason,
 )
 from frameworks.evaluator import FrameworkEvaluator
 from frameworks.exceptions import FrameworkPackError
@@ -58,18 +60,20 @@ class FrameworkPackLoadingTests(unittest.TestCase):
         self.assertEqual(len(packs), 4)
         self.assertEqual([error for pack in packs for error in validator.validate(pack)], [])
 
-    def test_registry_resolves_active_default_and_exact_draft(self) -> None:
-        """Latest should use the active default while exact draft remains loadable."""
+    def test_registry_requires_exact_version_when_no_active_pack_exists(self) -> None:
+        """Latest must not select review-required or draft content."""
 
         registry = FrameworkPackRegistry()
 
-        self.assertEqual(registry.resolve("EITS").version, "2026")
+        self.assertEqual(registry.resolve("EITS", "2026").status, PackStatus.REVIEW_REQUIRED)
         self.assertEqual(
             registry.resolve("CIS_WINDOWS_11_ENTERPRISE", "5.0.1").status,
             PackStatus.DRAFT,
         )
         with self.assertRaises(FrameworkPackError):
             registry.resolve("CIS_WINDOWS_11_ENTERPRISE")
+        with self.assertRaises(FrameworkPackError):
+            registry.resolve("EITS")
 
     def test_duplicate_json_keys_are_rejected(self) -> None:
         """Duplicate JSON keys must not silently override security metadata."""
@@ -95,7 +99,7 @@ class FrameworkPackLoadingTests(unittest.TestCase):
     def test_release_validation_rejects_provisional_mappings(self) -> None:
         """The review gate must fail pending mappings."""
 
-        pack = FrameworkPackRegistry().resolve("EITS")
+        pack = FrameworkPackRegistry().resolve("EITS", "2026")
         errors = FrameworkPackValidator(load_registry(log_startup=False)).validate(
             pack,
             require_reviewed=True,
@@ -200,12 +204,18 @@ class FrameworkEvaluatorTests(unittest.TestCase):
         mapping = replace(
             _mapping(),
             status=MappingStatus.PROVISIONAL,
-            reviewer="CSA_ARCHITECT_REVIEW_PENDING",
+            reviewer=None,
             reviewed_at=None,
+            review_method=ReviewMethod.MIGRATED_UNREVIEWED,
+            review_pending_reason=ReviewPendingReason.REQUIRES_DOMAIN_EXPERT_REVIEW,
         )
         result = FrameworkEvaluator().evaluate(
-            _pack(_control(mappings=(mapping,))),
+            replace(
+                _pack(_control(mappings=(mapping,))),
+                status=PackStatus.REVIEW_REQUIRED,
+            ),
             [_finding(Status.PASS)],
+            allow_unreviewed=True,
         ).results[0]
 
         self.assertEqual(result.status, FrameworkControlStatus.NOT_EVALUATED)
@@ -340,6 +350,8 @@ def _mapping() -> RuleMapping:
         reviewer="Test Reviewer",
         reviewed_at="2026-07-22",
         source_reference="https://example.invalid/control",
+        source_release="1.0",
+        review_method=ReviewMethod.MANUAL_SOURCE_REVIEW,
     )
 
 

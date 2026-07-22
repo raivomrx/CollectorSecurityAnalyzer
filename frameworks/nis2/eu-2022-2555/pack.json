@@ -1,9 +1,9 @@
 {
   "schemaVersion": "1.0",
-  "frameworkId": "NIS2",
-  "name": "NIS2 Article 21 Endpoint Traceability Pack",
+  "frameworkId": "NIS2_TECHNICAL_TRACEABILITY",
+  "name": "NIS2 Article 21 Technical Evidence Traceability",
   "version": "EU-2022-2555",
-  "status": "ACTIVE",
+  "status": "REVIEW_REQUIRED",
   "source": {
     "publisher": "European Union",
     "release": "Directive (EU) 2022/2555",
@@ -60,9 +60,12 @@
           "evidenceLimitations": [
             "Does not assess disclosure, remediation governance, secure acquisition, or development lifecycle."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://eur-lex.europa.eu/eli/dir/2022/2555/oj"
+          "sourceReference": "https://eur-lex.europa.eu/eli/dir/2022/2555/oj",
+          "sourceRelease": "EU-2022-2555",
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "REQUIRES_DOMAIN_EXPERT_REVIEW"
         },
         {
           "ruleId": "UPD-001",
@@ -72,9 +75,12 @@
           "evidenceLimitations": [
             "Update recency alone does not demonstrate vulnerability management."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://eur-lex.europa.eu/eli/dir/2022/2555/oj"
+          "sourceReference": "https://eur-lex.europa.eu/eli/dir/2022/2555/oj",
+          "sourceRelease": "EU-2022-2555",
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "REQUIRES_DOMAIN_EXPERT_REVIEW"
         }
       ],
       "tags": [
@@ -102,9 +108,12 @@
           "evidenceLimitations": [
             "Identity lifecycle, authorization governance, and non-endpoint assets are not assessed."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://eur-lex.europa.eu/eli/dir/2022/2555/oj"
+          "sourceReference": "https://eur-lex.europa.eu/eli/dir/2022/2555/oj",
+          "sourceRelease": "EU-2022-2555",
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "REQUIRES_DOMAIN_EXPERT_REVIEW"
         },
         {
           "ruleId": "SW-001",
@@ -114,9 +123,12 @@
           "evidenceLimitations": [
             "Unknown software detection is not a complete asset inventory."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://eur-lex.europa.eu/eli/dir/2022/2555/oj"
+          "sourceReference": "https://eur-lex.europa.eu/eli/dir/2022/2555/oj",
+          "sourceRelease": "EU-2022-2555",
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "REQUIRES_DOMAIN_EXPERT_REVIEW"
         }
       ],
       "tags": [
@@ -143,9 +155,12 @@
           "evidenceLimitations": [
             "MFA, continuous authentication, and secured communications policies are not assessed."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://eur-lex.europa.eu/eli/dir/2022/2555/oj"
+          "sourceReference": "https://eur-lex.europa.eu/eli/dir/2022/2555/oj",
+          "sourceRelease": "EU-2022-2555",
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "REQUIRES_DOMAIN_EXPERT_REVIEW"
         }
       ],
       "tags": [
@@ -155,5 +170,10 @@
       "notes": "Contextual traceability only; manual organizational assessment is required."
     }
   ],
-  "contentHashSha256": "087fbd3c868e584fce78982f3fc5e6f2c67c3871a36e70b8d0b19f3d2b69d3ed"
+  "contentHashSha256": "c5c212ac1916b3aa0ebd616b094bf117e3bafb523821d319f1d3c8960e4f4119",
+  "assessmentMode": "TRACEABILITY_ONLY",
+  "disclaimers": {
+    "en": "CSA provides technical evidence traceability for selected NIS2 Article 21 topics. This is not a determination of legal compliance.",
+    "et": "CSA seob tehnilise tõendusmaterjali valitud NIS2 artikli 21 teemadega. See ei ole õigusliku vastavuse hinnang."
+  }
 }

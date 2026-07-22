@@ -6,6 +6,10 @@ import argparse
 import csv
 import hashlib
 import json
+import os
+import re
+import tempfile
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +24,8 @@ MAX_STRING = 4096
 ALLOWED_FIELDS = {
     "controlId", "title", "section", "profile", "level", "automation",
     "ruleIds", "mappingStrength", "mappingStatus", "rationale",
-    "evidenceLimitations", "reviewer", "reviewedAt", "sourceReference",
+    "evidenceLimitations", "reviewer", "reviewedAt", "reviewMethod",
+    "reviewPendingReason", "sourceReference", "sourceRelease",
 }
 PROFILE_ALIASES = {
     "L1": "Level 1",
@@ -37,6 +42,7 @@ def import_cis_mapping(
     output_path: str | Path,
     framework_id: str,
     version: str,
+    strict_privacy: bool = False,
 ) -> Path:
     """Import a bounded CSV or JSON file into a draft CIS pack."""
 
@@ -56,11 +62,12 @@ def import_cis_mapping(
         and not getattr(rule.metadata, "deprecated", False)
         and not getattr(rule.metadata, "superseded_by", None)
     }
-    controls = [_control(row, known_rules) for row in rows]
+    controls = [_control(row, known_rules, version) for row in rows]
     ids = [item["controlId"] for item in controls]
     if len(ids) != len(set(ids)):
         raise FrameworkPackError("CIS import contains duplicate control IDs")
     source_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    imported_at = datetime.now(timezone.utc).isoformat()
     document: dict[str, Any] = {
         "schemaVersion": "1.0",
         "frameworkId": framework_id,
@@ -71,25 +78,39 @@ def import_cis_mapping(
             "publisher": "Center for Internet Security",
             "release": version,
             "publishedAt": None,
-            "retrievedAt": __import__("datetime").date.today().isoformat(),
-            "reference": str(source),
-            "digestSha256": source_digest,
+            "retrievedAt": date.today().isoformat(),
+            "reference": "LOCAL_LICENSED_CIS_IMPORT",
+            "sourceDigestSha256": source_digest,
+            "sourceFileName": None if strict_privacy else source.name,
+            "sourceFormat": source.suffix.lstrip(".").upper(),
+            "importedAt": imported_at,
+            "recordCount": len(rows),
         },
         "scope": ["Windows 11 Enterprise"],
-        "license": "Contains CSA-authored mapping metadata only; CIS source content remains subject to its license.",
-        "createdAt": __import__("datetime").date.today().isoformat(),
-        "updatedAt": __import__("datetime").date.today().isoformat(),
+        "license": (
+            "Contains CSA-authored mapping metadata only; CIS source content "
+            "remains subject to its license."
+        ),
+        "createdAt": date.today().isoformat(),
+        "updatedAt": date.today().isoformat(),
         "maintainer": "CSA",
         "minimumCsaVersion": "3.2",
         "deprecated": False,
         "supersedes": None,
         "supersededBy": None,
+        "assessmentMode": "FORMAL_ASSESSMENT",
+        "disclaimers": {
+            "en": "Imported mapping metadata requires human source review before assessment.",
+            "et": (
+                "Imporditud mappingu metaandmed vajavad enne hindamist inimeste "
+                "tehtud allikakontrolli."
+            ),
+        },
         "controls": controls,
         "contentHashSha256": "",
     }
     document["contentHashSha256"] = pack_content_digest(document)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(document, indent=2, ensure_ascii=False), encoding="utf-8")
+    _atomic_json_write(output, document)
     return output
 
 
@@ -119,7 +140,11 @@ def _read_rows(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _control(row: dict[str, Any], known_rules: set[str]) -> dict[str, Any]:
+def _control(
+    row: dict[str, Any],
+    known_rules: set[str],
+    source_release: str,
+) -> dict[str, Any]:
     """Normalize one imported control and validate its rule references."""
 
     control_id = str(row.get("controlId", "")).strip()
@@ -135,12 +160,15 @@ def _control(row: dict[str, Any], known_rules: set[str]) -> dict[str, Any]:
         {
             "ruleId": rule_id,
             "mappingStrength": str(row.get("mappingStrength") or "SUPPORTING"),
-            "mappingStatus": str(row.get("mappingStatus") or "PROVISIONAL"),
+            "mappingStatus": "PROVISIONAL",
             "rationale": str(row.get("rationale") or "CSA_ARCHITECT_REVIEW_PENDING"),
             "evidenceLimitations": _values(row.get("evidenceLimitations")),
-            "reviewer": row.get("reviewer") or "CSA_ARCHITECT_REVIEW_PENDING",
-            "reviewedAt": row.get("reviewedAt") or None,
-            "sourceReference": row.get("sourceReference") or None,
+            "reviewer": None,
+            "reviewedAt": None,
+            "sourceReference": _public_source_reference(row.get("sourceReference")),
+            "sourceRelease": source_release,
+            "reviewMethod": "IMPORTED_UNREVIEWED",
+            "reviewPendingReason": "REQUIRES_DOMAIN_EXPERT_REVIEW",
         }
         for rule_id in rule_ids
     ]
@@ -197,6 +225,34 @@ def _safe_output_path(value: str | Path) -> Path:
     return path.resolve()
 
 
+def _public_source_reference(value: Any) -> str | None:
+    """Retain only non-local mapping references from imported content."""
+
+    reference = str(value or "").strip()
+    if not reference:
+        return None
+    if re.search(r"(?:^file:|^[a-zA-Z]:[\\/]|^\\\\|^/)", reference, re.IGNORECASE):
+        return None
+    return reference
+
+
+def _atomic_json_write(path: Path, document: dict[str, Any]) -> None:
+    """Write a complete import with same-directory atomic replacement."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    try:
+        temporary.write_text(
+            json.dumps(document, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def main() -> None:
     """Run the CIS mapping importer."""
 
@@ -205,8 +261,17 @@ def main() -> None:
     parser.add_argument("--framework", required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--strict-privacy", action="store_true")
     args = parser.parse_args()
-    print(import_cis_mapping(args.input, args.output, args.framework, args.version))
+    print(
+        import_cis_mapping(
+            args.input,
+            args.output,
+            args.framework,
+            args.version,
+            strict_privacy=args.strict_privacy,
+        )
+    )
 
 
 if __name__ == "__main__":

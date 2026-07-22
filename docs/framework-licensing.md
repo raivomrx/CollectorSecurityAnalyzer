@@ -22,16 +22,27 @@ python -m frameworks.import_cis_mapping \
 
 The importer records the input SHA-256 digest, accepts only whitelisted fields,
 validates rule IDs and profile names, rejects duplicate controls and duplicate
-JSON keys, and creates provisional mappings only.
+JSON keys, and creates provisional mappings only. Provenance stores the source
+format, record count, import time, digest, and optionally the basename. It never
+stores a drive letter, absolute path, parent directory, UNC path, or user profile.
+Use `--strict-privacy` to set `sourceFileName` to `null` while preserving the
+digest.
 
-## Microsoft and E-ITS
+## Microsoft guidance and E-ITS
 
 Microsoft and RIA source URLs are provenance references, not embedded source
 copies. An unknown upstream release is represented as `null`, never guessed.
-E-ITS entries use confirmed measure identifiers rather than CSA-created module
-aliases.
+The Microsoft pack is named `CSA_WINDOWS_11_MICROSOFT_GUIDANCE`. It contains
+CSA-authored mappings to selected Microsoft guidance and is not an official or
+complete Microsoft Security Baseline export. No source release is invented.
+
+E-ITS entries use measure identifiers and 2026 source references. Until an exact
+source review confirms each reference, the mappings remain provisional and
+record an explicit limitation. The publisher is stored as UTF-8
+`Riigi Infosüsteemi Amet`.
 
 ## NIS2
 
-NIS2 content is limited to high-level Article 21 traceability. CSA does not
+`NIS2_TECHNICAL_TRACEABILITY` is limited to high-level Article 21 technical
+evidence traceability. Its assessment mode is `TRACEABILITY_ONLY`; CSA does not
 provide legal advice or determine directive compliance.

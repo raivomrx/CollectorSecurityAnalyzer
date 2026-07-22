@@ -37,6 +37,39 @@ class MappingStatus(str, Enum):
     DEPRECATED = "DEPRECATED"
 
 
+class ReviewMethod(str, Enum):
+    """Describe how a mapping review decision was produced."""
+
+    MANUAL_SOURCE_REVIEW = "MANUAL_SOURCE_REVIEW"
+    PEER_REVIEW = "PEER_REVIEW"
+    IMPORTED_UNREVIEWED = "IMPORTED_UNREVIEWED"
+    MIGRATED_UNREVIEWED = "MIGRATED_UNREVIEWED"
+
+
+class ReviewPendingReason(str, Enum):
+    """Describe why a provisional mapping still needs human review."""
+
+    SOURCE_VERSION_UNCONFIRMED = "SOURCE_VERSION_UNCONFIRMED"
+    EXACT_CONTROL_REFERENCE_MISSING = "EXACT_CONTROL_REFERENCE_MISSING"
+    REQUIRES_DOMAIN_EXPERT_REVIEW = "REQUIRES_DOMAIN_EXPERT_REVIEW"
+    LICENSED_SOURCE_NOT_AVAILABLE = "LICENSED_SOURCE_NOT_AVAILABLE"
+    MAPPING_STRENGTH_UNCONFIRMED = "MAPPING_STRENGTH_UNCONFIRMED"
+
+
+class AssessmentMode(str, Enum):
+    """Describe the maximum meaning of a framework evaluation."""
+
+    FORMAL_ASSESSMENT = "FORMAL_ASSESSMENT"
+    TRACEABILITY_ONLY = "TRACEABILITY_ONLY"
+
+
+class EvaluationMode(str, Enum):
+    """Describe how a pack was evaluated in one analyzer run."""
+
+    FORMAL_ASSESSMENT = "FORMAL_ASSESSMENT"
+    TRACEABILITY_ONLY = "TRACEABILITY_ONLY"
+
+
 class FrameworkControlStatus(str, Enum):
     """Describe the conservative endpoint assessment result."""
 
@@ -52,6 +85,7 @@ class PackStatus(str, Enum):
     """Describe a framework pack release lifecycle."""
 
     ACTIVE = "ACTIVE"
+    REVIEW_REQUIRED = "REVIEW_REQUIRED"
     DRAFT = "DRAFT"
     DEPRECATED = "DEPRECATED"
     ARCHIVED = "ARCHIVED"

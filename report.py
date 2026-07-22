@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from collections import Counter
 from pathlib import Path
@@ -60,6 +61,7 @@ def generate_html_report(
     environment.filters["json"] = _to_pretty_json
     environment.filters["confidence_class"] = _confidence_class
     environment.filters["redact"] = lambda value: redact_value(value, privacy_mode)
+    environment.filters["safe_reference"] = _safe_reference
     template = environment.get_template(REPORT_TEMPLATE)
     collection_quality = _build_collection_quality(collector_document, privacy_mode)
     html = template.render(
@@ -249,6 +251,19 @@ def _confidence_class(product: SoftwareProduct) -> str:
     if product.confidence >= 60:
         return "confidence-medium"
     return "confidence-low"
+
+
+def _safe_reference(value: Any) -> str:
+    """Redact local filesystem references from client-facing output."""
+
+    reference = str(value or "")
+    if re.search(
+        r"(?:^file:|^[a-zA-Z]:[\\/]|^\\\\|^/home/|^/Users/)",
+        reference,
+        re.IGNORECASE,
+    ):
+        return "[LOCAL SOURCE REDACTED]"
+    return reference
 
 
 def _copy_stylesheet(output_dir: Path) -> None:

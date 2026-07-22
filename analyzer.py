@@ -66,6 +66,7 @@ def analyze_file(
     skipped_categories: list[str] | None = None,
     skip_framework_packs: bool = False,
     framework_packs: list[str] | None = None,
+    allow_unreviewed_frameworks: bool = False,
 ) -> tuple[list[AuditFinding], int, SoftwareInventory, Path]:
     """Analyze a collector JSON file and generate an HTML report."""
 
@@ -122,6 +123,7 @@ def analyze_file(
         skip_framework_packs,
         framework_packs,
         registry,
+        allow_unreviewed_frameworks,
     )
     rule_metadata = {
         execution.rule_id: metadata
@@ -319,6 +321,7 @@ def _run_framework_evaluation(
     skip_framework_packs: bool,
     selections: list[str] | None,
     rule_registry: RuleRegistry,
+    allow_unreviewed_frameworks: bool,
 ) -> None:
     """Evaluate selected versioned framework packs from technical findings."""
 
@@ -342,8 +345,18 @@ def _run_framework_evaluation(
                     f"Invalid framework pack {pack.framework_id}:{pack.version}: "
                     + "; ".join(errors)
                 )
-            evaluations.append(evaluator.evaluate(pack, audit_findings))
+            evaluations.append(
+                evaluator.evaluate(
+                    pack,
+                    audit_findings,
+                    allow_unreviewed=allow_unreviewed_frameworks,
+                )
+            )
         context.framework_evaluations = evaluations
+    except FrameworkPackError:
+        LOGGER.exception("Framework pack evaluation failed")
+        context.framework_evaluations = None
+        raise
     except Exception:
         LOGGER.exception("Framework pack evaluation failed")
         context.framework_evaluations = None
@@ -420,6 +433,11 @@ def main() -> None:
         help="Skip versioned framework traceability evaluation",
     )
     argument_parser.add_argument(
+        "--allow-unreviewed-frameworks",
+        action="store_true",
+        help="Allow REVIEW_REQUIRED packs in traceability-only mode",
+    )
+    argument_parser.add_argument(
         "--framework-version",
         action="append",
         default=[],
@@ -491,6 +509,7 @@ def main() -> None:
         skipped_categories=args.skip_category,
         skip_framework_packs=args.skip_framework_packs,
         framework_packs=framework_packs,
+        allow_unreviewed_frameworks=args.allow_unreviewed_frameworks,
     )
 
 

@@ -8,11 +8,14 @@ from typing import Any
 
 from frameworks.digest import pack_content_digest
 from frameworks.enums import (
+    AssessmentMode,
     AutomationCapability,
     FrameworkControlLevel,
     MappingStatus,
     MappingStrength,
     PackStatus,
+    ReviewMethod,
+    ReviewPendingReason,
 )
 from frameworks.exceptions import FrameworkPackError
 from frameworks.models import FrameworkControl, FrameworkPack, FrameworkSource, RuleMapping
@@ -72,7 +75,13 @@ def load_pack(path: str | Path, verify_digest: bool = True) -> FrameworkPack:
                 published_at=_optional_string(source.get("publishedAt")),
                 retrieved_at=str(source["retrievedAt"]),
                 reference=str(source["reference"]),
-                digest_sha256=_optional_string(source.get("digestSha256")),
+                digest_sha256=_optional_string(
+                    source.get("sourceDigestSha256", source.get("digestSha256"))
+                ),
+                source_file_name=_optional_string(source.get("sourceFileName")),
+                source_format=_optional_string(source.get("sourceFormat")),
+                imported_at=_optional_string(source.get("importedAt")),
+                record_count=_optional_int(source.get("recordCount")),
             ),
             scope=tuple(str(item) for item in document["scope"]),
             license_notice=str(document["license"]),
@@ -85,6 +94,15 @@ def load_pack(path: str | Path, verify_digest: bool = True) -> FrameworkPack:
             superseded_by=_optional_string(document.get("supersededBy")),
             controls=tuple(_parse_control(item) for item in document["controls"]),
             content_hash_sha256=expected,
+            assessment_mode=AssessmentMode(
+                document.get("assessmentMode", AssessmentMode.FORMAL_ASSESSMENT.value)
+            ),
+            disclaimer_en=_optional_string(
+                (document.get("disclaimers") or {}).get("en")
+            ),
+            disclaimer_et=_optional_string(
+                (document.get("disclaimers") or {}).get("et")
+            ),
         )
     except (KeyError, TypeError, ValueError) as error:
         raise FrameworkPackError(f"Invalid framework pack {path}: {error}") from error
@@ -118,6 +136,17 @@ def _parse_mapping(value: dict[str, Any]) -> RuleMapping:
         reviewer=_optional_string(value.get("reviewer")),
         reviewed_at=_optional_string(value.get("reviewedAt")),
         source_reference=_optional_string(value.get("sourceReference")),
+        source_release=_optional_string(value.get("sourceRelease")),
+        review_method=(
+            ReviewMethod(value["reviewMethod"])
+            if value.get("reviewMethod") is not None
+            else None
+        ),
+        review_pending_reason=(
+            ReviewPendingReason(value["reviewPendingReason"])
+            if value.get("reviewPendingReason") is not None
+            else None
+        ),
     )
 
 
@@ -125,6 +154,12 @@ def _optional_string(value: Any) -> str | None:
     """Normalize nullable strings."""
 
     return None if value is None else str(value)
+
+
+def _optional_int(value: Any) -> int | None:
+    """Normalize nullable integer metadata."""
+
+    return None if value is None else int(value)
 
 
 def _enforce_limits(value: Any, depth: int = 0) -> None:

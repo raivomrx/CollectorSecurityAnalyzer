@@ -3,9 +3,9 @@
   "frameworkId": "EITS",
   "name": "E-ITS 2026 Endpoint Traceability Pack",
   "version": "2026",
-  "status": "ACTIVE",
+  "status": "REVIEW_REQUIRED",
   "source": {
-    "publisher": "Riigi InfosÃ¼steemi Amet",
+    "publisher": "Riigi Infosüsteemi Amet",
     "release": "2026",
     "publishedAt": null,
     "retrievedAt": "2026-07-22",
@@ -45,11 +45,15 @@
           "mappingStatus": "PROVISIONAL",
           "rationale": "Defender enabled state supplies endpoint evidence but cannot prove implementation governance.",
           "evidenceLimitations": [
-            "Collector evidence does not prove testing, documented configuration, or user-right restrictions."
+            "Collector evidence does not prove testing, documented configuration, or user-right restrictions.",
+            "Exact E-ITS 2026 source reference for OPS.1.1.4.M5 requires confirmation."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://eits.ria.ee/et/versioon/2024/eits-poohidokumendid/etalonturbe-kataloog/ops-kaeidutoeoed/ops1-oma-kaeidutoeoed/ops11-itpoohitoeoed/ops114-kaitse-kahjurprogrammide-eest/3-meetmed/32-poohimeetmed/ops114m5-kahjurvaratoorje-tarkvara-rakendamine/"
+          "sourceReference": "https://eits.ria.ee/et/ver/2026/eits/cat/ops/ops-1/ops-1-1/ops-1-1-4#OPS.1.1.4.M5",
+          "sourceRelease": "2026",
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "EXACT_CONTROL_REFERENCE_MISSING"
         },
         {
           "ruleId": "DEF-002",
@@ -57,11 +61,15 @@
           "mappingStatus": "PROVISIONAL",
           "rationale": "Real-time protection state supports endpoint implementation evidence.",
           "evidenceLimitations": [
-            "Effective organizational implementation is not assessed."
+            "Effective organizational implementation is not assessed.",
+            "Exact E-ITS 2026 source reference for OPS.1.1.4.M5 requires confirmation."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://eits.ria.ee/et/versioon/2024/eits-poohidokumendid/etalonturbe-kataloog/ops-kaeidutoeoed/ops1-oma-kaeidutoeoed/ops11-itpoohitoeoed/ops114-kaitse-kahjurprogrammide-eest/3-meetmed/32-poohimeetmed/ops114m5-kahjurvaratoorje-tarkvara-rakendamine/"
+          "sourceReference": "https://eits.ria.ee/et/ver/2026/eits/cat/ops/ops-1/ops-1-1/ops-1-1-4#OPS.1.1.4.M5",
+          "sourceRelease": "2026",
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "EXACT_CONTROL_REFERENCE_MISSING"
         }
       ],
       "tags": [
@@ -87,11 +95,15 @@
           "mappingStatus": "PROVISIONAL",
           "rationale": "Defender signature age directly measures one endpoint aspect of update currency.",
           "evidenceLimitations": [
-            "One collection snapshot does not prove the ongoing update process."
+            "One collection snapshot does not prove the ongoing update process.",
+            "Exact E-ITS 2026 source reference for OPS.1.1.4.M6 requires confirmation."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://eits.ria.ee/et/versioon/2024/eits-poohidokumendid/etalonturbe-kataloog/ops-kaeidutoeoed/ops1-oma-kaeidutoeoed/ops11-itpoohitoeoed/ops114-kaitse-kahjurprogrammide-eest/3-meetmed/32-poohimeetmed/ops114m5-kahjurvaratoorje-tarkvara-rakendamine/"
+          "sourceReference": "https://eits.ria.ee/et/ver/2026/eits/cat/ops/ops-1/ops-1-1/ops-1-1-4#OPS.1.1.4.M6",
+          "sourceRelease": "2026",
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "EXACT_CONTROL_REFERENCE_MISSING"
         }
       ],
       "tags": [
@@ -117,11 +129,15 @@
           "mappingStatus": "PROVISIONAL",
           "rationale": "Recent Windows update installation supports endpoint currency.",
           "evidenceLimitations": [
-            "Does not establish complete software lifecycle or patch-management coverage."
+            "Does not establish complete software lifecycle or patch-management coverage.",
+            "Exact E-ITS 2026 source reference for SYS.2.1.M3 requires confirmation."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://eits.ria.ee/et/abimaterjalid/"
+          "sourceReference": "https://eits.ria.ee/et/ver/2026/eits/cat/sys/sys-2/sys-2-1#SYS.2.1.M3",
+          "sourceRelease": "2026",
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "EXACT_CONTROL_REFERENCE_MISSING"
         },
         {
           "ruleId": "CVE-001",
@@ -129,11 +145,15 @@
           "mappingStatus": "PROVISIONAL",
           "rationale": "Known vulnerability results provide related risk context only.",
           "evidenceLimitations": [
-            "CVE coverage depends on software normalization and data-source availability."
+            "CVE coverage depends on software normalization and data-source availability.",
+            "Exact E-ITS 2026 source reference for SYS.2.1.M3 requires confirmation."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://eits.ria.ee/et/abimaterjalid/"
+          "sourceReference": "https://eits.ria.ee/et/ver/2026/eits/cat/sys/sys-2/sys-2-1#SYS.2.1.M3",
+          "sourceRelease": "2026",
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "EXACT_CONTROL_REFERENCE_MISSING"
         }
       ],
       "tags": [
@@ -159,11 +179,15 @@
           "mappingStatus": "PROVISIONAL",
           "rationale": "Enabled Windows Firewall profiles support endpoint protection evidence.",
           "evidenceLimitations": [
-            "Rule policy quality and central governance are not fully assessed."
+            "Rule policy quality and central governance are not fully assessed.",
+            "Exact E-ITS 2026 source reference for SYS.2.1.M6 requires confirmation."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://eits.ria.ee/et/abimaterjalid/"
+          "sourceReference": "https://eits.ria.ee/et/ver/2026/eits/cat/sys/sys-2/sys-2-1#SYS.2.1.M6",
+          "sourceRelease": "2026",
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "EXACT_CONTROL_REFERENCE_MISSING"
         },
         {
           "ruleId": "DEF-001",
@@ -171,11 +195,15 @@
           "mappingStatus": "PROVISIONAL",
           "rationale": "Enabled Defender supports endpoint anti-malware evidence.",
           "evidenceLimitations": [
-            "Configuration effectiveness is only partially assessed."
+            "Configuration effectiveness is only partially assessed.",
+            "Exact E-ITS 2026 source reference for SYS.2.1.M6 requires confirmation."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://eits.ria.ee/et/abimaterjalid/"
+          "sourceReference": "https://eits.ria.ee/et/ver/2026/eits/cat/sys/sys-2/sys-2-1#SYS.2.1.M6",
+          "sourceRelease": "2026",
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "EXACT_CONTROL_REFERENCE_MISSING"
         }
       ],
       "tags": [
@@ -201,11 +229,15 @@
           "mappingStatus": "PROVISIONAL",
           "rationale": "UAC state provides partial endpoint execution-boundary evidence.",
           "evidenceLimitations": [
-            "Application control and privilege-management processes are not assessed."
+            "Application control and privilege-management processes are not assessed.",
+            "Exact E-ITS 2026 source reference for SYS.2.1.M13 requires confirmation."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://eits.ria.ee/et/versioon/2024/eits-poohidokumendid/etalonturbe-kataloog/sys-itsuesteemid/sys2-klientarvutid/sys21-klientarvuti-ueldiselt/3-meetmed/33-standardmeetmed/sys21m13-piiratud-juurdepaeaes-taeitmiskeskkonda"
+          "sourceReference": "https://eits.ria.ee/et/ver/2026/eits/cat/sys/sys-2/sys-2-1#SYS.2.1.M13",
+          "sourceRelease": "2026",
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "EXACT_CONTROL_REFERENCE_MISSING"
         }
       ],
       "tags": [
@@ -216,5 +248,6 @@
       "notes": "Provisional CSA mapping."
     }
   ],
-  "contentHashSha256": "84ede0b0c7d4cbca48f5dbc1e7aeedd2b1ff83963ca1a15c638c5ec1586d073a"
+  "contentHashSha256": "507e4548036cc02eabcafb90b0f9187e54371d8481fc94f62eb7257941a55c94",
+  "assessmentMode": "FORMAL_ASSESSMENT"
 }

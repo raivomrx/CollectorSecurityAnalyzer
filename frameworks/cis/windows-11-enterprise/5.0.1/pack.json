@@ -25,5 +25,10 @@
   "supersedes": null,
   "supersededBy": null,
   "controls": [],
-  "contentHashSha256": "f555ff1f19d8d09e7839f1259214ef31982e7ede45a2795ba069c3940ab80cd4"
+  "contentHashSha256": "17d99d91f37e82973973d209229fdad7a602752070b10eca92bdb1bd854e5040",
+  "assessmentMode": "FORMAL_ASSESSMENT",
+  "disclaimers": {
+    "en": "This draft contains no licensed CIS benchmark content and is not assessable.",
+    "et": "See mustand ei sisalda litsentsitud CIS benchmarki sisu ning seda ei saa hinnata."
+  }
 }

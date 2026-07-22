@@ -17,7 +17,7 @@ jobs:
       - name: Run Python tests
         run: python -W error::ResourceWarning -m unittest discover -s tests -v
       - name: Validate framework content packs
-        run: python -m frameworks.cli validate --all
+        run: python -m frameworks.cli validate --all --strict-sources
       - name: Validate privacy-safe collector sample
         shell: pwsh
         run: |

@@ -92,6 +92,18 @@ class FrameworkPackRegistry:
             )
         ]
 
+    def pack_path(self, framework_id: str, version: str) -> Path:
+        """Return the trusted path for one exact registry entry."""
+
+        matches = [
+            entry
+            for entry in self.entries
+            if entry.framework_id == framework_id and entry.version == version
+        ]
+        if len(matches) != 1:
+            raise FrameworkPackError(f"Unknown framework version: {framework_id}:{version}")
+        return self._safe_path(matches[0].path)
+
     def _entry(self, value) -> RegistryEntry:
         """Parse one registry entry."""
 

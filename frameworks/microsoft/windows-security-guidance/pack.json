@@ -1,9 +1,9 @@
 {
   "schemaVersion": "1.0",
-  "frameworkId": "MICROSOFT_WINDOWS_SECURITY_BASELINE",
-  "name": "Microsoft Windows 11 Security Baseline Traceability Pack",
+  "frameworkId": "CSA_WINDOWS_11_MICROSOFT_GUIDANCE",
+  "name": "CSA Windows 11 Microsoft Security Guidance Mapping",
   "version": "CSA-WIN11-2026.1",
-  "status": "ACTIVE",
+  "status": "REVIEW_REQUIRED",
   "source": {
     "publisher": "Microsoft",
     "release": null,
@@ -17,7 +17,7 @@
     "Workstation",
     "CSA endpoint evidence subset"
   ],
-  "license": "Contains CSA-authored control titles and mappings. Microsoft documentation remains authoritative and subject to Microsoft terms.",
+  "license": "Contains CSA-authored control titles and provisional mappings to selected Microsoft security guidance. It is not an official Microsoft Security Baseline export.",
   "createdAt": "2026-07-22",
   "updatedAt": "2026-07-22",
   "maintainer": "CSA",
@@ -27,7 +27,7 @@
   "supersededBy": null,
   "controls": [
     {
-      "controlId": "MSB-BITLOCKER-001",
+      "controlId": "CSA-MSG-BITLOCKER-001",
       "title": "BitLocker protection evidence",
       "section": "Data protection",
       "profile": [
@@ -44,19 +44,22 @@
           "evidenceLimitations": [
             "Recovery-key escrow and policy provenance are not assessed."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://learn.microsoft.com/windows/security/operating-system-security/data-protection/bitlocker/"
+          "sourceReference": "https://learn.microsoft.com/windows/security/operating-system-security/data-protection/bitlocker/",
+          "sourceRelease": null,
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "SOURCE_VERSION_UNCONFIRMED"
         }
       ],
       "tags": [
         "bitlocker",
         "encryption"
       ],
-      "notes": "CSA-authored control identifier; upstream baseline release not asserted."
+      "notes": "CSA-authored guidance objective; human source review is pending."
     },
     {
-      "controlId": "MSB-DEFENDER-HARDENING",
+      "controlId": "CSA-MSG-DEFENDER-001",
       "title": "Microsoft Defender protection evidence",
       "section": "Threat protection",
       "profile": [
@@ -73,9 +76,12 @@
           "evidenceLimitations": [
             "A point-in-time state does not prove policy enforcement."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://learn.microsoft.com/defender-endpoint/"
+          "sourceReference": "https://learn.microsoft.com/defender-endpoint/",
+          "sourceRelease": null,
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "SOURCE_VERSION_UNCONFIRMED"
         },
         {
           "ruleId": "DEF-002",
@@ -85,9 +91,12 @@
           "evidenceLimitations": [
             "Exclusion quality is evaluated by a separate rule."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://learn.microsoft.com/defender-endpoint/"
+          "sourceReference": "https://learn.microsoft.com/defender-endpoint/",
+          "sourceRelease": null,
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "SOURCE_VERSION_UNCONFIRMED"
         },
         {
           "ruleId": "DEF-008",
@@ -97,19 +106,22 @@
           "evidenceLimitations": [
             "Collector access can make the setting unavailable."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://learn.microsoft.com/defender-endpoint/prevent-changes-to-security-settings-with-tamper-protection"
+          "sourceReference": "https://learn.microsoft.com/defender-endpoint/prevent-changes-to-security-settings-with-tamper-protection",
+          "sourceRelease": null,
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "SOURCE_VERSION_UNCONFIRMED"
         }
       ],
       "tags": [
         "defender",
         "antimalware"
       ],
-      "notes": "CSA endpoint evidence subset."
+      "notes": "CSA-authored guidance objective; human source review is pending."
     },
     {
-      "controlId": "MSB-FIREWALL-HARDENING",
+      "controlId": "CSA-MSG-FIREWALL-001",
       "title": "Windows Firewall hardening evidence",
       "section": "Network protection",
       "profile": [
@@ -126,9 +138,12 @@
           "evidenceLimitations": [
             "Individual firewall rule quality is outside current evidence."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://learn.microsoft.com/windows/security/operating-system-security/network-security/windows-firewall/"
+          "sourceReference": "https://learn.microsoft.com/windows/security/operating-system-security/network-security/windows-firewall/",
+          "sourceRelease": null,
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "SOURCE_VERSION_UNCONFIRMED"
         },
         {
           "ruleId": "FW-005",
@@ -138,19 +153,22 @@
           "evidenceLimitations": [
             "Rule exceptions are not exhaustively evaluated."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://learn.microsoft.com/windows/security/operating-system-security/network-security/windows-firewall/"
+          "sourceReference": "https://learn.microsoft.com/windows/security/operating-system-security/network-security/windows-firewall/",
+          "sourceRelease": null,
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "SOURCE_VERSION_UNCONFIRMED"
         }
       ],
       "tags": [
         "firewall",
         "network"
       ],
-      "notes": "CSA endpoint evidence subset."
+      "notes": "CSA-authored guidance objective; human source review is pending."
     },
     {
-      "controlId": "MSB-DEVICE-SECURITY",
+      "controlId": "CSA-MSG-DEVICE-SECURITY-001",
       "title": "Hardware-backed device security evidence",
       "section": "Device security",
       "profile": [
@@ -167,9 +185,12 @@
           "evidenceLimitations": [
             "Firmware trust-chain details are not assessed."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://learn.microsoft.com/windows/security/operating-system-security/system-security/secure-the-windows-10-boot-process"
+          "sourceReference": "https://learn.microsoft.com/windows/security/operating-system-security/system-security/secure-the-windows-10-boot-process",
+          "sourceRelease": null,
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "SOURCE_VERSION_UNCONFIRMED"
         },
         {
           "ruleId": "DEV-002",
@@ -179,9 +200,12 @@
           "evidenceLimitations": [
             "TPM attestation is not performed."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://learn.microsoft.com/windows/security/hardware-security/tpm/trusted-platform-module-overview"
+          "sourceReference": "https://learn.microsoft.com/windows/security/hardware-security/tpm/trusted-platform-module-overview",
+          "sourceRelease": null,
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "SOURCE_VERSION_UNCONFIRMED"
         },
         {
           "ruleId": "DEV-005",
@@ -191,9 +215,12 @@
           "evidenceLimitations": [
             "Hardware compatibility is not independently verified."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://learn.microsoft.com/windows/security/hardware-security/enable-virtualization-based-protection-of-code-integrity"
+          "sourceReference": "https://learn.microsoft.com/windows/security/hardware-security/enable-virtualization-based-protection-of-code-integrity",
+          "sourceRelease": null,
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "SOURCE_VERSION_UNCONFIRMED"
         }
       ],
       "tags": [
@@ -201,10 +228,10 @@
         "tpm",
         "vbs"
       ],
-      "notes": "CSA endpoint evidence subset."
+      "notes": "CSA-authored guidance objective; human source review is pending."
     },
     {
-      "controlId": "MSB-PROTOCOL-HARDENING",
+      "controlId": "CSA-MSG-PROTOCOL-HARDENING-001",
       "title": "Legacy protocol hardening evidence",
       "section": "Network protocols",
       "profile": [
@@ -221,9 +248,12 @@
           "evidenceLimitations": [
             "Network-path protocol use is not observed."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://learn.microsoft.com/windows-server/storage/file-server/smbv1-clearinghouse"
+          "sourceReference": "https://learn.microsoft.com/windows-server/storage/file-server/smbv1-clearinghouse",
+          "sourceRelease": null,
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "SOURCE_VERSION_UNCONFIRMED"
         },
         {
           "ruleId": "PROTO-003",
@@ -233,9 +263,12 @@
           "evidenceLimitations": [
             "Effective domain policy precedence depends on collector provenance."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://learn.microsoft.com/windows/security/"
+          "sourceReference": "https://learn.microsoft.com/windows/security/",
+          "sourceRelease": null,
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "SOURCE_VERSION_UNCONFIRMED"
         }
       ],
       "tags": [
@@ -243,10 +276,10 @@
         "llmnr",
         "protocols"
       ],
-      "notes": "CSA endpoint evidence subset."
+      "notes": "CSA-authored guidance objective; human source review is pending."
     },
     {
-      "controlId": "MSB-REMOTE-ACCESS",
+      "controlId": "CSA-MSG-REMOTE-ACCESS-001",
       "title": "Remote access hardening evidence",
       "section": "Remote administration",
       "profile": [
@@ -263,9 +296,12 @@
           "evidenceLimitations": [
             "External exposure and compensating controls are not assessed."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://learn.microsoft.com/windows-server/remote/remote-desktop-services/clients/remote-desktop-allow-access"
+          "sourceReference": "https://learn.microsoft.com/windows-server/remote/remote-desktop-services/clients/remote-desktop-allow-access",
+          "sourceRelease": null,
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "SOURCE_VERSION_UNCONFIRMED"
         },
         {
           "ruleId": "REMOTE-003",
@@ -275,9 +311,12 @@
           "evidenceLimitations": [
             "Transport-level network controls are not observed."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://learn.microsoft.com/windows/win32/winrm/installation-and-configuration-for-windows-remote-management"
+          "sourceReference": "https://learn.microsoft.com/windows/win32/winrm/installation-and-configuration-for-windows-remote-management",
+          "sourceRelease": null,
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "SOURCE_VERSION_UNCONFIRMED"
         }
       ],
       "tags": [
@@ -285,10 +324,10 @@
         "winrm",
         "remote-access"
       ],
-      "notes": "CSA endpoint evidence subset."
+      "notes": "CSA-authored guidance objective; human source review is pending."
     },
     {
-      "controlId": "MSB-ACCOUNT-SECURITY",
+      "controlId": "CSA-MSG-ACCOUNT-SECURITY-001",
       "title": "Local account security evidence",
       "section": "Account policies",
       "profile": [
@@ -305,9 +344,12 @@
           "evidenceLimitations": [
             "Domain identities and cloud identities are outside this rule."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://learn.microsoft.com/windows/security/threat-protection/security-policy-settings/accounts-guest-account-status"
+          "sourceReference": "https://learn.microsoft.com/windows/security/threat-protection/security-policy-settings/accounts-guest-account-status",
+          "sourceRelease": null,
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "SOURCE_VERSION_UNCONFIRMED"
         },
         {
           "ruleId": "ACC-006",
@@ -317,9 +359,12 @@
           "evidenceLimitations": [
             "Effective domain password policy may differ."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://learn.microsoft.com/windows/security/threat-protection/security-policy-settings/password-policy"
+          "sourceReference": "https://learn.microsoft.com/windows/security/threat-protection/security-policy-settings/password-policy",
+          "sourceRelease": null,
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "SOURCE_VERSION_UNCONFIRMED"
         }
       ],
       "tags": [
@@ -327,10 +372,10 @@
         "passwords",
         "identity"
       ],
-      "notes": "CSA endpoint evidence subset."
+      "notes": "CSA-authored guidance objective; human source review is pending."
     },
     {
-      "controlId": "MSB-WINDOWS-UPDATE",
+      "controlId": "CSA-MSG-WINDOWS-UPDATE-001",
       "title": "Windows Update configuration and freshness evidence",
       "section": "Update management",
       "profile": [
@@ -347,9 +392,12 @@
           "evidenceLimitations": [
             "One timestamp does not prove all applicable updates are installed."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://learn.microsoft.com/windows/deployment/update/"
+          "sourceReference": "https://learn.microsoft.com/windows/deployment/update/",
+          "sourceRelease": null,
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "SOURCE_VERSION_UNCONFIRMED"
         },
         {
           "ruleId": "UPD-005",
@@ -359,17 +407,25 @@
           "evidenceLimitations": [
             "Managed update orchestration can change expected service behavior."
           ],
-          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewer": null,
           "reviewedAt": null,
-          "sourceReference": "https://learn.microsoft.com/windows/deployment/update/"
+          "sourceReference": "https://learn.microsoft.com/windows/deployment/update/",
+          "sourceRelease": null,
+          "reviewMethod": "MIGRATED_UNREVIEWED",
+          "reviewPendingReason": "SOURCE_VERSION_UNCONFIRMED"
         }
       ],
       "tags": [
         "updates",
         "patching"
       ],
-      "notes": "CSA endpoint evidence subset."
+      "notes": "CSA-authored guidance objective; human source review is pending."
     }
   ],
-  "contentHashSha256": "303188ae4734c402fdcd6a1f61667a2a9abd94f9abb2dd00dbab874774e5e49f"
+  "contentHashSha256": "68ad7f61ed501c9537a3b1f26119a2891f03232ed903255c72f69ed87094df1e",
+  "assessmentMode": "FORMAL_ASSESSMENT",
+  "disclaimers": {
+    "en": "This is a CSA-authored mapping to selected Microsoft security guidance. It is not an official Microsoft Security Baseline package.",
+    "et": "See pack seob CSA reeglid valitud Microsoft Windowsi turvasoovitustega. Tegemist ei ole Microsofti ametliku Security Baseline'i täieliku ekspordiga."
+  }
 }

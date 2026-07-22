@@ -466,47 +466,69 @@
               <div><span>Framework</span><strong>{{ evaluation.pack.framework_id }}</strong></div>
               <div><span>Pack version</span><strong>{{ evaluation.pack.version }}</strong></div>
               <div><span>Pack status</span><strong>{{ evaluation.pack.status.value }}</strong></div>
+              <div><span>Evaluation mode</span><strong>{{ evaluation.evaluation_mode.value }}</strong></div>
+              <div><span>Formal assessment available</span><strong>{{ "Yes" if evaluation.formal_assessment_performed else "No" }}</strong></div>
+              <div><span>Validated mappings</span><strong>{{ evaluation.validated_mapping_count }}</strong></div>
+              <div><span>Provisional mappings</span><strong>{{ evaluation.provisional_mapping_count }}</strong></div>
               <div><span>Publisher release</span><strong>{{ evaluation.pack.source.release or "Not asserted" }}</strong></div>
+              <div><span>Retrieved date</span><strong>{{ evaluation.pack.source.retrieved_at }}</strong></div>
+              <div><span>Source reference</span><strong>{{ evaluation.pack.source.reference|safe_reference }}</strong></div>
               <div><span>Controls</span><strong>{{ evaluation.coverage.framework_control_count }}</strong></div>
               <div><span>Mapped / unmapped</span><strong>{{ evaluation.coverage.mapped_control_count }} / {{ evaluation.coverage.unmapped_control_count }}</strong></div>
               <div><span>Mapping coverage</span><strong>{{ evaluation.coverage.mapping_coverage_percent }}%</strong></div>
+              <div><span>Validated mapping coverage</span><strong>{{ evaluation.coverage.validated_mapping_coverage_percent }}%</strong></div>
+              <div><span>Traceability coverage</span><strong>{{ evaluation.coverage.traceability_coverage_percent }}%</strong></div>
+              <div><span>Formal assessment coverage</span><strong>{{ evaluation.coverage.formal_assessment_coverage_percent }}%</strong></div>
               <div><span>Technical automation</span><strong>{{ evaluation.coverage.technical_automation_coverage_percent }}%</strong></div>
               <div><span>Assessment coverage</span><strong>{{ evaluation.coverage.assessment_coverage_percent }}%</strong></div>
               <div><span>Satisfied assessable controls</span><strong>{{ evaluation.coverage.satisfied_assessable_controls_percent }}%</strong></div>
               <div><span>Manual controls</span><strong>{{ evaluation.coverage.manual_control_count }}</strong></div>
               <div><span>Pack SHA-256</span><strong class="digest">{{ evaluation.pack.content_hash_sha256 }}</strong></div>
             </div>
+            {% if evaluation.pack.status.value == "REVIEW_REQUIRED" %}
+              <p class="notice warning">This framework pack contains mappings awaiting human review. Results are shown for traceability only and are excluded from formal assessment.</p>
+              <p class="notice warning">See framework pack sisaldab inim&uuml;levaatust ootavaid mappinguid. Tulemusi kuvatakse ainult j&auml;lgitavuse eesm&auml;rgil ja neid ei arvestata formaalses hinnangus.</p>
+            {% endif %}
+            {% if evaluation.pack.disclaimer_en %}<p class="notice info">{{ evaluation.pack.disclaimer_en }}</p>{% endif %}
+            {% if evaluation.pack.disclaimer_et %}<p class="notice info">{{ evaluation.pack.disclaimer_et }}</p>{% endif %}
             {% if evaluation.warnings %}
               <div class="notice warning">{{ evaluation.warnings|length }} provisional mapping warning(s). Human review is required before release validation.</div>
             {% endif %}
             <div class="table-scroll">
               <table>
                 <thead>
-                  <tr><th>Control</th><th>Title</th><th>Status</th><th>Automation</th><th>Rules</th><th>Passed</th><th>Failed</th><th>Unavailable</th><th>Provisional</th><th>Confidence</th><th>Limitations</th></tr>
+                  <tr><th>Control</th><th>Title</th><th>Status</th><th>Automation</th><th>Rules</th><th>Passed</th><th>Failed</th><th>Unavailable</th><th>Provisional</th><th>Review &amp; source</th><th>Confidence</th><th>Limitations</th></tr>
                 </thead>
                 <tbody>
                   {% for result in evaluation.results %}
+                    {% set display_status = result.presentation_status if evaluation.evaluation_mode.value == "TRACEABILITY_ONLY" else result.status.value %}
+                    {% set control = evaluation.pack.controls|selectattr("control_id", "equalto", result.control_id)|first %}
                     <tr
-                      class="framework-pack-row framework-status-{{ result.status.value|lower }}"
-                      data-status="{{ result.status.value }}"
+                      class="framework-pack-row framework-status-{{ display_status|lower }}"
+                      data-status="{{ display_status }}"
                       data-unmapped="{{ 'true' if not result.mapped_rule_ids else 'false' }}"
                       data-manual="{{ 'true' if result.automation.value == 'MANUAL' else 'false' }}"
                       data-provisional="{{ 'true' if result.provisional_rule_ids else 'false' }}"
                     >
                       <td>{{ result.control_id }}</td>
                       <td>{{ result.title }}</td>
-                      <td><span class="pill framework-status-{{ result.status.value|lower }}">{{ result.status.value }}</span></td>
+                      <td><span class="pill framework-status-{{ display_status|lower }}">{{ display_status }}</span></td>
                       <td>{{ result.automation.value }}</td>
                       <td>{{ result.mapped_rule_ids|join(", ") }}</td>
                       <td>{{ result.passed_rule_ids|join(", ") }}</td>
                       <td>{{ result.failed_rule_ids|join(", ") }}</td>
                       <td>{{ result.unavailable_rule_ids|join(", ") }}</td>
                       <td>{{ result.provisional_rule_ids|join(", ") }}</td>
+                      <td>
+                        {% for mapping in control.mappings %}
+                          <div>{{ mapping.rule_id }}: {{ mapping.status.value }}; release {{ mapping.source_release or "not asserted" }}; {{ mapping.source_reference|safe_reference or "source not asserted" }}</div>
+                        {% endfor %}
+                      </td>
                       <td>{{ result.confidence }}%</td>
                       <td>{{ result.limitations|join(" ") }}</td>
                     </tr>
                   {% else %}
-                    <tr class="framework-pack-row" data-unmapped="true"><td colspan="11" class="muted">No controls are present in this draft pack.</td></tr>
+                    <tr class="framework-pack-row" data-unmapped="true"><td colspan="12" class="muted">No controls are present in this draft pack.</td></tr>
                   {% endfor %}
                 </tbody>
               </table>

@@ -6,11 +6,15 @@ from datetime import datetime, timezone
 
 from frameworks.coverage import calculate_coverage
 from frameworks.enums import (
+    AssessmentMode,
+    EvaluationMode,
     FrameworkControlLevel,
     FrameworkControlStatus,
     MappingStatus,
     MappingStrength,
+    PackStatus,
 )
+from frameworks.exceptions import FrameworkPackError
 from frameworks.models import (
     AssessmentPolicy,
     FrameworkControl,
@@ -32,9 +36,37 @@ class FrameworkEvaluator:
         pack: FrameworkPack,
         findings: list[AuditFinding],
         policy: AssessmentPolicy | None = None,
+        allow_unreviewed: bool = False,
     ) -> FrameworkEvaluation:
         """Evaluate one pack while preserving mapping limitations."""
 
+        mappings = [mapping for control in pack.controls for mapping in control.mappings]
+        provisional_count = sum(
+            mapping.status == MappingStatus.PROVISIONAL for mapping in mappings
+        )
+        validated_count = sum(
+            mapping.status == MappingStatus.VALIDATED for mapping in mappings
+        )
+        if pack.status == PackStatus.ACTIVE and provisional_count:
+            raise FrameworkPackError("ACTIVE framework pack contains provisional mappings")
+        if pack.status == PackStatus.REVIEW_REQUIRED and not allow_unreviewed:
+            raise FrameworkPackError(
+                "Framework pack is not active and contains unreviewed mappings. "
+                "Use --allow-unreviewed-frameworks for traceability-only evaluation."
+            )
+        if pack.status not in {PackStatus.ACTIVE, PackStatus.REVIEW_REQUIRED}:
+            raise FrameworkPackError(
+                f"Framework pack is not assessable in {pack.status.value} status"
+            )
+        formal_assessment = (
+            pack.status == PackStatus.ACTIVE
+            and pack.assessment_mode == AssessmentMode.FORMAL_ASSESSMENT
+        )
+        evaluation_mode = (
+            EvaluationMode.FORMAL_ASSESSMENT
+            if formal_assessment
+            else EvaluationMode.TRACEABILITY_ONLY
+        )
         policy = policy or AssessmentPolicy()
         finding_map = _findings_by_rule(findings)
         results = tuple(
@@ -52,6 +84,10 @@ class FrameworkEvaluator:
             coverage=calculate_coverage(pack, results),
             evaluated_at=datetime.now(timezone.utc).isoformat(),
             warnings=warnings,
+            evaluation_mode=evaluation_mode,
+            formal_assessment_performed=formal_assessment,
+            validated_mapping_count=validated_count,
+            provisional_mapping_count=provisional_count,
         )
 
     def evaluate_control(
@@ -96,8 +132,16 @@ class FrameworkEvaluator:
         supporting = [
             mapping for mapping in formal if mapping.strength == MappingStrength.SUPPORTING
         ]
-        passed = tuple(mapping.rule_id for mapping in formal if findings.get(mapping.rule_id) in PASS_STATUSES)
-        failed = tuple(mapping.rule_id for mapping in formal if findings.get(mapping.rule_id) in FAIL_STATUSES)
+        passed = tuple(
+            mapping.rule_id
+            for mapping in formal
+            if findings.get(mapping.rule_id) in PASS_STATUSES
+        )
+        failed = tuple(
+            mapping.rule_id
+            for mapping in formal
+            if findings.get(mapping.rule_id) in FAIL_STATUSES
+        )
         unavailable = tuple(
             mapping.rule_id
             for mapping in formal
@@ -128,7 +172,8 @@ class FrameworkEvaluator:
             else:
                 status = FrameworkControlStatus.PARTIALLY_SATISFIED
                 limitations.append(
-                    "Endpoint evidence cannot fully assess procedural, organizational, or mixed scope."
+                    "Endpoint evidence cannot fully assess procedural, organizational, "
+                    "or mixed scope."
                 )
         else:
             status = FrameworkControlStatus.NOT_ASSESSABLE
@@ -171,7 +216,18 @@ def _confidence(status, provisional, unavailable) -> int:
     return 100
 
 
-def _result(pack, control, status, mapped, passed, failed, unavailable, provisional, confidence, limitations):
+def _result(
+    pack,
+    control,
+    status,
+    mapped,
+    passed,
+    failed,
+    unavailable,
+    provisional,
+    confidence,
+    limitations,
+):
     """Build one immutable control result."""
 
     return FrameworkControlResult(
@@ -188,4 +244,23 @@ def _result(pack, control, status, mapped, passed, failed, unavailable, provisio
         provisional_rule_ids=tuple(provisional),
         confidence=confidence,
         limitations=tuple(dict.fromkeys(limitations)),
+        presentation_status=_presentation_status(status, mapped, provisional),
     )
+
+
+def _presentation_status(status, mapped, provisional) -> str:
+    """Return wording that does not overstate traceability as compliance."""
+
+    if not mapped:
+        return "NOT_MAPPED"
+    if provisional:
+        return "REVIEW_PENDING"
+    labels = {
+        FrameworkControlStatus.SATISFIED: "SUPPORTED_BY_TECHNICAL_EVIDENCE",
+        FrameworkControlStatus.NOT_SATISFIED: "TECHNICAL_EVIDENCE_INDICATES_GAP",
+        FrameworkControlStatus.PARTIALLY_SATISFIED: "PARTIALLY_SUPPORTED",
+        FrameworkControlStatus.NOT_ASSESSABLE: "NOT_ASSESSABLE_BY_ENDPOINT",
+        FrameworkControlStatus.NOT_APPLICABLE: "NOT_APPLICABLE",
+        FrameworkControlStatus.NOT_EVALUATED: "NOT_EVALUATED",
+    }
+    return labels[status]

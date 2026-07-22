@@ -15,16 +15,18 @@ to a rule result and never copies the rule's collection or decision logic.
 
 ## Review state
 
-- `VALIDATED`: a human reviewer, review date, source reference, rationale, and
-  known limitations are present.
+- `VALIDATED`: a human reviewer, ISO review date, exact source reference, source
+  release, rationale, and known limitations are present. `reviewMethod` is
+  `MANUAL_SOURCE_REVIEW` or `PEER_REVIEW`.
 - `PROVISIONAL`: mapping is visible for traceability but excluded from formal
-  evaluation. `CSA_ARCHITECT_REVIEW_PENDING` always means provisional.
+  evaluation. It carries a `reviewPendingReason`. Migrated and imported mappings
+  use `MIGRATED_UNREVIEWED` and `IMPORTED_UNREVIEWED`, respectively.
 - `DEPRECATED`: retained only for history and excluded from evaluation.
 
 Release validation uses:
 
 ```text
-python -m frameworks.validate --require-reviewed
+python -m frameworks.validate --active-only --require-reviewed
 ```
 
 It fails for provisional mappings, missing review provenance, unknown rules,
@@ -39,3 +41,9 @@ cannot be fully satisfied from endpoint evidence. `NOT_APPLICABLE` requires an
 explicit applicability decision.
 
 Pack generation and import never grants `VALIDATED` automatically.
+
+Raw mapping coverage includes provisional mappings. Validated mapping coverage
+and formal assessment coverage do not. A `REVIEW_REQUIRED` evaluation uses
+`TRACEABILITY_ONLY`, sets `formalAssessmentPerformed` to false, and uses
+presentation labels such as `REVIEW_PENDING` or
+`SUPPORTED_BY_TECHNICAL_EVIDENCE` rather than overstating compliance.

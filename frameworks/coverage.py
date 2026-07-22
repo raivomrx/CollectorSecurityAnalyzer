@@ -24,6 +24,10 @@ def calculate_coverage(
         any(mapping.status != MappingStatus.DEPRECATED for mapping in control.mappings)
         for control in pack.controls
     )
+    validated_mapped = sum(
+        any(mapping.status == MappingStatus.VALIDATED for mapping in control.mappings)
+        for control in pack.controls
+    )
     automated = sum(
         control.automation == AutomationCapability.AUTOMATED for control in pack.controls
     )
@@ -63,6 +67,7 @@ def calculate_coverage(
     return FrameworkCoverage(
         framework_control_count=total,
         mapped_control_count=mapped,
+        validated_mapped_control_count=validated_mapped,
         unmapped_control_count=total - mapped,
         automated_control_count=automated,
         partially_automated_control_count=partial,
@@ -74,6 +79,9 @@ def calculate_coverage(
         partially_satisfied_control_count=counts[FrameworkControlStatus.PARTIALLY_SATISFIED],
         not_assessable_control_count=counts[FrameworkControlStatus.NOT_ASSESSABLE],
         mapping_coverage_percent=_percent(mapped, total),
+        validated_mapping_coverage_percent=_percent(validated_mapped, total),
+        traceability_coverage_percent=_percent(mapped, total),
+        formal_assessment_coverage_percent=_percent(len(evaluated), len(assessable_ids)),
         technical_automation_coverage_percent=_percent(technical_automated, len(technical)),
         assessment_coverage_percent=_percent(len(evaluated), len(assessable_ids)),
         satisfied_assessable_controls_percent=_percent(

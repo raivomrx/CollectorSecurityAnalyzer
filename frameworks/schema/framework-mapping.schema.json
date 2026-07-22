@@ -4,7 +4,7 @@
   "title": "CSA Framework Rule Mapping",
   "type": "object",
   "additionalProperties": false,
-  "required": ["ruleId", "mappingStrength", "mappingStatus", "rationale", "evidenceLimitations"],
+  "required": ["ruleId", "mappingStrength", "mappingStatus", "rationale", "evidenceLimitations", "sourceRelease", "reviewMethod", "reviewPendingReason"],
   "properties": {
     "ruleId": {"type": "string", "minLength": 1, "maxLength": 128},
     "mappingStrength": {"enum": ["DIRECT", "SUPPORTING", "CONTEXTUAL"]},
@@ -14,5 +14,31 @@
     "reviewer": {"type": ["string", "null"], "maxLength": 256},
     "reviewedAt": {"type": ["string", "null"], "format": "date"},
     "sourceReference": {"type": ["string", "null"], "maxLength": 2048}
-  }
+    ,"sourceRelease": {"type": ["string", "null"], "maxLength": 256}
+    ,"reviewMethod": {"enum": ["MANUAL_SOURCE_REVIEW", "PEER_REVIEW", "IMPORTED_UNREVIEWED", "MIGRATED_UNREVIEWED"]}
+    ,"reviewPendingReason": {"type": ["string", "null"], "enum": ["SOURCE_VERSION_UNCONFIRMED", "EXACT_CONTROL_REFERENCE_MISSING", "REQUIRES_DOMAIN_EXPERT_REVIEW", "LICENSED_SOURCE_NOT_AVAILABLE", "MAPPING_STRENGTH_UNCONFIRMED", null]}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"mappingStatus": {"const": "VALIDATED"}}},
+      "then": {
+        "required": ["reviewer", "reviewedAt", "sourceReference"],
+        "properties": {
+          "reviewer": {"type": "string", "minLength": 1},
+          "reviewedAt": {"type": "string", "format": "date"},
+          "sourceReference": {"type": "string", "minLength": 1},
+          "reviewMethod": {"enum": ["MANUAL_SOURCE_REVIEW", "PEER_REVIEW"]},
+          "reviewPendingReason": {"type": "null"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"mappingStatus": {"const": "PROVISIONAL"}}},
+      "then": {
+        "properties": {
+          "reviewPendingReason": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  ]
 }

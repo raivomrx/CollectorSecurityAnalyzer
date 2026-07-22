@@ -5,12 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from frameworks.enums import (
+    AssessmentMode,
     AutomationCapability,
+    EvaluationMode,
     FrameworkControlLevel,
     FrameworkControlStatus,
     MappingStatus,
     MappingStrength,
     PackStatus,
+    ReviewMethod,
+    ReviewPendingReason,
 )
 
 
@@ -24,6 +28,10 @@ class FrameworkSource:
     retrieved_at: str
     reference: str
     digest_sha256: str | None = None
+    source_file_name: str | None = None
+    source_format: str | None = None
+    imported_at: str | None = None
+    record_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +46,9 @@ class RuleMapping:
     reviewer: str | None = None
     reviewed_at: str | None = None
     source_reference: str | None = None
+    source_release: str | None = None
+    review_method: ReviewMethod | None = None
+    review_pending_reason: ReviewPendingReason | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +87,9 @@ class FrameworkPack:
     superseded_by: str | None
     controls: tuple[FrameworkControl, ...]
     content_hash_sha256: str
+    assessment_mode: AssessmentMode = AssessmentMode.FORMAL_ASSESSMENT
+    disclaimer_en: str | None = None
+    disclaimer_et: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +116,7 @@ class FrameworkControlResult:
     provisional_rule_ids: tuple[str, ...]
     confidence: int
     limitations: tuple[str, ...]
+    presentation_status: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +125,7 @@ class FrameworkCoverage:
 
     framework_control_count: int = 0
     mapped_control_count: int = 0
+    validated_mapped_control_count: int = 0
     unmapped_control_count: int = 0
     automated_control_count: int = 0
     partially_automated_control_count: int = 0
@@ -121,6 +137,9 @@ class FrameworkCoverage:
     partially_satisfied_control_count: int = 0
     not_assessable_control_count: int = 0
     mapping_coverage_percent: float = 0.0
+    validated_mapping_coverage_percent: float = 0.0
+    traceability_coverage_percent: float = 0.0
+    formal_assessment_coverage_percent: float = 0.0
     technical_automation_coverage_percent: float = 0.0
     assessment_coverage_percent: float = 0.0
     satisfied_assessable_controls_percent: float = 0.0
@@ -135,3 +154,7 @@ class FrameworkEvaluation:
     coverage: FrameworkCoverage
     evaluated_at: str
     warnings: tuple[str, ...] = field(default_factory=tuple)
+    evaluation_mode: EvaluationMode = EvaluationMode.FORMAL_ASSESSMENT
+    formal_assessment_performed: bool = True
+    validated_mapping_count: int = 0
+    provisional_mapping_count: int = 0
