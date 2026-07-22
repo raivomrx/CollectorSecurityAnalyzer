@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "1.0",
+  "frameworkId": "CIS_WINDOWS_11_ENTERPRISE",
+  "name": "CIS Microsoft Windows 11 Enterprise Benchmark Mapping Seed",
+  "version": "5.0.1",
+  "status": "DRAFT",
+  "source": {
+    "publisher": "Center for Internet Security",
+    "release": "5.0.1",
+    "publishedAt": null,
+    "retrievedAt": "2026-07-22",
+    "reference": "https://www.cisecurity.org/benchmark/microsoft_windows_desktop",
+    "digestSha256": null
+  },
+  "scope": [
+    "Windows 11 Enterprise",
+    "Licensed mapping import required"
+  ],
+  "license": "No CIS benchmark text is redistributed. This draft contains only CSA metadata and awaits import from a properly licensed source.",
+  "createdAt": "2026-07-22",
+  "updatedAt": "2026-07-22",
+  "maintainer": "CSA",
+  "minimumCsaVersion": "3.2",
+  "deprecated": false,
+  "supersedes": null,
+  "supersededBy": null,
+  "controls": [],
+  "contentHashSha256": "f555ff1f19d8d09e7839f1259214ef31982e7ede45a2795ba069c3940ab80cd4"
+}

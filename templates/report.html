@@ -438,6 +438,87 @@
     </section>
 
     <section>
+      <h2>Framework Coverage &amp; Traceability</h2>
+      <p class="notice info">
+        This automated endpoint assessment provides technical evidence and traceability only. It is not a certification or a determination of legal, regulatory, or organization-wide compliance.
+      </p>
+      <p class="notice info">
+        See automatiseeritud l&otilde;ppseadme hinnang annab ainult tehnilist t&otilde;endusmaterjali ja j&auml;lgitavust. See ei ole sertifikaat ega &otilde;igusliku, regulatiivse v&otilde;i organisatsiooni&uuml;lese vastavuse hinnang.
+      </p>
+      {% if framework_evaluations %}
+        <div class="filter-bar" data-framework-pack-filters>
+          <label>View
+            <select data-filter="view">
+              <option value="">All controls</option>
+              <option value="failed">Failed</option>
+              <option value="partial">Partial</option>
+              <option value="not-assessable">Not assessable</option>
+              <option value="unmapped">Unmapped</option>
+              <option value="manual">Manual</option>
+              <option value="provisional">Provisional</option>
+            </select>
+          </label>
+        </div>
+        {% for evaluation in framework_evaluations %}
+          <article class="compliance-framework">
+            <h3>{{ evaluation.pack.name }}</h3>
+            <div class="summary-grid compact">
+              <div><span>Framework</span><strong>{{ evaluation.pack.framework_id }}</strong></div>
+              <div><span>Pack version</span><strong>{{ evaluation.pack.version }}</strong></div>
+              <div><span>Pack status</span><strong>{{ evaluation.pack.status.value }}</strong></div>
+              <div><span>Publisher release</span><strong>{{ evaluation.pack.source.release or "Not asserted" }}</strong></div>
+              <div><span>Controls</span><strong>{{ evaluation.coverage.framework_control_count }}</strong></div>
+              <div><span>Mapped / unmapped</span><strong>{{ evaluation.coverage.mapped_control_count }} / {{ evaluation.coverage.unmapped_control_count }}</strong></div>
+              <div><span>Mapping coverage</span><strong>{{ evaluation.coverage.mapping_coverage_percent }}%</strong></div>
+              <div><span>Technical automation</span><strong>{{ evaluation.coverage.technical_automation_coverage_percent }}%</strong></div>
+              <div><span>Assessment coverage</span><strong>{{ evaluation.coverage.assessment_coverage_percent }}%</strong></div>
+              <div><span>Satisfied assessable controls</span><strong>{{ evaluation.coverage.satisfied_assessable_controls_percent }}%</strong></div>
+              <div><span>Manual controls</span><strong>{{ evaluation.coverage.manual_control_count }}</strong></div>
+              <div><span>Pack SHA-256</span><strong class="digest">{{ evaluation.pack.content_hash_sha256 }}</strong></div>
+            </div>
+            {% if evaluation.warnings %}
+              <div class="notice warning">{{ evaluation.warnings|length }} provisional mapping warning(s). Human review is required before release validation.</div>
+            {% endif %}
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr><th>Control</th><th>Title</th><th>Status</th><th>Automation</th><th>Rules</th><th>Passed</th><th>Failed</th><th>Unavailable</th><th>Provisional</th><th>Confidence</th><th>Limitations</th></tr>
+                </thead>
+                <tbody>
+                  {% for result in evaluation.results %}
+                    <tr
+                      class="framework-pack-row framework-status-{{ result.status.value|lower }}"
+                      data-status="{{ result.status.value }}"
+                      data-unmapped="{{ 'true' if not result.mapped_rule_ids else 'false' }}"
+                      data-manual="{{ 'true' if result.automation.value == 'MANUAL' else 'false' }}"
+                      data-provisional="{{ 'true' if result.provisional_rule_ids else 'false' }}"
+                    >
+                      <td>{{ result.control_id }}</td>
+                      <td>{{ result.title }}</td>
+                      <td><span class="pill framework-status-{{ result.status.value|lower }}">{{ result.status.value }}</span></td>
+                      <td>{{ result.automation.value }}</td>
+                      <td>{{ result.mapped_rule_ids|join(", ") }}</td>
+                      <td>{{ result.passed_rule_ids|join(", ") }}</td>
+                      <td>{{ result.failed_rule_ids|join(", ") }}</td>
+                      <td>{{ result.unavailable_rule_ids|join(", ") }}</td>
+                      <td>{{ result.provisional_rule_ids|join(", ") }}</td>
+                      <td>{{ result.confidence }}%</td>
+                      <td>{{ result.limitations|join(" ") }}</td>
+                    </tr>
+                  {% else %}
+                    <tr class="framework-pack-row" data-unmapped="true"><td colspan="11" class="muted">No controls are present in this draft pack.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </article>
+        {% endfor %}
+      {% else %}
+        <p class="muted">Versioned framework pack evaluation was not executed.</p>
+      {% endif %}
+    </section>
+
+    <section>
       <h2>Compliance &amp; Policy Assessment</h2>
       <p class="notice info">
         This is an automated evidence-based endpoint assessment. It is not a certification of organisation-wide compliance.

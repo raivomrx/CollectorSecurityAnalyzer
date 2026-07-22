@@ -20,3 +20,7 @@ class RuleMetadata:
     severity: Severity
     enabled: bool
     description: str
+    deprecated: bool = False
+    superseded_by: str | None = None
+    introduced_in: str | None = None
+    removed_in: str | None = None

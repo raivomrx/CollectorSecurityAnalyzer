@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from collector_schema.models import CollectorDocument
     from cve.enrichment_models import EnrichedCveScanSummary
     from cve.models import CveScanSummary
+    from frameworks.models import FrameworkEvaluation
 
 
 @dataclass(slots=True)
@@ -31,3 +32,4 @@ class AnalysisContext:
     cve_summary: "CveScanSummary | None" = None
     cve_enrichment: "EnrichedCveScanSummary | None" = None
     compliance_summary: "ComplianceSummary | None" = None
+    framework_evaluations: "list[FrameworkEvaluation] | None" = None

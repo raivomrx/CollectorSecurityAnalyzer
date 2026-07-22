@@ -314,6 +314,38 @@ h3 {
   background: #f1f5f9;
 }
 
+.framework-status-satisfied {
+  color: var(--green);
+  background: #dcfce7;
+}
+
+.framework-status-not_satisfied {
+  color: var(--red);
+  background: #fee2e2;
+}
+
+.framework-status-partially_satisfied {
+  color: var(--orange);
+  background: #ffedd5;
+}
+
+.framework-status-not_assessable,
+.framework-status-not_evaluated {
+  color: var(--blue);
+  background: #dbeafe;
+}
+
+.framework-status-not_applicable {
+  color: var(--gray);
+  background: #f1f5f9;
+}
+
+.digest {
+  overflow-wrap: anywhere;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+}
+
 .finding-header {
   display: flex;
   align-items: flex-start;

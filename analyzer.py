@@ -26,10 +26,17 @@ from logger import setup_logging
 from knowledge.repository import KnowledgeRepository
 from parser import parse_collector_file
 from evidence.normalization import normalize_windows_evidence
+from frameworks.evaluator import FrameworkEvaluator
+from frameworks.exceptions import FrameworkPackError
+from frameworks.models import FrameworkPack
+from frameworks.registry import FrameworkPackRegistry
+from frameworks.serialization import write_analysis_json
+from frameworks.validation import FrameworkPackValidator
 from policies.loader import load_policy_profile
 from report import generate_html_report
 from risk import AuditFinding, Finding
 from rules.loader import load_registry
+from rules.registry import RuleRegistry
 from scoring import calculate_score
 from software.inventory import build_inventory
 from software.models import SoftwareInventory
@@ -57,6 +64,8 @@ def analyze_file(
     policy_profile: str | Path | None = None,
     privacy_mode: str = "standard",
     skipped_categories: list[str] | None = None,
+    skip_framework_packs: bool = False,
+    framework_packs: list[str] | None = None,
 ) -> tuple[list[AuditFinding], int, SoftwareInventory, Path]:
     """Analyze a collector JSON file and generate an HTML report."""
 
@@ -107,6 +116,13 @@ def analyze_file(
         framework_versions=framework_versions,
         cis_ig=cis_ig,
     )
+    _run_framework_evaluation(
+        context,
+        audit_findings,
+        skip_framework_packs,
+        framework_packs,
+        registry,
+    )
     rule_metadata = {
         execution.rule_id: metadata
         for execution in registry.get_execution_info()
@@ -127,11 +143,15 @@ def analyze_file(
         evidence_registry=context.evidence_registry,
         policy_profile=context.policy_profile,
         privacy_mode=context.privacy_mode,
+        framework_evaluations=context.framework_evaluations,
         output_path=output_path,
     )
+    analysis_path = output_path.with_suffix(".analysis.json")
+    write_analysis_json(context.framework_evaluations or [], analysis_path)
     LOGGER.info("Total Findings: %s", len(findings))
     LOGGER.info("Security Score: %s", score)
     LOGGER.info("HTML report generated: %s", report_path)
+    LOGGER.info("Framework analysis generated: %s", analysis_path)
     return audit_findings, score, software_inventory, report_path
 
 
@@ -293,6 +313,52 @@ def _run_compliance_assessment(
         context.compliance_summary = None
 
 
+def _run_framework_evaluation(
+    context: AnalysisContext,
+    audit_findings: list[AuditFinding],
+    skip_framework_packs: bool,
+    selections: list[str] | None,
+    rule_registry: RuleRegistry,
+) -> None:
+    """Evaluate selected versioned framework packs from technical findings."""
+
+    if skip_framework_packs:
+        context.framework_evaluations = None
+        return
+    try:
+        registry = FrameworkPackRegistry()
+        packs = (
+            [_resolve_framework_pack(registry, selection) for selection in selections]
+            if selections
+            else registry.load_defaults()
+        )
+        evaluator = FrameworkEvaluator()
+        validator = FrameworkPackValidator(rule_registry)
+        evaluations = []
+        for pack in packs:
+            errors = validator.validate(pack)
+            if errors:
+                raise FrameworkPackError(
+                    f"Invalid framework pack {pack.framework_id}:{pack.version}: "
+                    + "; ".join(errors)
+                )
+            evaluations.append(evaluator.evaluate(pack, audit_findings))
+        context.framework_evaluations = evaluations
+    except Exception:
+        LOGGER.exception("Framework pack evaluation failed")
+        context.framework_evaluations = None
+
+
+def _resolve_framework_pack(
+    registry: FrameworkPackRegistry,
+    selection: str,
+) -> FrameworkPack:
+    """Resolve FRAMEWORK[:VERSION] selection syntax."""
+
+    framework_id, separator, version = selection.partition(":")
+    return registry.resolve(framework_id, version if separator else "latest")
+
+
 def enrich_findings(
     findings: list[Finding],
     repository: KnowledgeRepository | None = None,
@@ -344,6 +410,16 @@ def main() -> None:
         help="Framework ID to assess; may be repeated",
     )
     argument_parser.add_argument(
+        "--framework-pack",
+        action="append",
+        help="Versioned framework pack as FRAMEWORK[:VERSION]; may be repeated",
+    )
+    argument_parser.add_argument(
+        "--skip-framework-packs",
+        action="store_true",
+        help="Skip versioned framework traceability evaluation",
+    )
+    argument_parser.add_argument(
         "--framework-version",
         action="append",
         default=[],
@@ -390,6 +466,10 @@ def main() -> None:
         data = parse_collector_file(args.input)
         if str(data.get("schemaVersion") or data.get("schema_version") or "1.0").startswith("2."):
             validate_v2_document(data)
+    compliance_frameworks, framework_packs = _partition_framework_args(
+        args.framework,
+        args.framework_pack,
+    )
     analyze_file(
         args.input,
         skip_cve=args.skip_cve,
@@ -402,13 +482,15 @@ def main() -> None:
         cvelist_path=args.cvelist_path,
         skip_compliance=args.skip_compliance,
         compliance_profiles=args.compliance_profile,
-        framework_filter=args.framework,
+        framework_filter=compliance_frameworks,
         framework_versions=_parse_framework_versions(args.framework_version),
         cis_ig=args.cis_ig,
         validate_input=args.validate_input,
         policy_profile=args.policy_profile,
         privacy_mode=args.privacy_mode,
         skipped_categories=args.skip_category,
+        skip_framework_packs=args.skip_framework_packs,
+        framework_packs=framework_packs,
     )
 
 
@@ -422,6 +504,28 @@ def _parse_framework_versions(values: list[str]) -> dict[str, str]:
         framework_id, version = value.split("=", 1)
         versions[framework_id] = version
     return versions
+
+
+def _partition_framework_args(
+    legacy_values: list[str] | None,
+    pack_values: list[str] | None,
+) -> tuple[list[str] | None, list[str] | None]:
+    """Separate legacy compliance IDs from versioned pack selections."""
+
+    legacy: list[str] = []
+    packs = list(pack_values or [])
+    if not legacy_values:
+        return None, packs or None
+    pack_ids = set(FrameworkPackRegistry().list_framework_ids())
+    for value in legacy_values or []:
+        framework_id = value.partition(":")[0]
+        if ":" in value or framework_id in pack_ids:
+            packs.append(value)
+            if framework_id == "EITS" and ":" not in value:
+                legacy.append(value)
+        else:
+            legacy.append(value)
+    return legacy or None, packs or None
 
 
 def _print_compliance_catalog(list_profiles: bool, list_frameworks: bool) -> None:

@@ -14,6 +14,7 @@ from collector_schema.enums import PrivacyMode
 from collector_schema.models import CollectorDocument
 from evidence.provenance import pseudonymize_hostname, redact_value
 from evidence.registry import WindowsEvidenceRegistry
+from frameworks.models import FrameworkEvaluation
 from risk import AuditFinding
 from compliance.models import ComplianceSummary
 from cve.enrichment_models import EnrichedCveScanSummary
@@ -43,6 +44,7 @@ def generate_html_report(
     evidence_registry: WindowsEvidenceRegistry | None = None,
     policy_profile: WindowsEndpointPolicy | None = None,
     privacy_mode: PrivacyMode = PrivacyMode.STANDARD,
+    framework_evaluations: list[FrameworkEvaluation] | None = None,
 ) -> Path:
     """Generate an HTML audit report from analyzer results."""
 
@@ -74,6 +76,7 @@ def generate_html_report(
         cve_summary=cve_summary,
         cve_enrichment=cve_enrichment,
         compliance_summary=compliance_summary,
+        framework_evaluations=framework_evaluations,
         cve_rows=_visible_cve_rows(cve_summary),
         enriched_cve_rows=_visible_enriched_cve_rows(cve_enrichment),
         metadata=_build_metadata(audit_findings),

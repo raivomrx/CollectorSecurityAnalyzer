@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://csa.local/schema/framework-control.schema.json",
+  "title": "CSA Framework Control",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["controlId", "title", "section", "profile", "level", "automation", "mappings", "tags"],
+  "properties": {
+    "controlId": {"type": "string", "minLength": 1, "maxLength": 256},
+    "title": {"type": "string", "minLength": 1, "maxLength": 512},
+    "section": {"type": "string", "minLength": 1, "maxLength": 512},
+    "profile": {"type": "array", "items": {"type": "string", "maxLength": 256}},
+    "level": {"enum": ["TECHNICAL", "PROCEDURAL", "ORGANIZATIONAL", "MIXED"]},
+    "automation": {"enum": ["AUTOMATED", "PARTIAL", "MANUAL", "NOT_APPLICABLE"]},
+    "mappings": {"type": "array", "items": {"$ref": "framework-mapping.schema.json"}},
+    "tags": {"type": "array", "items": {"type": "string", "maxLength": 128}},
+    "notes": {"type": ["string", "null"], "maxLength": 4096}
+  }
+}

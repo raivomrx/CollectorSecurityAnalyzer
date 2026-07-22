@@ -1,0 +1,220 @@
+{
+  "schemaVersion": "1.0",
+  "frameworkId": "EITS",
+  "name": "E-ITS 2026 Endpoint Traceability Pack",
+  "version": "2026",
+  "status": "ACTIVE",
+  "source": {
+    "publisher": "Riigi InfosÃ¼steemi Amet",
+    "release": "2026",
+    "publishedAt": null,
+    "retrievedAt": "2026-07-22",
+    "reference": "https://eits.ria.ee/et/ver/2026/eits/cat",
+    "digestSha256": null
+  },
+  "scope": [
+    "SYS",
+    "OPS",
+    "ORP",
+    "CON",
+    "NET",
+    "Windows endpoint evidence"
+  ],
+  "license": "Control identifiers and short CSA-authored titles are retained for traceability; consult the official E-ITS source for authoritative content.",
+  "createdAt": "2026-07-22",
+  "updatedAt": "2026-07-22",
+  "maintainer": "CSA",
+  "minimumCsaVersion": "3.2",
+  "deprecated": false,
+  "supersedes": null,
+  "supersededBy": null,
+  "controls": [
+    {
+      "controlId": "OPS.1.1.4.M5",
+      "title": "Apply endpoint anti-malware protection",
+      "section": "OPS.1.1.4 Malware protection",
+      "profile": [
+        "Windows endpoint"
+      ],
+      "level": "MIXED",
+      "automation": "PARTIAL",
+      "mappings": [
+        {
+          "ruleId": "DEF-001",
+          "mappingStrength": "SUPPORTING",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "Defender enabled state supplies endpoint evidence but cannot prove implementation governance.",
+          "evidenceLimitations": [
+            "Collector evidence does not prove testing, documented configuration, or user-right restrictions."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://eits.ria.ee/et/versioon/2024/eits-poohidokumendid/etalonturbe-kataloog/ops-kaeidutoeoed/ops1-oma-kaeidutoeoed/ops11-itpoohitoeoed/ops114-kaitse-kahjurprogrammide-eest/3-meetmed/32-poohimeetmed/ops114m5-kahjurvaratoorje-tarkvara-rakendamine/"
+        },
+        {
+          "ruleId": "DEF-002",
+          "mappingStrength": "SUPPORTING",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "Real-time protection state supports endpoint implementation evidence.",
+          "evidenceLimitations": [
+            "Effective organizational implementation is not assessed."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://eits.ria.ee/et/versioon/2024/eits-poohidokumendid/etalonturbe-kataloog/ops-kaeidutoeoed/ops1-oma-kaeidutoeoed/ops11-itpoohitoeoed/ops114-kaitse-kahjurprogrammide-eest/3-meetmed/32-poohimeetmed/ops114m5-kahjurvaratoorje-tarkvara-rakendamine/"
+        }
+      ],
+      "tags": [
+        "OPS",
+        "malware",
+        "endpoint"
+      ],
+      "notes": "Provisional CSA mapping; official E-ITS wording is not reproduced."
+    },
+    {
+      "controlId": "OPS.1.1.4.M6",
+      "title": "Keep anti-malware software and signatures current",
+      "section": "OPS.1.1.4 Malware protection",
+      "profile": [
+        "Windows endpoint"
+      ],
+      "level": "TECHNICAL",
+      "automation": "PARTIAL",
+      "mappings": [
+        {
+          "ruleId": "DEF-003",
+          "mappingStrength": "DIRECT",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "Defender signature age directly measures one endpoint aspect of update currency.",
+          "evidenceLimitations": [
+            "One collection snapshot does not prove the ongoing update process."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://eits.ria.ee/et/versioon/2024/eits-poohidokumendid/etalonturbe-kataloog/ops-kaeidutoeoed/ops1-oma-kaeidutoeoed/ops11-itpoohitoeoed/ops114-kaitse-kahjurprogrammide-eest/3-meetmed/32-poohimeetmed/ops114m5-kahjurvaratoorje-tarkvara-rakendamine/"
+        }
+      ],
+      "tags": [
+        "OPS",
+        "malware",
+        "updates"
+      ],
+      "notes": "Provisional CSA mapping."
+    },
+    {
+      "controlId": "SYS.2.1.M3",
+      "title": "Maintain current endpoint software",
+      "section": "SYS.2.1 Client computer",
+      "profile": [
+        "Windows endpoint"
+      ],
+      "level": "MIXED",
+      "automation": "PARTIAL",
+      "mappings": [
+        {
+          "ruleId": "UPD-001",
+          "mappingStrength": "SUPPORTING",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "Recent Windows update installation supports endpoint currency.",
+          "evidenceLimitations": [
+            "Does not establish complete software lifecycle or patch-management coverage."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://eits.ria.ee/et/abimaterjalid/"
+        },
+        {
+          "ruleId": "CVE-001",
+          "mappingStrength": "CONTEXTUAL",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "Known vulnerability results provide related risk context only.",
+          "evidenceLimitations": [
+            "CVE coverage depends on software normalization and data-source availability."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://eits.ria.ee/et/abimaterjalid/"
+        }
+      ],
+      "tags": [
+        "SYS",
+        "patching",
+        "endpoint"
+      ],
+      "notes": "Provisional CSA mapping."
+    },
+    {
+      "controlId": "SYS.2.1.M6",
+      "title": "Use endpoint firewall and malware protection",
+      "section": "SYS.2.1 Client computer",
+      "profile": [
+        "Windows endpoint"
+      ],
+      "level": "TECHNICAL",
+      "automation": "PARTIAL",
+      "mappings": [
+        {
+          "ruleId": "FW-001",
+          "mappingStrength": "SUPPORTING",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "Enabled Windows Firewall profiles support endpoint protection evidence.",
+          "evidenceLimitations": [
+            "Rule policy quality and central governance are not fully assessed."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://eits.ria.ee/et/abimaterjalid/"
+        },
+        {
+          "ruleId": "DEF-001",
+          "mappingStrength": "SUPPORTING",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "Enabled Defender supports endpoint anti-malware evidence.",
+          "evidenceLimitations": [
+            "Configuration effectiveness is only partially assessed."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://eits.ria.ee/et/abimaterjalid/"
+        }
+      ],
+      "tags": [
+        "SYS",
+        "firewall",
+        "malware"
+      ],
+      "notes": "Provisional CSA mapping."
+    },
+    {
+      "controlId": "SYS.2.1.M13",
+      "title": "Restrict access to the execution environment",
+      "section": "SYS.2.1 Client computer",
+      "profile": [
+        "Windows endpoint"
+      ],
+      "level": "MIXED",
+      "automation": "PARTIAL",
+      "mappings": [
+        {
+          "ruleId": "UAC-001",
+          "mappingStrength": "SUPPORTING",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "UAC state provides partial endpoint execution-boundary evidence.",
+          "evidenceLimitations": [
+            "Application control and privilege-management processes are not assessed."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://eits.ria.ee/et/versioon/2024/eits-poohidokumendid/etalonturbe-kataloog/sys-itsuesteemid/sys2-klientarvutid/sys21-klientarvuti-ueldiselt/3-meetmed/33-standardmeetmed/sys21m13-piiratud-juurdepaeaes-taeitmiskeskkonda"
+        }
+      ],
+      "tags": [
+        "SYS",
+        "execution",
+        "identity"
+      ],
+      "notes": "Provisional CSA mapping."
+    }
+  ],
+  "contentHashSha256": "84ede0b0c7d4cbca48f5dbc1e7aeedd2b1ff83963ca1a15c638c5ec1586d073a"
+}

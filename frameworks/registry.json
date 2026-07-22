@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0",
+  "packs": [
+    {"frameworkId": "CIS_WINDOWS_11_ENTERPRISE", "version": "5.0.1", "path": "cis/windows-11-enterprise/5.0.1/pack.json", "status": "DRAFT", "default": false},
+    {"frameworkId": "EITS", "version": "2026", "path": "eits/2026/pack.json", "status": "ACTIVE", "default": true},
+    {"frameworkId": "MICROSOFT_WINDOWS_SECURITY_BASELINE", "version": "CSA-WIN11-2026.1", "path": "microsoft/windows-security-baseline/pack.json", "status": "ACTIVE", "default": true},
+    {"frameworkId": "NIS2", "version": "EU-2022-2555", "path": "nis2/eu-2022-2555/pack.json", "status": "ACTIVE", "default": true}
+  ]
+}

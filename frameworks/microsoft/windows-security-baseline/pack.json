@@ -1,0 +1,375 @@
+{
+  "schemaVersion": "1.0",
+  "frameworkId": "MICROSOFT_WINDOWS_SECURITY_BASELINE",
+  "name": "Microsoft Windows 11 Security Baseline Traceability Pack",
+  "version": "CSA-WIN11-2026.1",
+  "status": "ACTIVE",
+  "source": {
+    "publisher": "Microsoft",
+    "release": null,
+    "publishedAt": null,
+    "retrievedAt": "2026-07-22",
+    "reference": "https://learn.microsoft.com/windows/security/operating-system-security/device-management/windows-security-configuration-framework/windows-security-baselines",
+    "digestSha256": null
+  },
+  "scope": [
+    "Windows 11",
+    "Workstation",
+    "CSA endpoint evidence subset"
+  ],
+  "license": "Contains CSA-authored control titles and mappings. Microsoft documentation remains authoritative and subject to Microsoft terms.",
+  "createdAt": "2026-07-22",
+  "updatedAt": "2026-07-22",
+  "maintainer": "CSA",
+  "minimumCsaVersion": "3.2",
+  "deprecated": false,
+  "supersedes": null,
+  "supersededBy": null,
+  "controls": [
+    {
+      "controlId": "MSB-BITLOCKER-001",
+      "title": "BitLocker protection evidence",
+      "section": "Data protection",
+      "profile": [
+        "Windows 11 workstation"
+      ],
+      "level": "TECHNICAL",
+      "automation": "AUTOMATED",
+      "mappings": [
+        {
+          "ruleId": "BIT-001",
+          "mappingStrength": "DIRECT",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "The rule directly checks system-drive BitLocker protection state.",
+          "evidenceLimitations": [
+            "Recovery-key escrow and policy provenance are not assessed."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://learn.microsoft.com/windows/security/operating-system-security/data-protection/bitlocker/"
+        }
+      ],
+      "tags": [
+        "bitlocker",
+        "encryption"
+      ],
+      "notes": "CSA-authored control identifier; upstream baseline release not asserted."
+    },
+    {
+      "controlId": "MSB-DEFENDER-HARDENING",
+      "title": "Microsoft Defender protection evidence",
+      "section": "Threat protection",
+      "profile": [
+        "Windows 11 workstation"
+      ],
+      "level": "TECHNICAL",
+      "automation": "AUTOMATED",
+      "mappings": [
+        {
+          "ruleId": "DEF-001",
+          "mappingStrength": "DIRECT",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "The rule checks whether Defender is enabled.",
+          "evidenceLimitations": [
+            "A point-in-time state does not prove policy enforcement."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://learn.microsoft.com/defender-endpoint/"
+        },
+        {
+          "ruleId": "DEF-002",
+          "mappingStrength": "DIRECT",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "The rule checks real-time protection state.",
+          "evidenceLimitations": [
+            "Exclusion quality is evaluated by a separate rule."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://learn.microsoft.com/defender-endpoint/"
+        },
+        {
+          "ruleId": "DEF-008",
+          "mappingStrength": "SUPPORTING",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "Tamper protection state supports Defender hardening evidence.",
+          "evidenceLimitations": [
+            "Collector access can make the setting unavailable."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://learn.microsoft.com/defender-endpoint/prevent-changes-to-security-settings-with-tamper-protection"
+        }
+      ],
+      "tags": [
+        "defender",
+        "antimalware"
+      ],
+      "notes": "CSA endpoint evidence subset."
+    },
+    {
+      "controlId": "MSB-FIREWALL-HARDENING",
+      "title": "Windows Firewall hardening evidence",
+      "section": "Network protection",
+      "profile": [
+        "Windows 11 workstation"
+      ],
+      "level": "TECHNICAL",
+      "automation": "AUTOMATED",
+      "mappings": [
+        {
+          "ruleId": "FW-001",
+          "mappingStrength": "DIRECT",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "The rule checks all Windows Firewall profile enabled states.",
+          "evidenceLimitations": [
+            "Individual firewall rule quality is outside current evidence."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://learn.microsoft.com/windows/security/operating-system-security/network-security/windows-firewall/"
+        },
+        {
+          "ruleId": "FW-005",
+          "mappingStrength": "DIRECT",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "The rule checks default inbound blocking posture.",
+          "evidenceLimitations": [
+            "Rule exceptions are not exhaustively evaluated."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://learn.microsoft.com/windows/security/operating-system-security/network-security/windows-firewall/"
+        }
+      ],
+      "tags": [
+        "firewall",
+        "network"
+      ],
+      "notes": "CSA endpoint evidence subset."
+    },
+    {
+      "controlId": "MSB-DEVICE-SECURITY",
+      "title": "Hardware-backed device security evidence",
+      "section": "Device security",
+      "profile": [
+        "Windows 11 workstation"
+      ],
+      "level": "TECHNICAL",
+      "automation": "AUTOMATED",
+      "mappings": [
+        {
+          "ruleId": "DEV-001",
+          "mappingStrength": "DIRECT",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "The rule checks Secure Boot state.",
+          "evidenceLimitations": [
+            "Firmware trust-chain details are not assessed."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://learn.microsoft.com/windows/security/operating-system-security/system-security/secure-the-windows-10-boot-process"
+        },
+        {
+          "ruleId": "DEV-002",
+          "mappingStrength": "DIRECT",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "The rule checks TPM availability and readiness.",
+          "evidenceLimitations": [
+            "TPM attestation is not performed."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://learn.microsoft.com/windows/security/hardware-security/tpm/trusted-platform-module-overview"
+        },
+        {
+          "ruleId": "DEV-005",
+          "mappingStrength": "SUPPORTING",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "Memory Integrity state supports virtualization-based protection evidence.",
+          "evidenceLimitations": [
+            "Hardware compatibility is not independently verified."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://learn.microsoft.com/windows/security/hardware-security/enable-virtualization-based-protection-of-code-integrity"
+        }
+      ],
+      "tags": [
+        "secure-boot",
+        "tpm",
+        "vbs"
+      ],
+      "notes": "CSA endpoint evidence subset."
+    },
+    {
+      "controlId": "MSB-PROTOCOL-HARDENING",
+      "title": "Legacy protocol hardening evidence",
+      "section": "Network protocols",
+      "profile": [
+        "Windows 11 workstation"
+      ],
+      "level": "TECHNICAL",
+      "automation": "AUTOMATED",
+      "mappings": [
+        {
+          "ruleId": "PROTO-001",
+          "mappingStrength": "DIRECT",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "The rule checks whether SMBv1 is enabled.",
+          "evidenceLimitations": [
+            "Network-path protocol use is not observed."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://learn.microsoft.com/windows-server/storage/file-server/smbv1-clearinghouse"
+        },
+        {
+          "ruleId": "PROTO-003",
+          "mappingStrength": "DIRECT",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "The rule checks LLMNR configuration.",
+          "evidenceLimitations": [
+            "Effective domain policy precedence depends on collector provenance."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://learn.microsoft.com/windows/security/"
+        }
+      ],
+      "tags": [
+        "smb",
+        "llmnr",
+        "protocols"
+      ],
+      "notes": "CSA endpoint evidence subset."
+    },
+    {
+      "controlId": "MSB-REMOTE-ACCESS",
+      "title": "Remote access hardening evidence",
+      "section": "Remote administration",
+      "profile": [
+        "Windows 11 workstation"
+      ],
+      "level": "TECHNICAL",
+      "automation": "AUTOMATED",
+      "mappings": [
+        {
+          "ruleId": "REMOTE-001",
+          "mappingStrength": "DIRECT",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "The rule detects RDP enabled without Network Level Authentication.",
+          "evidenceLimitations": [
+            "External exposure and compensating controls are not assessed."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://learn.microsoft.com/windows-server/remote/remote-desktop-services/clients/remote-desktop-allow-access"
+        },
+        {
+          "ruleId": "REMOTE-003",
+          "mappingStrength": "DIRECT",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "The rule checks WinRM unencrypted traffic configuration.",
+          "evidenceLimitations": [
+            "Transport-level network controls are not observed."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://learn.microsoft.com/windows/win32/winrm/installation-and-configuration-for-windows-remote-management"
+        }
+      ],
+      "tags": [
+        "rdp",
+        "winrm",
+        "remote-access"
+      ],
+      "notes": "CSA endpoint evidence subset."
+    },
+    {
+      "controlId": "MSB-ACCOUNT-SECURITY",
+      "title": "Local account security evidence",
+      "section": "Account policies",
+      "profile": [
+        "Windows 11 workstation"
+      ],
+      "level": "TECHNICAL",
+      "automation": "AUTOMATED",
+      "mappings": [
+        {
+          "ruleId": "ACC-001",
+          "mappingStrength": "DIRECT",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "The rule checks whether the Guest account is enabled.",
+          "evidenceLimitations": [
+            "Domain identities and cloud identities are outside this rule."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://learn.microsoft.com/windows/security/threat-protection/security-policy-settings/accounts-guest-account-status"
+        },
+        {
+          "ruleId": "ACC-006",
+          "mappingStrength": "SUPPORTING",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "Local password policy findings support account security assessment.",
+          "evidenceLimitations": [
+            "Effective domain password policy may differ."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://learn.microsoft.com/windows/security/threat-protection/security-policy-settings/password-policy"
+        }
+      ],
+      "tags": [
+        "accounts",
+        "passwords",
+        "identity"
+      ],
+      "notes": "CSA endpoint evidence subset."
+    },
+    {
+      "controlId": "MSB-WINDOWS-UPDATE",
+      "title": "Windows Update configuration and freshness evidence",
+      "section": "Update management",
+      "profile": [
+        "Windows 11 workstation"
+      ],
+      "level": "TECHNICAL",
+      "automation": "AUTOMATED",
+      "mappings": [
+        {
+          "ruleId": "UPD-001",
+          "mappingStrength": "DIRECT",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "The rule checks last successful update installation freshness.",
+          "evidenceLimitations": [
+            "One timestamp does not prove all applicable updates are installed."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://learn.microsoft.com/windows/deployment/update/"
+        },
+        {
+          "ruleId": "UPD-005",
+          "mappingStrength": "DIRECT",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "The rule checks Windows Update service state.",
+          "evidenceLimitations": [
+            "Managed update orchestration can change expected service behavior."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://learn.microsoft.com/windows/deployment/update/"
+        }
+      ],
+      "tags": [
+        "updates",
+        "patching"
+      ],
+      "notes": "CSA endpoint evidence subset."
+    }
+  ],
+  "contentHashSha256": "303188ae4734c402fdcd6a1f61667a2a9abd94f9abb2dd00dbab874774e5e49f"
+}

@@ -1,0 +1,159 @@
+{
+  "schemaVersion": "1.0",
+  "frameworkId": "NIS2",
+  "name": "NIS2 Article 21 Endpoint Traceability Pack",
+  "version": "EU-2022-2555",
+  "status": "ACTIVE",
+  "source": {
+    "publisher": "European Union",
+    "release": "Directive (EU) 2022/2555",
+    "publishedAt": "2022-12-27",
+    "retrievedAt": "2026-07-22",
+    "reference": "https://eur-lex.europa.eu/eli/dir/2022/2555/oj",
+    "digestSha256": null
+  },
+  "scope": [
+    "High-level Article 21 traceability",
+    "Endpoint supporting evidence"
+  ],
+  "license": "EU legal references and short CSA-authored traceability labels only.",
+  "createdAt": "2026-07-22",
+  "updatedAt": "2026-07-22",
+  "maintainer": "CSA",
+  "minimumCsaVersion": "3.2",
+  "deprecated": false,
+  "supersedes": null,
+  "supersededBy": null,
+  "controls": [
+    {
+      "controlId": "NIS2-21.2.A",
+      "title": "Risk analysis and information system security policies",
+      "section": "Article 21(2)(a)",
+      "profile": [
+        "Organization"
+      ],
+      "level": "ORGANIZATIONAL",
+      "automation": "MANUAL",
+      "mappings": [],
+      "tags": [
+        "risk-management",
+        "policy"
+      ],
+      "notes": "Endpoint data cannot establish legal or organizational compliance."
+    },
+    {
+      "controlId": "NIS2-21.2.E",
+      "title": "Vulnerability handling and disclosure traceability",
+      "section": "Article 21(2)(e)",
+      "profile": [
+        "Organization",
+        "Endpoint supporting evidence"
+      ],
+      "level": "MIXED",
+      "automation": "PARTIAL",
+      "mappings": [
+        {
+          "ruleId": "CVE-001",
+          "mappingStrength": "SUPPORTING",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "Known-vulnerability results provide endpoint-level supporting evidence for vulnerability handling.",
+          "evidenceLimitations": [
+            "Does not assess disclosure, remediation governance, secure acquisition, or development lifecycle."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://eur-lex.europa.eu/eli/dir/2022/2555/oj"
+        },
+        {
+          "ruleId": "UPD-001",
+          "mappingStrength": "CONTEXTUAL",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "Update freshness is related operational context.",
+          "evidenceLimitations": [
+            "Update recency alone does not demonstrate vulnerability management."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://eur-lex.europa.eu/eli/dir/2022/2555/oj"
+        }
+      ],
+      "tags": [
+        "vulnerability-management",
+        "patching"
+      ],
+      "notes": "Traceability only; never a legal compliance determination."
+    },
+    {
+      "controlId": "NIS2-21.2.I",
+      "title": "Access control and asset management traceability",
+      "section": "Article 21(2)(i)",
+      "profile": [
+        "Organization",
+        "Endpoint supporting evidence"
+      ],
+      "level": "MIXED",
+      "automation": "PARTIAL",
+      "mappings": [
+        {
+          "ruleId": "ADM-001",
+          "mappingStrength": "SUPPORTING",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "Local administrator review supplies limited endpoint access-control evidence.",
+          "evidenceLimitations": [
+            "Identity lifecycle, authorization governance, and non-endpoint assets are not assessed."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://eur-lex.europa.eu/eli/dir/2022/2555/oj"
+        },
+        {
+          "ruleId": "SW-001",
+          "mappingStrength": "CONTEXTUAL",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "Software inventory quality is related asset-management context.",
+          "evidenceLimitations": [
+            "Unknown software detection is not a complete asset inventory."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://eur-lex.europa.eu/eli/dir/2022/2555/oj"
+        }
+      ],
+      "tags": [
+        "access-control",
+        "asset-management"
+      ],
+      "notes": "Traceability only; never a legal compliance determination."
+    },
+    {
+      "controlId": "NIS2-21.2.J",
+      "title": "Authentication and secure communications measures",
+      "section": "Article 21(2)(j)",
+      "profile": [
+        "Organization"
+      ],
+      "level": "ORGANIZATIONAL",
+      "automation": "MANUAL",
+      "mappings": [
+        {
+          "ruleId": "REMOTE-001",
+          "mappingStrength": "CONTEXTUAL",
+          "mappingStatus": "PROVISIONAL",
+          "rationale": "RDP Network Level Authentication is related endpoint context, not evidence of organization-wide MFA.",
+          "evidenceLimitations": [
+            "MFA, continuous authentication, and secured communications policies are not assessed."
+          ],
+          "reviewer": "CSA_ARCHITECT_REVIEW_PENDING",
+          "reviewedAt": null,
+          "sourceReference": "https://eur-lex.europa.eu/eli/dir/2022/2555/oj"
+        }
+      ],
+      "tags": [
+        "authentication",
+        "communications"
+      ],
+      "notes": "Contextual traceability only; manual organizational assessment is required."
+    }
+  ],
+  "contentHashSha256": "087fbd3c868e584fce78982f3fc5e6f2c67c3871a36e70b8d0b19f3d2b69d3ed"
+}

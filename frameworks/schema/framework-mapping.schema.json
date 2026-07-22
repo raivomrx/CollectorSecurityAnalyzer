@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://csa.local/schema/framework-mapping.schema.json",
+  "title": "CSA Framework Rule Mapping",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ruleId", "mappingStrength", "mappingStatus", "rationale", "evidenceLimitations"],
+  "properties": {
+    "ruleId": {"type": "string", "minLength": 1, "maxLength": 128},
+    "mappingStrength": {"enum": ["DIRECT", "SUPPORTING", "CONTEXTUAL"]},
+    "mappingStatus": {"enum": ["VALIDATED", "PROVISIONAL", "DEPRECATED"]},
+    "rationale": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "evidenceLimitations": {"type": "array", "items": {"type": "string", "maxLength": 4096}},
+    "reviewer": {"type": ["string", "null"], "maxLength": 256},
+    "reviewedAt": {"type": ["string", "null"], "format": "date"},
+    "sourceReference": {"type": ["string", "null"], "maxLength": 2048}
+  }
+}
