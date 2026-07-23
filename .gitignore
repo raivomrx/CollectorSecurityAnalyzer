@@ -9,3 +9,4 @@ test-artifacts/
 *.sqlite3
 .env
 software/unknown_products.json
+active_validation/state/

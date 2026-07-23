@@ -1,0 +1,39 @@
+name: Active Validation Contract
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  active-validation-contract:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run active validation Python contract
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path test-artifacts/active-validation -Force | Out-Null
+          python -W error::ResourceWarning -m unittest tests.test_active_validation tests.test_responder_exposure tests.test_html_report -v 2>&1 |
+            Tee-Object test-artifacts/active-validation/python-test-results.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Install Pester
+        shell: pwsh
+        run: Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force -SkipPublisherCheck
+      - name: Run active validation PowerShell contract
+        shell: pwsh
+        run: |
+          ./scripts/Invoke-ActiveValidationContract.ps1 `
+            -ResultsPath test-artifacts/active-validation/pester-results.xml
+      - name: Build privacy-safe contract artifacts
+        run: python -m active_validation.artifacts --output test-artifacts/active-validation
+      - name: Upload active validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: active-validation-test-evidence
+          path: test-artifacts/

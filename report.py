@@ -7,7 +7,7 @@ import re
 import shutil
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -24,6 +24,9 @@ from rules.metadata import RuleMetadata
 from policies.loader import WindowsEndpointPolicy
 from software.models import SoftwareInventory, SoftwareProduct
 from utils import safe_get
+
+if TYPE_CHECKING:
+    from active_validation.models import ActiveValidationRun
 
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 REPORT_TEMPLATE = "report.html"
@@ -46,6 +49,7 @@ def generate_html_report(
     policy_profile: WindowsEndpointPolicy | None = None,
     privacy_mode: PrivacyMode = PrivacyMode.STANDARD,
     framework_evaluations: list[FrameworkEvaluation] | None = None,
+    active_validation: "ActiveValidationRun | None" = None,
 ) -> Path:
     """Generate an HTML audit report from analyzer results."""
 
@@ -83,6 +87,7 @@ def generate_html_report(
         enriched_cve_rows=_visible_enriched_cve_rows(cve_enrichment),
         metadata=_build_metadata(audit_findings),
         rule_metadata=rule_metadata,
+        active_validation=active_validation,
     )
     output.write_text(html, encoding="utf-8")
     return output

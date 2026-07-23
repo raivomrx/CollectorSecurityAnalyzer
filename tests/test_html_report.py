@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from analysis_context import AnalysisContext
+from active_validation.engine import disabled_run
 from compliance.engine import ComplianceEngine
 from compliance.repository import FrameworkRepository
 from knowledge.models import Knowledge, Reference
@@ -63,6 +64,7 @@ class HtmlReportTests(unittest.TestCase):
                 rule_metadata={"BIT-001": _rule_metadata()},
                 cve_summary=_cve_summary(),
                 compliance_summary=_compliance_summary(audit_findings),
+                active_validation=disabled_run(),
                 output_path=output_path,
             )
             html = report_path.read_text(encoding="utf-8")
@@ -84,6 +86,17 @@ class HtmlReportTests(unittest.TestCase):
         self.assertIn("Profile version", html)
         self.assertIn("Assessment incomplete", html)
         self.assertIn("data-compliance-filters", html)
+        self.assertIn("Active Validation", html)
+        self.assertIn("Responder Attack Surface", html)
+        self.assertIn("Authorization verified", html)
+        self.assertIn(
+            "Active validation performs only explicitly authorized",
+            html,
+        )
+        self.assertIn(
+            "Aktiivvalideerimine teeb ainult selgesõnaliselt lubatud",
+            html,
+        )
 
     def test_reporter_does_not_load_registry(self) -> None:
         """Reporter should render with provided metadata and not load registry."""

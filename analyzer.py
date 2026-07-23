@@ -6,6 +6,10 @@ import argparse
 import logging
 from pathlib import Path
 
+from active_validation.authorization import load_authorization
+from active_validation.engine import disabled_run, execute_active_validation
+from active_validation.models import ActiveValidationRun
+from active_validation.policy import load_policy
 from analysis_context import AnalysisContext
 from collector_schema.enums import PrivacyMode
 from collector_schema.loader import load_collector_document
@@ -67,6 +71,11 @@ def analyze_file(
     skip_framework_packs: bool = False,
     framework_packs: list[str] | None = None,
     allow_unreviewed_frameworks: bool = False,
+    active_validation: bool = False,
+    active_policy: str | Path | None = None,
+    active_authorization: str | Path | None = None,
+    active_validators: list[str] | None = None,
+    active_profile: str | None = None,
 ) -> tuple[list[AuditFinding], int, SoftwareInventory, Path]:
     """Analyze a collector JSON file and generate an HTML report."""
 
@@ -105,6 +114,18 @@ def analyze_file(
 
     for rule in registry.get_enabled():
         findings.extend(rule.run(data, context))
+
+    context.active_validation = _run_active_validation(
+        enabled=active_validation,
+        data=data,
+        findings=findings,
+        input_path=input_path,
+        output_dir=output_dir,
+        policy_path=active_policy,
+        authorization_path=active_authorization,
+        validators=active_validators,
+        profile=active_profile,
+    )
 
     score = calculate_score(findings)
     audit_findings = enrich_findings(findings, repository)
@@ -146,15 +167,73 @@ def analyze_file(
         policy_profile=context.policy_profile,
         privacy_mode=context.privacy_mode,
         framework_evaluations=context.framework_evaluations,
+        active_validation=context.active_validation,
         output_path=output_path,
     )
     analysis_path = output_path.with_suffix(".analysis.json")
-    write_analysis_json(context.framework_evaluations or [], analysis_path)
+    write_analysis_json(
+        context.framework_evaluations or [],
+        analysis_path,
+        active_validation=context.active_validation,
+    )
     LOGGER.info("Total Findings: %s", len(findings))
     LOGGER.info("Security Score: %s", score)
     LOGGER.info("HTML report generated: %s", report_path)
     LOGGER.info("Framework analysis generated: %s", analysis_path)
     return audit_findings, score, software_inventory, report_path
+
+
+def _run_active_validation(
+    enabled: bool,
+    data: dict[str, object],
+    findings: list[Finding],
+    input_path: Path,
+    output_dir: str | Path,
+    policy_path: str | Path | None,
+    authorization_path: str | Path | None,
+    validators: list[str] | None,
+    profile: str | None,
+) -> ActiveValidationRun:
+    """Run active validation only with explicit policy and authorization."""
+
+    if not enabled:
+        return disabled_run()
+    missing = []
+    if policy_path is None:
+        missing.append("active policy")
+    if authorization_path is None:
+        missing.append("active authorization")
+    if not validators and not profile:
+        missing.append("validator selection or profile")
+    if missing:
+        return ActiveValidationRun(
+            enabled=True,
+            state="BLOCKED",
+            warnings=[
+                "Active validation blocked: missing " + ", ".join(missing)
+            ],
+        )
+    policy = load_policy(policy_path)
+    if not policy.enabled:
+        return ActiveValidationRun(
+            enabled=True,
+            state="BLOCKED",
+            policy_digest=policy.digest,
+            warnings=["Active validation blocked: policy is disabled"],
+        )
+    authorization = load_authorization(active_authorization)
+    audit_path = (
+        Path(output_dir) / f"{input_path.stem}.active-validation.audit.jsonl"
+    )
+    return execute_active_validation(
+        data=data,
+        findings=findings,
+        policy=policy,
+        authorization=authorization,
+        requested_validator_ids=validators or [],
+        audit_path=audit_path,
+        profile=profile,
+    )
 
 
 def _run_cve_scan(
@@ -457,6 +536,31 @@ def main() -> None:
     )
     argument_parser.add_argument("--list-evidence-categories", action="store_true", help="List normalized evidence categories")
     argument_parser.add_argument("--skip-category", action="append", default=[], help="Skip rules in an evidence category")
+    argument_parser.add_argument(
+        "--active-validation",
+        action="store_true",
+        help="Request explicitly authorized active validation",
+    )
+    argument_parser.add_argument(
+        "--active-policy",
+        help="Path to active validation safety policy",
+    )
+    argument_parser.add_argument(
+        "--active-authorization",
+        "--authorization-file",
+        dest="active_authorization",
+        help="Path to active validation authorization",
+    )
+    argument_parser.add_argument(
+        "--validator",
+        action="append",
+        help="Explicit active validator ID; may be repeated",
+    )
+    argument_parser.add_argument(
+        "--active-profile",
+        choices=["safe-read-only", "safe-local", "controlled-temporary"],
+        help="Explicit active validation risk profile",
+    )
     args = argument_parser.parse_args()
 
     setup_logging(level=args.log_level)
@@ -510,6 +614,11 @@ def main() -> None:
         skip_framework_packs=args.skip_framework_packs,
         framework_packs=framework_packs,
         allow_unreviewed_frameworks=args.allow_unreviewed_frameworks,
+        active_validation=args.active_validation,
+        active_policy=args.active_policy,
+        active_authorization=args.active_authorization,
+        active_validators=args.validator,
+        active_profile=args.active_profile,
     )
 
 

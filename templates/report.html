@@ -172,6 +172,132 @@
       {% endif %}
     </section>
 
+    <section id="active-validation">
+      <h2>Active Validation</h2>
+      <div class="notice">
+        <strong>English:</strong> Active validation performs only explicitly authorized,
+        policy-approved tests. A passed validation confirms the tested behavior only
+        within the scope and conditions of that specific test.
+      </div>
+      <div class="notice">
+        <strong>Eesti:</strong> Aktiivvalideerimine teeb ainult selgesõnaliselt lubatud
+        ja poliitikaga kinnitatud teste. Läbitud test kinnitab üksnes konkreetse testi
+        ulatuses ning tingimustes kontrollitud käitumist.
+      </div>
+      {% if active_validation %}
+        <div class="summary-grid compact">
+          <div><span>Requested</span><strong>{{ active_validation.enabled }}</strong></div>
+          <div><span>State</span><strong>{{ active_validation.state }}</strong></div>
+          <div><span>Authorization verified</span><strong>{{ active_validation.formal_authorization_verified }}</strong></div>
+          <div><span>Run ID</span><strong>{{ active_validation.run_id or "Not created" }}</strong></div>
+          <div><span>Assessment</span><strong>{{ active_validation.assessment_id or "Not available" }}</strong></div>
+          <div><span>Policy digest</span><strong class="digest">{{ active_validation.policy_digest or "Not available" }}</strong></div>
+          <div><span>Planned validators</span><strong>{{ active_validation.summary.planned }}</strong></div>
+          <div><span>Executed validators</span><strong>{{ active_validation.summary.executed }}</strong></div>
+          <div><span>Passed</span><strong>{{ active_validation.summary.passed }}</strong></div>
+          <div><span>Failed</span><strong>{{ active_validation.summary.failed }}</strong></div>
+          <div><span>Inconclusive</span><strong>{{ active_validation.summary.inconclusive }}</strong></div>
+          <div><span>Errors</span><strong>{{ active_validation.summary.errors }}</strong></div>
+          <div><span>Timeouts</span><strong>{{ active_validation.summary.timeouts }}</strong></div>
+          <div><span>Rollback failures</span><strong>{{ active_validation.summary.rollback_failures }}</strong></div>
+        </div>
+        {% if active_validation.warnings %}
+          <div class="notice warning">
+            {% for warning in active_validation.warnings %}<div>{{ warning }}</div>{% endfor %}
+          </div>
+        {% endif %}
+        {% if active_validation.results %}
+          <table>
+            <thead>
+              <tr><th>Validator</th><th>Related rules</th><th>Risk</th><th>Status</th><th>Evidence summary</th><th>Cleanup</th><th>Limitations</th></tr>
+            </thead>
+            <tbody>
+              {% for result in active_validation.results %}
+                <tr>
+                  <td>{{ result.validator_id }}</td>
+                  <td>{{ result.rule_ids|join(", ") or "None" }}</td>
+                  <td>{{ result.risk_level.value if result.risk_level else "Unknown" }}</td>
+                  <td><span class="pill active-{{ result.status.value|lower }}">{{ result.status.value }}</span></td>
+                  <td>{{ result.evidence|length }} minimized item(s), {{ result.duration_ms }} ms</td>
+                  <td>
+                    {% if result.cleanup.manual_cleanup_required %}
+                      Manual cleanup required
+                    {% elif result.cleanup.completed %}
+                      Complete
+                    {% else %}
+                      Incomplete
+                    {% endif %}
+                  </td>
+                  <td>{{ result.limitations|join(" ") }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="muted">No active validators were executed.</p>
+        {% endif %}
+
+        {% if active_validation.correlations %}
+          <h3>Passive / Active Correlation</h3>
+          <table>
+            <thead><tr><th>Rule</th><th>Passive</th><th>Validator</th><th>Active</th><th>Correlated</th></tr></thead>
+            <tbody>
+              {% for correlation in active_validation.correlations %}
+                <tr>
+                  <td>{{ correlation.rule_id }}</td>
+                  <td>{{ correlation.passive_status or "Unknown" }}</td>
+                  <td>{{ correlation.validator_id }}</td>
+                  <td>{{ correlation.active_status.value }}</td>
+                  <td>{{ correlation.correlated_status.value }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+
+        <h3>Responder Attack Surface</h3>
+        <p class="muted">
+          This assessment used no spoofed LLMNR or NBT-NS responses, no rogue WPAD
+          server, no SMB or HTTP authentication challenge, and retained no packet capture
+          or credential material.
+        </p>
+        <p class="muted">
+          CSA did not send a spoofed name-resolution response, request authentication,
+          generate NetNTLM material, or store credentials.
+        </p>
+        <p class="muted">
+          CSA ei saatnud võltsitud nimeeraldusvastust, ei küsinud autentimist,
+          ei genereerinud NetNTLM-materjali ega salvestanud kasutajatunnuseid.
+        </p>
+        {% if active_validation.responder_exposure %}
+          {% set responder = active_validation.responder_exposure %}
+          <div class="summary-grid compact">
+            <div><span>Exposure status</span><strong>{{ responder.status.value }}</strong></div>
+            <div><span>Risk</span><strong>{{ responder.risk_level.value }}</strong></div>
+            <div><span>Confidence</span><strong>{{ responder.confidence }}%</strong></div>
+            <div><span>Observed paths</span><strong>{{ responder.observed_attack_paths|length }}</strong></div>
+          </div>
+          {% if responder.observed_attack_paths %}
+            <table>
+              <thead><tr><th>Attack path</th><th>Observation</th><th>Mitigation</th></tr></thead>
+              <tbody>
+                {% for path in responder.observed_attack_paths %}
+                  <tr><td>{{ path.path }}</td><td>{{ path.observation }}</td><td>{{ path.mitigation }}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% endif %}
+          <p><strong>Prerequisites:</strong> {{ responder.attack_prerequisites|join(", ") or "None confirmed" }}</p>
+          <p><strong>Mitigating controls:</strong> {{ responder.mitigating_controls|join(", ") or "None confirmed" }}</p>
+          <p><strong>Missing evidence:</strong> {{ responder.missing_evidence|join(", ") or "None" }}</p>
+        {% else %}
+          <p class="muted">Responder exposure correlation was not requested or could not be evaluated.</p>
+        {% endif %}
+      {% else %}
+        <p class="muted">Active validation data is not available.</p>
+      {% endif %}
+    </section>
+
     <section>
       <h2>Critical / High Findings</h2>
       {% if high_findings %}

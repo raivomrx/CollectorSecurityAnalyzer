@@ -182,6 +182,33 @@ h3 {
   background: #fee2e2;
 }
 
+.active-passed {
+  color: var(--green);
+  background: #dcfce7;
+}
+
+.active-failed,
+.active-rollback_failed {
+  color: var(--red);
+  background: #fee2e2;
+}
+
+.active-inconclusive,
+.active-timed_out,
+.active-access_denied {
+  color: var(--orange);
+  background: #ffedd5;
+}
+
+.active-not_requested,
+.active-skipped,
+.active-not_supported,
+.active-blocked_by_safety_policy,
+.active-blocked_by_authorization {
+  color: #334155;
+  background: #e2e8f0;
+}
+
 .collection-partial td,
 .collection-not_available td {
   color: var(--orange);

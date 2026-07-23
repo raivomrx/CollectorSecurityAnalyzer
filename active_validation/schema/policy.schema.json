@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://csa.local/schema/active-validation-policy-1.0.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "enabled",
+    "allowedRiskLevels",
+    "allowTemporarySystemChanges",
+    "allowNetworkListeners",
+    "allowOutboundNetworkTests",
+    "allowLoopbackNetworkTests",
+    "allowedTargetCidrs",
+    "maximumValidatorsPerRun",
+    "maximumTotalDurationSeconds",
+    "defaultValidatorTimeoutSeconds",
+    "requireExplicitAuthorization",
+    "redactSensitivePaths",
+    "retainRawEventData"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "enabled": {"type": "boolean"},
+    "allowedRiskLevels": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"enum": ["SAFE_READ_ONLY", "LOW_IMPACT", "CONTROLLED_TEMPORARY_CHANGE"]}
+    },
+    "allowTemporarySystemChanges": {"type": "boolean"},
+    "allowNetworkListeners": {"type": "boolean"},
+    "allowOutboundNetworkTests": {"type": "boolean"},
+    "allowLoopbackNetworkTests": {"type": "boolean"},
+    "allowedTargetCidrs": {"type": "array", "items": {"type": "string"}},
+    "maximumValidatorsPerRun": {"type": "integer", "minimum": 1, "maximum": 100},
+    "maximumTotalDurationSeconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+    "defaultValidatorTimeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 300},
+    "requireExplicitAuthorization": {"const": true},
+    "redactSensitivePaths": {"type": "boolean"},
+    "retainRawEventData": {"const": false}
+  }
+}

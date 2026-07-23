@@ -7,9 +7,12 @@ import re
 from dataclasses import asdict
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from frameworks.models import FrameworkEvaluation
+
+if TYPE_CHECKING:
+    from active_validation.models import ActiveValidationRun
 
 
 def evaluation_to_dict(evaluation: FrameworkEvaluation) -> dict[str, Any]:
@@ -21,6 +24,7 @@ def evaluation_to_dict(evaluation: FrameworkEvaluation) -> dict[str, Any]:
 def write_analysis_json(
     evaluations: list[FrameworkEvaluation],
     output_path: str | Path,
+    active_validation: "ActiveValidationRun | None" = None,
 ) -> Path:
     """Write framework evaluations as an analyzer sidecar artifact."""
 
@@ -30,6 +34,10 @@ def write_analysis_json(
         "schemaVersion": "1.0",
         "frameworkEvaluations": [evaluation_to_dict(item) for item in evaluations],
     }
+    if active_validation is not None:
+        from active_validation.serialization import active_run_to_dict
+
+        document["activeValidation"] = active_run_to_dict(active_validation)
     output.write_text(json.dumps(document, indent=2, ensure_ascii=False), encoding="utf-8")
     return output
 

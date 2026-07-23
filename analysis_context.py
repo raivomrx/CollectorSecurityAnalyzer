@@ -11,6 +11,7 @@ from policies.loader import WindowsEndpointPolicy
 from software.models import SoftwareInventory
 
 if TYPE_CHECKING:
+    from active_validation.models import ActiveValidationRun
     from compliance.models import ComplianceSummary
     from collector_schema.models import CollectorDocument
     from cve.enrichment_models import EnrichedCveScanSummary
@@ -33,3 +34,4 @@ class AnalysisContext:
     cve_enrichment: "EnrichedCveScanSummary | None" = None
     compliance_summary: "ComplianceSummary | None" = None
     framework_evaluations: "list[FrameworkEvaluation] | None" = None
+    active_validation: "ActiveValidationRun | None" = None

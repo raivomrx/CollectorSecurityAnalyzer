@@ -1,0 +1,125 @@
+{
+  "schemaVersion": "1.0",
+  "validators": [
+    {
+      "validatorId": "VAL-DEFENDER-RUNTIME-001",
+      "version": "1.0.0",
+      "module": "active_validation.validators.defender",
+      "class": "DefenderRuntimeValidator",
+      "status": "ACTIVE",
+      "supportedRuleIds": ["DEF-001", "DEF-002", "DEF-008"]
+    },
+    {
+      "validatorId": "VAL-HTTP-NTLM-POLICY-001",
+      "version": "1.0.0",
+      "module": "active_validation.validators.review_required",
+      "class": "HttpNtlmPolicyValidator",
+      "status": "REVIEW_REQUIRED",
+      "supportedRuleIds": ["PROTO-006"]
+    },
+    {
+      "validatorId": "VAL-LLMNR-OBSERVE-001",
+      "version": "1.0.0",
+      "module": "active_validation.validators.review_required",
+      "class": "LlmnrObserveValidator",
+      "status": "REVIEW_REQUIRED",
+      "supportedRuleIds": ["PROTO-003"]
+    },
+    {
+      "validatorId": "VAL-MDNS-WINDOWS-OBSERVE-001",
+      "version": "1.0.0",
+      "module": "active_validation.validators.review_required",
+      "class": "MdnsObserveValidator",
+      "status": "REVIEW_REQUIRED",
+      "supportedRuleIds": ["PROTO-003"]
+    },
+    {
+      "validatorId": "VAL-NAME-RESOLUTION-FALLBACK-001",
+      "version": "1.0.0",
+      "module": "active_validation.validators.review_required",
+      "class": "NameResolutionFallbackValidator",
+      "status": "REVIEW_REQUIRED",
+      "supportedRuleIds": ["PROTO-003", "PROTO-004"]
+    },
+    {
+      "validatorId": "VAL-NBTNS-OBSERVE-001",
+      "version": "1.0.0",
+      "module": "active_validation.validators.review_required",
+      "class": "NbtnsObserveValidator",
+      "status": "REVIEW_REQUIRED",
+      "supportedRuleIds": ["PROTO-004"]
+    },
+    {
+      "validatorId": "VAL-NTLM-POLICY-001",
+      "version": "1.0.0",
+      "module": "active_validation.validators.responder",
+      "class": "NtlmPolicyValidator",
+      "status": "ACTIVE",
+      "supportedRuleIds": ["PROTO-006"]
+    },
+    {
+      "validatorId": "VAL-OUTBOUND-SMB-PATH-001",
+      "version": "1.0.0",
+      "module": "active_validation.validators.review_required",
+      "class": "OutboundSmbPathValidator",
+      "status": "REVIEW_REQUIRED",
+      "supportedRuleIds": ["PROTO-002"]
+    },
+    {
+      "validatorId": "VAL-PS-MODULELOG-001",
+      "version": "1.0.0",
+      "module": "active_validation.validators.powershell",
+      "class": "PowerShellModuleLoggingValidator",
+      "status": "REVIEW_REQUIRED",
+      "supportedRuleIds": ["PS-003"]
+    },
+    {
+      "validatorId": "VAL-PS-SCRIPTBLOCK-001",
+      "version": "1.0.0",
+      "module": "active_validation.validators.powershell",
+      "class": "PowerShellScriptBlockLoggingValidator",
+      "status": "ACTIVE",
+      "supportedRuleIds": ["PS-002"]
+    },
+    {
+      "validatorId": "VAL-RESPONDER-EXPOSURE-001",
+      "version": "1.0.0",
+      "module": "active_validation.validators.responder",
+      "class": "ResponderExposureValidator",
+      "status": "ACTIVE",
+      "supportedRuleIds": ["PROTO-002", "PROTO-003", "PROTO-004", "PROTO-006"]
+    },
+    {
+      "validatorId": "VAL-SMB-SIGNING-EXPOSURE-001",
+      "version": "1.0.0",
+      "module": "active_validation.validators.responder",
+      "class": "SmbSigningExposureValidator",
+      "status": "ACTIVE",
+      "supportedRuleIds": ["PROTO-002"]
+    },
+    {
+      "validatorId": "VAL-SMB-SIGNING-LOCAL-001",
+      "version": "1.0.0",
+      "module": "active_validation.validators.review_required",
+      "class": "SmbSigningLocalValidator",
+      "status": "REVIEW_REQUIRED",
+      "supportedRuleIds": ["PROTO-002"]
+    },
+    {
+      "validatorId": "VAL-WIN-FIREWALL-LOOPBACK-001",
+      "version": "1.0.0",
+      "module": "active_validation.validators.review_required",
+      "class": "FirewallLoopbackValidator",
+      "status": "REVIEW_REQUIRED",
+      "supportedRuleIds": ["FW-005"]
+    },
+    {
+      "validatorId": "VAL-WPAD-EXPOSURE-001",
+      "version": "1.0.0",
+      "module": "active_validation.validators.responder",
+      "class": "WpadExposureValidator",
+      "status": "ACTIVE",
+      "supportedRuleIds": ["PROTO-003"]
+    }
+  ]
+}

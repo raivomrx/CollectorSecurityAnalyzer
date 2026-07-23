@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0",
+  "enabled": false,
+  "allowedRiskLevels": ["SAFE_READ_ONLY"],
+  "allowTemporarySystemChanges": false,
+  "allowNetworkListeners": false,
+  "allowOutboundNetworkTests": false,
+  "allowLoopbackNetworkTests": true,
+  "allowedTargetCidrs": [],
+  "maximumValidatorsPerRun": 10,
+  "maximumTotalDurationSeconds": 300,
+  "defaultValidatorTimeoutSeconds": 20,
+  "requireExplicitAuthorization": true,
+  "redactSensitivePaths": true,
+  "retainRawEventData": false
+}

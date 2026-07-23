@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -54,6 +55,22 @@ class AnalysisContextTests(unittest.TestCase):
 
         self.assertEqual(findings[0].evidence["unknown_product_count"], 1)
         self.assertEqual(findings[0].evidence["unknown_product_names"], ["Unknown Product"])
+
+    def test_passive_analysis_records_active_validation_disabled(self) -> None:
+        """Normal analyzer flow should explicitly report that active testing was disabled."""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "output"
+            analyzer.analyze_file("samples/EE-D3147.json", output_dir=output_dir)
+            analysis_path = output_dir / "EE-D3147.analysis.json"
+            document = json.loads(analysis_path.read_text(encoding="utf-8"))
+
+        self.assertIn("activeValidation", document)
+        self.assertFalse(document["activeValidation"]["enabled"])
+        self.assertEqual("DISABLED", document["activeValidation"]["state"])
+        self.assertFalse(
+            document["activeValidation"]["formalAuthorizationVerified"]
+        )
 
 
 if __name__ == "__main__":

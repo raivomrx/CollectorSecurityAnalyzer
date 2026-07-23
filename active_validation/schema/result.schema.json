@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://csa.local/schema/active-validation-result-1.0.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "validatorId", "validatorVersion", "status", "startedAt", "completedAt", "durationMs", "evidence", "limitations", "cleanup"],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "runId": {"type": "string"},
+    "validatorId": {"type": "string"},
+    "validatorVersion": {"type": "string"},
+    "status": {"type": "string"},
+    "startedAt": {"type": "string", "format": "date-time"},
+    "completedAt": {"type": "string", "format": "date-time"},
+    "durationMs": {"type": "integer", "minimum": 0},
+    "hostIdentifierHash": {"type": "string"},
+    "authorizationDigest": {"type": "string"},
+    "policyDigest": {"type": "string"},
+    "ruleIds": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "riskLevel": {
+      "type": ["string", "null"],
+      "enum": ["SAFE_READ_ONLY", "LOW_IMPACT", "CONTROLLED_TEMPORARY_CHANGE", "RESTRICTED", "PROHIBITED", null]
+    },
+    "requiredPrivileges": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "evidence": {"type": "array", "maxItems": 64},
+    "limitations": {"type": "array", "items": {"type": "string", "maxLength": 512}},
+    "cleanup": {"type": "object"},
+    "errorCode": {"type": ["string", "null"]},
+    "errorSummary": {"type": ["string", "null"]}
+  }
+}

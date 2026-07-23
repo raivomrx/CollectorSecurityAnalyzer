@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0",
+  "authorized": true,
+  "assessmentId": "CSA-EXAMPLE-001",
+  "scope": {
+    "deviceIdentifiers": ["HOSTNAME-01"],
+    "validatorIds": ["VAL-DEFENDER-RUNTIME-001"]
+  },
+  "authorizedBy": "assessment-operator",
+  "authorizedAt": "2026-07-23T08:00:00Z",
+  "expiresAt": "2026-07-23T18:00:00Z",
+  "purpose": "Authorized endpoint security assessment"
+}
