@@ -8,12 +8,14 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from active_validation.authorization import AuthorizationError, load_authorization
 from active_validation.deep_protocol import (
     build_llmnr_response,
     build_nbtns_response,
     build_run_marker,
+    build_transport_marker,
     build_ephemeral_ntlm_challenge,
     parse_ntlm_message_type,
     scoped_transport_signal,
@@ -130,12 +132,12 @@ class ResponderDeepTests(unittest.TestCase):
 
         self.temporary.cleanup()
 
-    def test_confirmed_exposure_uses_production_flow(self) -> None:
-        """Registry-to-aggregate flow should reach confirmed without secrets."""
+    def test_controlled_transport_does_not_claim_network_confirmation(self) -> None:
+        """A test double may confirm parsing but not a live network finding."""
 
         run = self._execute(self._observation("confirmed"))
         self.assertEqual(
-            ResponderExposureStatus.EXPOSURE_CONFIRMED,
+            ResponderExposureStatus.EXPOSURE_LIKELY,
             run.responder_exposure.status,
         )
         deep = next(
@@ -163,6 +165,8 @@ class ResponderDeepTests(unittest.TestCase):
         )
         html = report_path.read_text(encoding="utf-8")
         self.assertIn("DEEP_VALIDATION", html)
+        self.assertIn("CONTROLLED_TRANSPORT_TEST_DOUBLE", html)
+        self.assertIn("Live network confirmation</span><strong>False", html)
         self.assertIn("Authentication attempt observed", html)
         self.assertIn("Credential material retained", html)
         self.assertIn(run.final_audit_entry_hash, html)
@@ -230,16 +234,47 @@ class ResponderDeepTests(unittest.TestCase):
         self.assertFalse(deep.evidence[0]["nameResolutionResponseSent"])
         self.assertEqual(1, deep.evidence[0]["scopeMismatchCount"])
 
+    def test_credential_safety_mismatch_fails_closed(self) -> None:
+        """Unsafe transport claims must never become exposure evidence."""
+
+        observation = self._observation("confirmed")
+        observation["credentialMaterialRetained"] = True
+        run = self._execute(observation)
+        deep = next(
+            item for item in run.results
+            if item.validator_id == "VAL-RESPONDER-DEEP-001"
+        )
+        self.assertEqual("INCONCLUSIVE", deep.status.value)
+        self.assertEqual(
+            "CREDENTIAL_SAFETY_MISMATCH",
+            deep.evidence[0]["incompleteReason"],
+        )
+        self.assertFalse(deep.evidence[0]["networkConfirmation"])
+
     def test_protocol_response_is_exact_marker_only(self) -> None:
         """LLMNR and NBT-NS codecs must ignore every other query name."""
 
         marker = build_run_marker("RUN-1")
         query = self._query(marker)
         self.assertIsNotNone(build_llmnr_response(query, marker, "192.0.2.10"))
-        self.assertIsNotNone(build_nbtns_response(query, marker, "192.0.2.10"))
+        nbtns_marker = build_transport_marker("RUN-1", "NBT_NS")
+        nbtns_query = self._nbtns_query(nbtns_marker)
+        self.assertIsNotNone(
+            build_nbtns_response(
+                nbtns_query,
+                nbtns_marker,
+                "192.0.2.10",
+            )
+        )
         wrong = self._query("OTHER-NAME")
         self.assertIsNone(build_llmnr_response(wrong, marker, "192.0.2.10"))
-        self.assertIsNone(build_nbtns_response(wrong, marker, "192.0.2.10"))
+        self.assertIsNone(
+            build_nbtns_response(
+                self._nbtns_query("WRONG-NAME"),
+                nbtns_marker,
+                "192.0.2.10",
+            )
+        )
 
     def test_ntlm_parser_returns_only_message_labels(self) -> None:
         """The production parser must reduce protocol bytes to safe labels."""
@@ -432,7 +467,7 @@ class ResponderDeepTests(unittest.TestCase):
                 "VAL-RESPONDER-DEEP-001",
                 "VAL-RESPONDER-EXPOSURE-001",
             ],
-            audit_path=self.root / f"audit-{datetime.now().timestamp()}.jsonl",
+            audit_path=self.root / f"audit-{uuid4().hex}.jsonl",
             profile="deep-responder-validation",
             require_related_rule=False,
             required_plan_digest=required_plan_digest,
@@ -599,6 +634,21 @@ class ResponderDeepTests(unittest.TestCase):
             + bytes([len(label)])
             + label
             + b"\x00\x00\x01\x00\x01"
+        )
+
+    @staticmethod
+    def _nbtns_query(marker: str) -> bytes:
+        """Build one first-level encoded NBT-NS query."""
+
+        raw_name = marker.upper().ljust(15).encode("ascii") + b"\x00"
+        encoded = bytearray()
+        for value in raw_name:
+            encoded.extend((65 + (value >> 4), 65 + (value & 0x0F)))
+        return (
+            b"\x12\x34\x01\x10\x00\x01\x00\x00\x00\x00\x00\x00"
+            + b"\x20"
+            + bytes(encoded)
+            + b"\x00\x00\x20\x00\x01"
         )
 
     def _write(self, name: str, data: object) -> Path:

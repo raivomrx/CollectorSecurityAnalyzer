@@ -438,6 +438,13 @@ class ResponderExposureValidator(BaseActiveValidator):
             indexed.get("VAL-RESPONDER-DEEP-001"),
             "protocol",
         )
+        deep_network_confirmation = (
+            _evidence_value(
+                indexed.get("VAL-RESPONDER-DEEP-001"),
+                "networkConfirmation",
+            )
+            is True
+        )
         classic_observation_ids = {
             "VAL-LLMNR-OBSERVE-001",
             "VAL-NBTNS-OBSERVE-001",
@@ -509,7 +516,7 @@ class ResponderExposureValidator(BaseActiveValidator):
         risk = ResponderRiskLevel.UNKNOWN
         active_status = ActiveValidationStatus.INCONCLUSIVE
         confidence = 35
-        if deep_exposure == "EXPOSURE_CONFIRMED":
+        if deep_exposure == "EXPOSURE_CONFIRMED" and deep_network_confirmation:
             status, risk, active_status, confidence = (
                 ResponderExposureStatus.EXPOSURE_CONFIRMED,
                 (
@@ -519,6 +526,13 @@ class ResponderExposureValidator(BaseActiveValidator):
                 ),
                 ActiveValidationStatus.FAILED,
                 98,
+            )
+        elif deep_exposure == "EXPOSURE_CONFIRMED":
+            status, risk, active_status, confidence = (
+                ResponderExposureStatus.EXPOSURE_LIKELY,
+                ResponderRiskLevel.MEDIUM,
+                ActiveValidationStatus.INCONCLUSIVE,
+                78,
             )
         elif deep_exposure == "EXPOSURE_LIKELY":
             status, risk, active_status, confidence = (

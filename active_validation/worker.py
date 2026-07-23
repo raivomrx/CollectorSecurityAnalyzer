@@ -203,6 +203,8 @@ def _context_from_dict(data: dict[str, Any]) -> ValidationContext:
         test_identity=data.get("testIdentity"),
         profile=data.get("profile"),
         transport_observation=data.get("transportObservation"),
+        plan_digest=data.get("planDigest", ""),
+        live_transport_config=data.get("liveTransportConfig"),
     )
 
 

@@ -266,18 +266,24 @@ class ValidationPlanner:
         return (self.registry.definition(entry).execution_order, validator_id)
 
 
-def plan_digest(plans: list[ValidationPlan]) -> str:
+def plan_digest(
+    plans: list[ValidationPlan],
+    transport_config: dict[str, object] | None = None,
+) -> str:
     """Return a run-independent digest for exact plan confirmation."""
 
-    return sha256_digest([
-        {
-            "validatorId": item.validator_id,
-            "validatorVersion": item.validator_version,
-            "timeoutSeconds": item.timeout_seconds,
-            "riskLevel": item.risk_level.value,
-            "requiresRollback": item.requires_rollback,
-            "sequence": item.sequence,
-            "profile": item.profile,
-        }
-        for item in plans
-    ])
+    return sha256_digest({
+        "validators": [
+            {
+                "validatorId": item.validator_id,
+                "validatorVersion": item.validator_version,
+                "timeoutSeconds": item.timeout_seconds,
+                "riskLevel": item.risk_level.value,
+                "requiresRollback": item.requires_rollback,
+                "sequence": item.sequence,
+                "profile": item.profile,
+            }
+            for item in plans
+        ],
+        "liveTransport": transport_config,
+    })

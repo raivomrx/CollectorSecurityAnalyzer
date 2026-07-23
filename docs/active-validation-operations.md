@@ -21,6 +21,20 @@ canonical script inside the trusted CSA package after its SHA-256 digest matches
 the packaged allowlist. CSA never changes persistent Execution Policy. The audit
 records that the harness used Bypass.
 
+The self-hosted Responder transport is never selected by a profile alone. It
+requires `--live-responder-transport` plus exact interface, listener IP, target
+IP, resolution protocol, listener port, remote computer, and firewall profile.
+These values are authorization-checked and included in the plan digest.
+
+Run the flaky-test stress gate before release:
+
+```powershell
+.\scripts\Invoke-ActiveValidationStress.ps1 -Iterations 20
+```
+
+The gate requires unique iteration IDs and rejects any new
+`CSA-VALIDATION-*` temporary directory left after an iteration.
+
 Crash cleanup operates only on tracked allowlisted objects whose names begin with
 `CSA-VALIDATION-` and exceed the configured age. It is dry-run unless `--apply` is
 specified:

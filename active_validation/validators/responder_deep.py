@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from active_validation.deep_protocol import build_run_marker, scoped_transport_signal
+from active_validation.deep_protocol import (
+    build_run_marker,
+    build_transport_marker,
+    scoped_transport_signal,
+)
 from active_validation.digest import sha256_digest
 from active_validation.enums import ActiveValidationStatus, RiskLevel
 from active_validation.models import (
@@ -16,6 +20,11 @@ from active_validation.models import (
     ValidatorDefinition,
 )
 from active_validation.validators.base import BaseActiveValidator, utc_start
+from active_validation.live_transport import (
+    LiveTransportError,
+    rollback_live_transport,
+    run_live_transport,
+)
 
 
 class ResponderDeepValidator(BaseActiveValidator):
@@ -140,21 +149,89 @@ class ResponderDeepValidator(BaseActiveValidator):
         """Classify a protocol-parser-backed, exact-scope transport observation."""
 
         started_at, started_clock = utc_start()
-        marker = build_run_marker(context.run_id)
-        if context.transport_observation is None:
+        marker = (
+            build_transport_marker(
+                context.run_id,
+                str(context.live_transport_config["nameResolutionProtocol"]),
+            )
+            if context.live_transport_config is not None
+            else build_run_marker(context.run_id)
+        )
+        if (
+            context.live_transport_config is not None
+            and context.transport_observation is not None
+        ):
+            return self.result(
+                context,
+                ActiveValidationStatus.BLOCKED_BY_SAFETY_POLICY,
+                started_at,
+                started_clock,
+                evidence=[_empty_evidence(marker, "LIVE_CONFIGURATION_CONFLICT")],
+                limitations=["Live and test-double transports cannot be combined."],
+            )
+        observation = context.transport_observation
+        if context.live_transport_config is not None:
+            try:
+                observation = run_live_transport(context, plan)
+            except LiveTransportError:
+                return self.result(
+                    context,
+                    ActiveValidationStatus.INCONCLUSIVE,
+                    started_at,
+                    started_clock,
+                    evidence=[_empty_evidence(marker, "LIVE_TRANSPORT_FAILED")],
+                    limitations=["The trusted live transport harness failed safely."],
+                )
+        if observation is None:
             return self.result(
                 context,
                 ActiveValidationStatus.INCONCLUSIVE,
                 started_at,
                 started_clock,
-                evidence=[_empty_evidence(marker)],
+                evidence=[_empty_evidence(marker, "NO_TRANSPORT")],
                 limitations=[
                     "No self-hosted or controlled protocol transport observation "
                     "was supplied."
                 ],
             )
+        if (
+            observation.get("runId") != context.run_id
+            or observation.get("planDigest") != context.plan_digest
+            or observation.get("authorizationDigest")
+            != context.authorization_digest
+        ):
+            return self.result(
+                context,
+                ActiveValidationStatus.INCONCLUSIVE,
+                started_at,
+                started_clock,
+                evidence=[_empty_evidence(marker, "DIGEST_BINDING_MISMATCH")],
+                limitations=[
+                    "Transport observation did not match the reviewed run."
+                ],
+            )
+        if any(
+            observation.get(key, False) is not False
+            for key in (
+                "credentialMaterialRetained",
+                "credentialMaterialWrittenToDisk",
+                "credentialMaterialIncludedInReport",
+                "relayAttempted",
+                "crackingAttempted",
+            )
+        ):
+            return self.result(
+                context,
+                ActiveValidationStatus.INCONCLUSIVE,
+                started_at,
+                started_clock,
+                evidence=[_empty_evidence(marker, "CREDENTIAL_SAFETY_MISMATCH")],
+                limitations=[
+                    "Transport observation violated the credential-safety contract."
+                ],
+            )
         signal = scoped_transport_signal(
-            context.transport_observation,
+            observation,
             marker,
             context.authorization_scope,
         )
@@ -164,7 +241,7 @@ class ResponderDeepValidator(BaseActiveValidator):
                 ActiveValidationStatus.INCONCLUSIVE,
                 started_at,
                 started_clock,
-                evidence=[_empty_evidence(marker, scope_mismatch=True)],
+                evidence=[_empty_evidence(marker, "SCOPE_MISMATCH")],
                 limitations=["Transport event did not match the authorized scope."],
             )
         flow = CredentialFlowObservation(
@@ -245,12 +322,27 @@ class ResponderDeepValidator(BaseActiveValidator):
             "authenticationAttemptObserved":
                 signal.authentication_attempt_observed,
             "protocol": signal.protocol,
+            "nameResolutionProtocol": observation.get(
+                "nameResolutionProtocol"
+            ),
+            "transportMode": (
+                "SELF_HOSTED_WINDOWS_HARNESS"
+                if context.live_transport_config is not None
+                else "CONTROLLED_TRANSPORT_TEST_DOUBLE"
+            ),
+            "networkConfirmation": context.live_transport_config is not None,
             "protocolParserVerified": signal.protocol_parser_verified,
             "flow": asdict(flow),
             "credentialMaterialRetained": False,
             "relayAttempted": False,
             "crackingAttempted": False,
             "scopeMismatchCount": 0,
+            "firewallRuleCreated": observation.get(
+                "firewallRuleCreated", False
+            ),
+            "firewallRuleRemoved": observation.get(
+                "firewallRuleRemoved", False
+            ),
         }
         limitations = []
         if exposure == "EXPOSURE_NOT_OBSERVED":
@@ -274,6 +366,8 @@ class ResponderDeepValidator(BaseActiveValidator):
     ) -> RollbackResult:
         """Report cleanup supplied by the isolated one-shot transport."""
 
+        if context.live_transport_config is not None:
+            return rollback_live_transport(context)
         completed = (
             context.transport_observation is None
             or context.transport_observation.get("cleanupCompleted", True) is True
@@ -300,13 +394,16 @@ def _blocked(status: ActiveValidationStatus, reason: str) -> ApplicabilityResult
     return ApplicabilityResult(applicable=False, status=status, reason=reason)
 
 
-def _empty_evidence(marker: str, scope_mismatch: bool = False) -> dict[str, object]:
+def _empty_evidence(marker: str, reason: str) -> dict[str, object]:
     """Return a credential-free incomplete observation."""
 
     return {
         "evidenceType": "RESPONDER_DEEP_VALIDATION",
         "assessmentDepth": "DEEP_VALIDATION",
         "exposureStatus": "INCONCLUSIVE",
+        "transportMode": "NOT_COMPLETED",
+        "networkConfirmation": False,
+        "incompleteReason": reason,
         "runMarkerHash": f"sha256:{sha256_digest(marker)}",
         "nameResolutionResponseSent": False,
         "authenticationChallengeIssued": False,
@@ -315,5 +412,5 @@ def _empty_evidence(marker: str, scope_mismatch: bool = False) -> dict[str, obje
         "credentialMaterialRetained": False,
         "relayAttempted": False,
         "crackingAttempted": False,
-        "scopeMismatchCount": 1 if scope_mismatch else 0,
+        "scopeMismatchCount": 1 if reason == "SCOPE_MISMATCH" else 0,
     }

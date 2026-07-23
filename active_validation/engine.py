@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import platform as runtime_platform
 from datetime import datetime, timezone
 from pathlib import Path
@@ -54,6 +55,7 @@ def execute_active_validation(
     require_related_rule: bool = True,
     required_plan_digest: str | None = None,
     transport_observations: dict[str, dict[str, Any]] | None = None,
+    live_transport_config: dict[str, Any] | None = None,
 ) -> ActiveValidationRun:
     """Plan and execute an explicitly authorized active validation run."""
 
@@ -78,7 +80,13 @@ def execute_active_validation(
             else None
         ),
     )
-    current_plan_digest = plan_digest(plans)
+    reviewed_transport = validate_live_transport_config(
+        live_transport_config,
+        profile,
+        authorization,
+        device_identifier,
+    )
+    current_plan_digest = plan_digest(plans, reviewed_transport)
     if (
         required_plan_digest is not None
         and required_plan_digest != current_plan_digest
@@ -147,6 +155,14 @@ def execute_active_validation(
             transport_observation=_transport_context(
                 (transport_observations or {}).get(plan.validator_id),
                 run_id,
+                current_plan_digest,
+                authorization.digest,
+            ),
+            plan_digest=current_plan_digest,
+            live_transport_config=(
+                reviewed_transport
+                if plan.validator_id == "VAL-RESPONDER-DEEP-001"
+                else None
             ),
         )
         result = validation_executor.execute(entry, plan, context)
@@ -430,7 +446,10 @@ def _test_identity_context(
         return None
     return {
         "mode": identity.mode.value,
-        "identityHash": f"sha256:{sha256_digest(identity.identifier)}",
+        "identityHash": (
+            f"sha256:{sha256_digest(identity.identifier.strip().casefold())}"
+        ),
+        "credentialReference": identity.credential_reference,
         "authorizedForAuthenticationTest":
             identity.authorized_for_authentication_test,
     }
@@ -439,6 +458,8 @@ def _test_identity_context(
 def _transport_context(
     observation: dict[str, Any] | None,
     run_id: str,
+    current_plan_digest: str,
+    authorization_digest: str,
 ) -> dict[str, Any] | None:
     """Bind a controlled integration transport signal to the actual run marker."""
 
@@ -447,7 +468,62 @@ def _transport_context(
     bounded = dict(observation)
     if bounded.get("queryMarker") == "$CSA_RUN_MARKER":
         bounded["queryMarker"] = build_run_marker(run_id)
+    bounded.setdefault("runId", run_id)
+    bounded.setdefault("planDigest", current_plan_digest)
+    bounded.setdefault("authorizationDigest", authorization_digest)
+    bounded.setdefault("transportMode", "CONTROLLED_TRANSPORT_TEST_DOUBLE")
     return bounded
+
+
+def validate_live_transport_config(
+    value: dict[str, Any] | None,
+    profile: str | None,
+    authorization: ValidationAuthorization,
+    device_identifier: str,
+) -> dict[str, Any] | None:
+    """Validate a live transport request against exact authorization scope."""
+
+    if value is None:
+        return None
+    required = {
+        "enabled",
+        "networkInterface",
+        "listenerAddress",
+        "targetAddress",
+        "nameResolutionProtocol",
+        "listenerPort",
+        "remoteComputer",
+        "firewallProfile",
+    }
+    if set(value) != required or value.get("enabled") is not True:
+        raise ValueError("Live Responder transport configuration is invalid")
+    if profile != "deep-responder-validation":
+        raise ValueError("Live transport requires deep-responder-validation")
+    try:
+        listener_address = ipaddress.ip_address(value["listenerAddress"])
+        target_address = ipaddress.ip_address(value["targetAddress"])
+    except (TypeError, ValueError) as error:
+        raise ValueError("Live transport addresses are invalid") from error
+    scope = authorization.scope
+    checks = (
+        listener_address.version == 4,
+        target_address.version == 4,
+        listener_address != target_address,
+        value["networkInterface"] in scope.network_interfaces,
+        value["listenerAddress"] in scope.allowed_source_addresses,
+        value["targetAddress"] in scope.allowed_target_addresses,
+        value["nameResolutionProtocol"] in scope.allowed_protocols,
+        "HTTP" in scope.allowed_protocols,
+        value["remoteComputer"] == device_identifier,
+        value["remoteComputer"] in scope.device_identifiers,
+        value["firewallProfile"] in {"Domain", "Private", "Public"},
+        isinstance(value["listenerPort"], int)
+        and not isinstance(value["listenerPort"], bool)
+        and 1024 <= value["listenerPort"] <= 65535,
+    )
+    if not all(checks):
+        raise ValueError("Live Responder transport is outside authorization scope")
+    return dict(value)
 
 
 def _extract_responder_assessment(

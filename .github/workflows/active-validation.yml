@@ -18,7 +18,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path test-artifacts/active-validation -Force | Out-Null
-          python -W error::ResourceWarning -m unittest tests.test_active_validation tests.test_responder_exposure tests.test_responder_deep tests.test_html_report -v 2>&1 |
+          python -W error::ResourceWarning -m unittest tests.test_active_validation tests.test_responder_exposure tests.test_responder_deep tests.test_live_responder_transport tests.test_html_report -v 2>&1 |
             Tee-Object test-artifacts/active-validation/python-test-results.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install Pester

@@ -23,6 +23,12 @@ false. NetNTLM variants, proof strings, challenge responses, session keys,
 authorization headers, domain identities, and user/password pairs are blocked
 from worker output, JSON sidecars, HTML models, audit events, and CI artifacts.
 
+Live observations additionally carry `SELF_HOSTED_WINDOWS_HARNESS`,
+`networkConfirmation: true`, run ID, plan digest, and authorization digest. They
+cross the worker boundary only after an ephemeral HMAC from the exact packaged
+subprocess is verified. Controlled test-double observations are labelled
+separately and cannot become a confirmed live-network aggregate.
+
 `ActiveValidationResult` is serialized only after rollback. Any incomplete cleanup
 sets `manualCleanupRequired` and changes the result to `ROLLBACK_FAILED`. Audit
 JSONL records lifecycle metadata but never embeds active evidence.

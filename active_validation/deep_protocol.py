@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import ipaddress
-from active_validation.digest import sha256_digest
 import re
 import struct
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Any
 
-MARKER_PATTERN = re.compile(r"^CSA-RSP-[A-F0-9]{8}-[A-F0-9]{6}$")
+from active_validation.digest import sha256_digest
+
+MARKER_PATTERN = re.compile(
+    r"^(?:CSA-RSP-[A-F0-9]{8}-[A-F0-9]{6}|CSAR-[A-F0-9]{10})$"
+)
 MAX_PAYLOAD_BYTES = 65_536
 NTLM_SIGNATURE = b"NTLMSSP\x00"
 NTLM_MESSAGE_TYPES = {
@@ -24,6 +28,14 @@ def build_run_marker(run_id: str) -> str:
 
     normalized = sha256_digest(run_id).upper()
     return f"CSA-RSP-{normalized[:8]}-{normalized[8:14]}"
+
+
+def build_transport_marker(run_id: str, protocol: str) -> str:
+    """Return a protocol-compatible exact marker."""
+
+    if protocol == "NBT_NS":
+        return f"CSAR-{sha256_digest(run_id).upper()[:10]}"
+    return build_run_marker(run_id)
 
 
 @dataclass(slots=True, frozen=True)
@@ -71,14 +83,22 @@ def build_nbtns_response(
 ) -> bytes | None:
     """Build one exact-marker NBT-NS response or ignore the query."""
 
-    marker, transaction_id = parse_name_query(query)
+    marker, transaction_id = parse_nbtns_query(query)
     if marker != expected_marker or not MARKER_PATTERN.fullmatch(marker):
         return None
     address = ipaddress.ip_address(response_address)
     if address.version != 4 or address.is_unspecified or address.is_multicast:
         raise ValueError("NBT-NS response address must be scoped IPv4")
+    encoded_name = query[12:46]
     header = transaction_id + b"\x85\x00\x00\x00\x00\x01\x00\x00\x00\x00"
-    return header + query[12:] + b"\x00\x00\x00\x1e\x00\x06\x00\x00" + address.packed
+    answer = (
+        encoded_name
+        + b"\x00\x20\x00\x01"
+        + b"\x00\x00\x00\x1e"
+        + b"\x00\x06\x00\x00"
+        + address.packed
+    )
+    return header + answer
 
 
 def parse_name_query(payload: bytes) -> tuple[str, bytes]:
@@ -106,6 +126,24 @@ def parse_name_query(payload: bytes) -> tuple[str, bytes]:
     return ".".join(labels).upper(), transaction_id
 
 
+def parse_nbtns_query(payload: bytes) -> tuple[str, bytes]:
+    """Parse one first-level encoded NetBIOS name query."""
+
+    if not 50 <= len(payload) <= 512 or payload[12] != 32:
+        raise ValueError("NBT-NS query is invalid")
+    encoded = payload[13:45]
+    if any(value < 65 or value > 80 for value in encoded):
+        raise ValueError("NBT-NS name encoding is invalid")
+    decoded = bytes(
+        ((encoded[index] - 65) << 4) | (encoded[index + 1] - 65)
+        for index in range(0, 32, 2)
+    )
+    name = decoded[:15].decode("ascii", errors="strict").rstrip()
+    if payload[45] != 0 or payload[46:50] != b"\x00\x20\x00\x01":
+        raise ValueError("NBT-NS question type is invalid")
+    return name.upper(), payload[:2]
+
+
 def parse_ntlm_message_type(payload: bytes) -> str:
     """Return an NTLM message label without retaining any message fields."""
 
@@ -122,17 +160,77 @@ def parse_ntlm_message_type(payload: bytes) -> str:
 
 
 def build_ephemeral_ntlm_challenge(run_id: str) -> bytes:
-    """Build an in-memory Type 2 challenge bound to one run."""
+    """Build a valid in-memory Type 2 challenge bound to one run."""
 
     nonce = bytes.fromhex(sha256_digest(run_id)[:16])
+    file_time = int(
+        (datetime.now(timezone.utc).timestamp() + 11_644_473_600)
+        * 10_000_000
+    )
+    target_info = (
+        struct.pack("<HHQ", 7, 8, file_time)
+        + struct.pack("<HH", 0, 0)
+    )
+    flags = 0xA2888235
+    payload_offset = 56
     return (
         NTLM_SIGNATURE
         + struct.pack("<I", 2)
-        + b"\x00" * 8
-        + struct.pack("<I", 0x00008201)
+        + struct.pack("<HHI", 0, 0, payload_offset)
+        + struct.pack("<I", flags)
         + nonce
-        + b"\x00" * 16
+        + b"\x00" * 8
+        + struct.pack(
+            "<HHI",
+            len(target_info),
+            len(target_info),
+            payload_offset,
+        )
+        + b"\x0a\x00\x63\x45\x00\x00\x00\x0f"
+        + target_info
     )
+
+
+def parse_ntlm_authenticate_identity_hash(payload: bytes) -> str:
+    """Hash the Type 3 identity without returning its plaintext value."""
+
+    if parse_ntlm_message_type(payload) != "AUTHENTICATE":
+        raise ValueError("NTLM authenticate message is required")
+    offset = payload.find(NTLM_SIGNATURE)
+    if offset < 0 or offset + 64 > len(payload):
+        raise ValueError("NTLM authenticate message is incomplete")
+    domain = _security_buffer(payload, offset + 28, offset)
+    username = _security_buffer(payload, offset + 36, offset)
+    flags = struct.unpack("<I", payload[offset + 60:offset + 64])[0]
+    encoding = "utf-16-le" if flags & 0x00000001 else "ascii"
+    try:
+        domain_text = domain.decode(encoding, errors="strict")
+        username_text = username.decode(encoding, errors="strict")
+    except UnicodeError as error:
+        raise ValueError("NTLM identity encoding is invalid") from error
+    if not username_text or len(username_text) > 256 or len(domain_text) > 256:
+        raise ValueError("NTLM identity is invalid")
+    identity = (
+        f"{domain_text}\\{username_text}" if domain_text else username_text
+    )
+    identity_hash = f"sha256:{sha256_digest(identity.strip().casefold())}"
+    del identity, domain_text, username_text, domain, username
+    return identity_hash
+
+
+def _security_buffer(payload: bytes, offset: int, base_offset: int = 0) -> bytes:
+    """Read one bounded NTLM security buffer."""
+
+    if offset + 8 > len(payload):
+        raise ValueError("NTLM security buffer is missing")
+    length, maximum, value_offset = struct.unpack(
+        "<HHI",
+        payload[offset:offset + 8],
+    )
+    absolute_offset = base_offset + value_offset
+    if length > maximum or absolute_offset + length > len(payload):
+        raise ValueError("NTLM security buffer is outside the message")
+    return payload[absolute_offset:absolute_offset + length]
 
 
 def scoped_transport_signal(
@@ -148,6 +246,7 @@ def scoped_transport_signal(
     source = observation.get("sourceAddress")
     listener = observation.get("listenerAddress")
     protocol = observation.get("protocol")
+    resolution_protocol = observation.get("nameResolutionProtocol")
     if interface not in scope.get("networkInterfaces", []):
         return None
     if source not in scope.get("allowedTargetAddresses", []):
@@ -156,13 +255,21 @@ def scoped_transport_signal(
         return None
     if protocol not in scope.get("allowedProtocols", []):
         return None
+    if (
+        resolution_protocol is not None
+        and resolution_protocol not in scope.get("allowedProtocols", [])
+    ):
+        return None
     if ipaddress.ip_address(listener).is_unspecified:
         return None
-    if int(observation.get("responseCount", 0)) > 1:
+    response_count = int(observation.get("responseCount", 0))
+    connection_count = int(observation.get("connectionCount", 0))
+    payload_bytes = int(observation.get("payloadBytes", 0))
+    if not 0 <= response_count <= 1:
         raise ValueError("Response count exceeds the one-shot limit")
-    if int(observation.get("connectionCount", 0)) > 1:
+    if not 0 <= connection_count <= 1:
         raise ValueError("Connection count exceeds the one-shot limit")
-    if int(observation.get("payloadBytes", 0)) > MAX_PAYLOAD_BYTES:
+    if not 0 <= payload_bytes <= MAX_PAYLOAD_BYTES:
         raise ValueError("Authentication payload exceeds the limit")
     messages = tuple(observation.get("messageTypesObserved", []))
     if any(item not in {"NEGOTIATE", "CHALLENGE", "AUTHENTICATE"} for item in messages):

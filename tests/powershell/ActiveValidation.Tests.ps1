@@ -3,6 +3,8 @@ Describe "Active validation PowerShell contract" {
         $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
         $scriptBlockPath = Join-Path $repoRoot "active_validation\powershell\Validate-ScriptBlockLogging.ps1"
         $defenderPath = Join-Path $repoRoot "active_validation\powershell\Validate-DefenderRuntime.ps1"
+        $firewallPath = Join-Path $repoRoot "active_validation\powershell\Manage-ResponderFirewall.ps1"
+        $triggerPath = Join-Path $repoRoot "active_validation\powershell\Invoke-ResponderMarkerLookup.ps1"
 
         function Invoke-ValidationContract {
             param(
@@ -34,6 +36,74 @@ Describe "Active validation PowerShell contract" {
             }
             $process.Dispose()
             return $result
+        }
+    }
+
+    It "parses the reviewed self-hosted transport scripts" {
+        foreach ($path in @($firewallPath, $triggerPath)) {
+            $tokens = $null
+            $errors = $null
+            $null = [Management.Automation.Language.Parser]::ParseFile(
+                $path,
+                [ref]$tokens,
+                [ref]$errors
+            )
+            $errors.Count | Should -Be 0
+        }
+    }
+
+    It "scopes firewall rules to exact program port address and profile" {
+        $content = Get-Content -LiteralPath $firewallPath -Raw
+        $content | Should -Match "CSA-VALIDATION-"
+        $content | Should -Match "-LocalPort"
+        $content | Should -Match "-LocalAddress"
+        $content | Should -Match "-RemoteAddress"
+        $content | Should -Match "-InterfaceAlias"
+        $content | Should -Match "-Profile"
+        $content | Should -Match "-Program"
+        $content | Should -Match "Remove-NetFirewallRule"
+        $content | Should -Not -Match "Any|0\.0\.0\.0"
+    }
+
+    It "uses an exact marker and default credentials without retaining them" {
+        $content = Get-Content -LiteralPath $triggerPath -Raw
+        $content | Should -Match "CSA-RSP-"
+        $content | Should -Match "LlmnrOnly"
+        $content | Should -Match "UseDefaultCredentials"
+        $content | Should -Match "Invoke-Command"
+        $content | Should -Not -Match "password|hash cracking|relay"
+    }
+
+    It "uses only the reviewed transport command allowlist" {
+        $allowedCommands = @(
+            "Get-NetFirewallRule",
+            "Get-NetIPAddress",
+            "Invoke-Command",
+            "Invoke-WebRequest",
+            "New-NetFirewallRule",
+            "Out-Null",
+            "Remove-NetFirewallRule",
+            "Resolve-DnsName"
+        )
+        foreach ($path in @($firewallPath, $triggerPath)) {
+            $tokens = $null
+            $errors = $null
+            $ast = [Management.Automation.Language.Parser]::ParseFile(
+                $path,
+                [ref]$tokens,
+                [ref]$errors
+            )
+            $errors.Count | Should -Be 0
+            $commands = $ast.FindAll(
+                { param($node) $node -is [Management.Automation.Language.CommandAst] },
+                $true
+            )
+            foreach ($command in $commands) {
+                $commandName = $command.GetCommandName()
+                if ($null -ne $commandName) {
+                    $commandName | Should -BeIn $allowedCommands
+                }
+            }
         }
     }
 

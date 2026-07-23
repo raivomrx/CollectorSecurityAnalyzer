@@ -13,7 +13,10 @@ from active_validation.cleanup import (
     DEFAULT_TEMPORARY_ROOT,
     CleanupRegistry,
 )
-from active_validation.engine import execute_active_validation
+from active_validation.engine import (
+    execute_active_validation,
+    validate_live_transport_config,
+)
 from active_validation.planner import ValidationPlanner, plan_digest
 from active_validation.policy import load_policy
 from active_validation.registry import ValidatorRegistry
@@ -71,6 +74,16 @@ def main() -> None:
             parser.error(
                 "--device is required when authorization covers multiple devices"
             )
+        live_transport = _live_transport_config(
+            args,
+            args.remote_computer or device,
+        )
+        live_transport = validate_live_transport_config(
+            live_transport,
+            args.profile,
+            authorization,
+            device,
+        )
         plans = ValidationPlanner(registry).plan(
             run_id="PLAN",
             requested_validator_ids=requested,
@@ -81,15 +94,23 @@ def main() -> None:
             profile=args.profile,
         )
         print(json.dumps({
-            "planDigest": plan_digest(plans),
+            "planDigest": plan_digest(plans, live_transport),
             "profile": args.profile,
             "deepResponderSummary": _deep_summary(
-                policy, authorization, args.profile
+                policy, authorization, args.profile, live_transport
             ),
             "plans": to_camel_dict(plans),
         }, indent=2))
         return
     data = parse_collector_file(args.input)
+    live_transport = _live_transport_config(
+        args,
+        args.remote_computer or (
+            authorization.scope.device_identifiers[0]
+            if len(authorization.scope.device_identifiers) == 1
+            else None
+        ),
+    )
     run = execute_active_validation(
         data=data,
         findings=[],
@@ -102,6 +123,7 @@ def main() -> None:
         registry=registry,
         require_related_rule=False,
         required_plan_digest=args.require_plan_digest,
+        live_transport_config=live_transport,
     )
     print(json.dumps(active_run_to_dict(run), indent=2))
 
@@ -150,10 +172,33 @@ def _build_parser() -> argparse.ArgumentParser:
             child.add_argument("--input", required=True)
             child.add_argument("--audit", required=True)
             child.add_argument("--require-plan-digest")
+        child.add_argument(
+            "--live-responder-transport",
+            action="store_true",
+        )
+        child.add_argument("--network-interface")
+        child.add_argument("--listener-address")
+        child.add_argument("--target-address")
+        child.add_argument(
+            "--name-resolution-protocol",
+            choices=["LLMNR", "NBT_NS"],
+        )
+        child.add_argument("--listener-port", type=int, default=8080)
+        child.add_argument("--remote-computer")
+        child.add_argument(
+            "--firewall-profile",
+            choices=["Domain", "Private", "Public"],
+            default="Private",
+        )
     return parser
 
 
-def _deep_summary(policy, authorization, profile: str | None):
+def _deep_summary(
+    policy,
+    authorization,
+    profile: str | None,
+    live_transport: dict[str, object] | None,
+):
     """Return a credential-free deep plan summary."""
 
     if profile != "deep-responder-validation":
@@ -176,6 +221,51 @@ def _deep_summary(policy, authorization, profile: str | None):
         "temporaryListener": policy.allow_temporary_network_listeners,
         "temporaryFirewallRule": policy.allow_temporary_firewall_changes,
         "rollbackRequired": True,
+        "transportMode": (
+            "SELF_HOSTED_WINDOWS_HARNESS"
+            if live_transport
+            else "CONTROLLED_TRANSPORT_TEST_DOUBLE_OR_NONE"
+        ),
+        "liveTransport": live_transport,
+    }
+
+
+def _live_transport_config(
+    args,
+    remote_computer: str | None,
+) -> dict[str, object] | None:
+    """Build an exact live transport request or reject partial CLI scope."""
+
+    supplied = any((
+        args.network_interface,
+        args.listener_address,
+        args.target_address,
+        args.name_resolution_protocol,
+        args.remote_computer,
+    ))
+    if not args.live_responder_transport:
+        if supplied:
+            raise ValueError(
+                "Live transport scope requires --live-responder-transport"
+            )
+        return None
+    required = {
+        "networkInterface": args.network_interface,
+        "listenerAddress": args.listener_address,
+        "targetAddress": args.target_address,
+        "nameResolutionProtocol": args.name_resolution_protocol,
+        "remoteComputer": remote_computer,
+    }
+    missing = [key for key, value in required.items() if not value]
+    if missing:
+        raise ValueError(
+            "Live transport scope is incomplete: " + ", ".join(missing)
+        )
+    return {
+        "enabled": True,
+        **required,
+        "listenerPort": args.listener_port,
+        "firewallProfile": args.firewall_profile,
     }
 
 

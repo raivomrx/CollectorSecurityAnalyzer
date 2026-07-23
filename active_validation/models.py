@@ -79,6 +79,8 @@ class ValidationContext:
     test_identity: dict[str, Any] | None = None
     profile: str | None = None
     transport_observation: dict[str, Any] | None = None
+    plan_digest: str = ""
+    live_transport_config: dict[str, Any] | None = None
 
 
 @dataclass(slots=True, frozen=True)

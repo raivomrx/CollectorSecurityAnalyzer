@@ -27,11 +27,21 @@ a mismatch count may be retained.
 
 ## Authentication evidence
 
-The preferred path is a scoped SMB challenge, with scoped HTTP as the fallback.
-The endpoint closes after the first matching event. Evidence contains protocol,
+The self-hosted harness uses a scoped HTTP NTLM challenge. The endpoint closes
+after the first matching event. Evidence contains protocol,
 message-type labels, hashed identity/source linkage, and boolean safety fields.
 Raw challenge-response bytes never enter worker JSON, stdout, stderr, audit, HTML,
 or the analysis sidecar.
+
+The harness listens only on the authorization-scoped IPv4 interface. LLMNR uses
+UDP 5355 and NBT-NS uses UDP 137. A separate one-shot HTTP listener uses the
+reviewed high port. Source IP, query marker, response count, connection count,
+payload size, plan digest, authorization digest, and run ID are all checked.
+
+The HTTP exchange parses real `NEGOTIATE` and `AUTHENTICATE` messages and creates
+one ephemeral `CHALLENGE`. Type 3 response fields are not copied or serialized.
+Only the normalized test identity hash is derived before the in-memory bytearray
+is overwritten.
 
 ## Cleanup and failures
 
@@ -40,13 +50,49 @@ pre-registered for recovery, and are removed on every terminal path. A cleanup
 failure becomes `ROLLBACK_FAILED` while the separate exposure evidence remains
 visible, with manual cleanup required.
 
+Firewall rules are limited to the packaged Python program, one local port, one
+local IP, one remote IP, and one selected Windows profile. Both normal `finally`
+cleanup and the fresh rollback worker remove the exact tracked names and verify
+that they no longer exist.
+
+## Self-hosted execution
+
+Use an assessment runner labelled `self-hosted`, `Windows`, and
+`csa-responder-lab`. The runner and target must be different authorized Windows
+VMs, WinRM must be configured between them, and the runner service identity must
+match the authorization test identity.
+
+Preview and run with the same transport scope:
+
+```powershell
+python -m active_validation.cli plan `
+  --profile deep-responder-validation `
+  --policy deep-policy.json `
+  --authorization deep-authorization.json `
+  --device HOSTNAME-01 `
+  --validator VAL-RESPONDER-DEEP-001 `
+  --validator VAL-RESPONDER-EXPOSURE-001 `
+  --live-responder-transport `
+  --network-interface Ethernet `
+  --listener-address 192.0.2.10 `
+  --target-address 192.0.2.25 `
+  --name-resolution-protocol LLMNR `
+  --listener-port 8080 `
+  --remote-computer HOSTNAME-01 `
+  --firewall-profile Private
+```
+
+Pass the returned digest to `run` with `--require-plan-digest`. The transport
+scope is part of that digest.
+
 ## Testing and limitations
 
-Hosted CI uses the production protocol parser and a minimized controlled transport
-signal through the real subprocess pipeline. Scope, authorization, redaction,
-rollback, and aggregate outcomes are required gates. A real two-host network test
-belongs in an explicitly authorized self-hosted Windows workflow because hosted
-runner networking cannot provide a stable poisoning test.
+GitHub hosted runners validate production protocol parsers, contracts,
+authorization flow, isolation, cleanup, and aggregate classification using a
+controlled transport test double. Test-double output cannot produce a live
+network confirmation. The repository includes a manually dispatched two-Windows-
+VM workflow for the real harness because hosted runner networking cannot provide
+a stable authorized name-resolution test.
 
 No observed exposure applies only to the tested interface, protocol, policy,
 identity, observation window, and network conditions. Policy precedence or an

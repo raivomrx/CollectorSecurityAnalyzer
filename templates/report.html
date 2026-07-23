@@ -272,7 +272,7 @@
             challenge and retained no credential material.
           </p>
         {% endif %}
-        {% set deep = namespace(response=false, challenge=false, identity=false, attempt=false, protocol="Not observed", retained=false, relay=false, cracking=false, cleanup="Not run") %}
+        {% set deep = namespace(response=false, challenge=false, identity=false, attempt=false, protocol="Not observed", transport="Not run", network_confirmation=false, retained=false, relay=false, cracking=false, firewall_created=false, firewall_removed=false, cleanup="Not run") %}
         {% for result in active_validation.results %}
           {% if result.validator_id == "VAL-RESPONDER-DEEP-001" %}
             {% set deep.cleanup = "FAILED" if result.cleanup.manual_cleanup_required else ("COMPLETE" if result.cleanup.completed else "INCOMPLETE") %}
@@ -283,9 +283,13 @@
                 {% set deep.identity = evidence.authorizedTestIdentityUsed %}
                 {% set deep.attempt = evidence.authenticationAttemptObserved %}
                 {% set deep.protocol = evidence.protocol or "Not observed" %}
+                {% set deep.transport = evidence.transportMode or "Unknown" %}
+                {% set deep.network_confirmation = evidence.networkConfirmation %}
                 {% set deep.retained = evidence.credentialMaterialRetained %}
                 {% set deep.relay = evidence.relayAttempted %}
                 {% set deep.cracking = evidence.crackingAttempted %}
+                {% set deep.firewall_created = evidence.firewallRuleCreated %}
+                {% set deep.firewall_removed = evidence.firewallRuleRemoved %}
               {% endif %}
             {% endfor %}
           {% endif %}
@@ -296,9 +300,13 @@
           <div><span>Authorized test identity used</span><strong>{{ deep.identity }}</strong></div>
           <div><span>Authentication attempt observed</span><strong>{{ deep.attempt }}</strong></div>
           <div><span>Authentication protocol</span><strong>{{ deep.protocol }}</strong></div>
+          <div><span>Transport mode</span><strong>{{ deep.transport }}</strong></div>
+          <div><span>Live network confirmation</span><strong>{{ deep.network_confirmation }}</strong></div>
           <div><span>Credential material retained</span><strong>{{ deep.retained }}</strong></div>
           <div><span>Relay attempted</span><strong>{{ deep.relay }}</strong></div>
           <div><span>Cracking attempted</span><strong>{{ deep.cracking }}</strong></div>
+          <div><span>Firewall rule created</span><strong>{{ deep.firewall_created }}</strong></div>
+          <div><span>Firewall rule removed</span><strong>{{ deep.firewall_removed }}</strong></div>
           <div><span>Cleanup status</span><strong>{{ deep.cleanup }}</strong></div>
         </div>
         {% if active_validation.responder_exposure %}

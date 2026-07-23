@@ -438,6 +438,8 @@ def _context_to_dict(context: ValidationContext) -> dict[str, Any]:
         "testIdentity": context.test_identity,
         "profile": context.profile,
         "transportObservation": context.transport_observation,
+        "planDigest": context.plan_digest,
+        "liveTransportConfig": context.live_transport_config,
     }
 
 

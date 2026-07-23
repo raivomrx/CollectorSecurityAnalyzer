@@ -1,0 +1,164 @@
+name: Responder Self-Hosted Integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      collector_input_path:
+        description: Absolute collector JSON path on the assessment runner
+        required: true
+        type: string
+      policy_path:
+        description: Absolute deep policy path on the assessment runner
+        required: true
+        type: string
+      authorization_path:
+        description: Absolute authorization path on the assessment runner
+        required: true
+        type: string
+      remote_computer:
+        description: Authorized Windows target VM name
+        required: true
+        type: string
+      network_interface:
+        description: Authorized assessment interface
+        required: true
+        type: string
+      listener_address:
+        description: Authorized assessment listener IPv4 address
+        required: true
+        type: string
+      target_address:
+        description: Authorized Windows target IPv4 address
+        required: true
+        type: string
+      firewall_profile:
+        description: Exact active Windows firewall profile
+        required: true
+        default: Private
+        type: choice
+        options:
+          - Domain
+          - Private
+          - Public
+
+permissions:
+  contents: read
+
+concurrency:
+  group: responder-self-hosted-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  responder-two-windows-vm:
+    runs-on: [self-hosted, Windows, csa-responder-lab]
+    environment: responder-deep-lab
+    timeout-minutes: 15
+    env:
+      CSA_LIVE_ARTIFACT_DIR: test-artifacts/responder-live-${{ github.run_id }}-${{ github.run_attempt }}
+      CSA_COLLECTOR_INPUT: ${{ inputs.collector_input_path }}
+      CSA_POLICY_PATH: ${{ inputs.policy_path }}
+      CSA_AUTHORIZATION_PATH: ${{ inputs.authorization_path }}
+      CSA_REMOTE_COMPUTER: ${{ inputs.remote_computer }}
+      CSA_NETWORK_INTERFACE: ${{ inputs.network_interface }}
+      CSA_LISTENER_ADDRESS: ${{ inputs.listener_address }}
+      CSA_TARGET_ADDRESS: ${{ inputs.target_address }}
+      CSA_FIREWALL_PROFILE: ${{ inputs.firewall_profile }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate isolated two-VM topology
+        shell: pwsh
+        run: |
+          if ($env:CSA_LISTENER_ADDRESS -eq $env:CSA_TARGET_ADDRESS) {
+            throw 'Listener and target must be different Windows VMs.'
+          }
+          if (-not (Test-Connection $env:CSA_REMOTE_COMPUTER -Count 1 -Quiet)) {
+            throw 'Authorized target VM is unreachable.'
+          }
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Preview exact live plan
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path $env:CSA_LIVE_ARTIFACT_DIR -Force |
+            Out-Null
+          python -m active_validation.cli plan `
+            --profile deep-responder-validation `
+            --policy $env:CSA_POLICY_PATH `
+            --authorization $env:CSA_AUTHORIZATION_PATH `
+            --device $env:CSA_REMOTE_COMPUTER `
+            --validator VAL-RESPONDER-DEEP-001 `
+            --validator VAL-RESPONDER-EXPOSURE-001 `
+            --live-responder-transport `
+            --network-interface $env:CSA_NETWORK_INTERFACE `
+            --listener-address $env:CSA_LISTENER_ADDRESS `
+            --target-address $env:CSA_TARGET_ADDRESS `
+            --name-resolution-protocol LLMNR `
+            --listener-port 8080 `
+            --remote-computer $env:CSA_REMOTE_COMPUTER `
+            --firewall-profile $env:CSA_FIREWALL_PROFILE |
+            Set-Content (Join-Path $env:CSA_LIVE_ARTIFACT_DIR plan.json)
+      - name: Run authorized two-VM live validation
+        shell: pwsh
+        run: |
+          $planPath = Join-Path $env:CSA_LIVE_ARTIFACT_DIR plan.json
+          $runPath = Join-Path $env:CSA_LIVE_ARTIFACT_DIR run.json
+          $auditPath = Join-Path $env:CSA_LIVE_ARTIFACT_DIR audit.jsonl
+          $plan = Get-Content $planPath -Raw |
+            ConvertFrom-Json
+          python -m active_validation.cli run `
+            --profile deep-responder-validation `
+            --policy $env:CSA_POLICY_PATH `
+            --authorization $env:CSA_AUTHORIZATION_PATH `
+            --input $env:CSA_COLLECTOR_INPUT `
+            --audit $auditPath `
+            --validator VAL-RESPONDER-DEEP-001 `
+            --validator VAL-RESPONDER-EXPOSURE-001 `
+            --live-responder-transport `
+            --network-interface $env:CSA_NETWORK_INTERFACE `
+            --listener-address $env:CSA_LISTENER_ADDRESS `
+            --target-address $env:CSA_TARGET_ADDRESS `
+            --name-resolution-protocol LLMNR `
+            --listener-port 8080 `
+            --remote-computer $env:CSA_REMOTE_COMPUTER `
+            --firewall-profile $env:CSA_FIREWALL_PROFILE `
+            --require-plan-digest $plan.planDigest |
+            Set-Content $runPath
+          $run = Get-Content $runPath -Raw |
+            ConvertFrom-Json
+          if ($run.responderExposure.status -ne 'EXPOSURE_CONFIRMED') {
+            throw 'Live two-VM transport did not confirm the authorized path.'
+          }
+          $deep = $run.results |
+            Where-Object validatorId -eq 'VAL-RESPONDER-DEEP-001'
+          if (-not $deep.evidence[0].networkConfirmation) {
+            throw 'Result did not contain trusted live network confirmation.'
+          }
+          if (
+            $deep.evidence[0].credentialMaterialRetained -or
+            $deep.evidence[0].relayAttempted -or
+            $deep.evidence[0].crackingAttempted
+          ) {
+            throw 'Credential safety contract was violated.'
+          }
+          if (-not $deep.cleanup.completed) {
+            throw 'Live harness cleanup did not complete.'
+          }
+          $ruleNames = @(
+            "CSA-VALIDATION-$($run.runId)-LLMNR",
+            "CSA-VALIDATION-$($run.runId)-HTTP"
+          )
+          foreach ($ruleName in $ruleNames) {
+            if (
+              Get-NetFirewallRule `
+                -DisplayName $ruleName `
+                -ErrorAction SilentlyContinue
+            ) {
+              throw "Temporary firewall rule remains: $ruleName"
+            }
+          }
+      - name: Upload credential-safe live evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: responder-self-hosted-live-evidence
+          path: ${{ env.CSA_LIVE_ARTIFACT_DIR }}/
