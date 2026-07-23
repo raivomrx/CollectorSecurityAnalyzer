@@ -291,7 +291,7 @@ class ResponderDeepTests(unittest.TestCase):
 
         observation = self._observation("confirmed")
         observation["queryMarker"] = build_run_marker("RUN-2")
-        observation["connectionCount"] = 2
+        observation["connectionCount"] = 4
         with self.assertRaises(ValueError):
             scoped_transport_signal(
                 observation,

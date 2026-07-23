@@ -10,8 +10,10 @@ import socket
 import struct
 import subprocess
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from time import monotonic
 from unittest.mock import MagicMock, patch
 
 from active_validation.deep_protocol import (
@@ -33,6 +35,7 @@ from active_validation.models import (
     ValidationPlan,
 )
 from active_validation.transport_harness import (
+    _observe_http,
     _run,
     _trusted_script,
     _read_authentication_token,
@@ -219,6 +222,65 @@ class LiveResponderTransportTests(unittest.TestCase):
         finally:
             server.close()
             client.close()
+
+    def test_http_flow_allows_one_safe_client_reconnect(self) -> None:
+        """An initial 401 reconnect must remain one bounded NTLM flow."""
+
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(2)
+        listener.settimeout(0.1)
+        port = listener.getsockname()[1]
+        identity_hash = "sha256:" + sha256_digest("lab\\csa-test-user")
+        config = {
+            "runId": "RUN-RECONNECT",
+            "targetAddress": "127.0.0.1",
+            "expectedIdentityHash": identity_hash,
+        }
+        observation = {
+            "scopeMismatchCount": 0,
+            "connectionObserved": False,
+            "connectionCount": 0,
+            "sourceEndpointHash": None,
+            "payloadBytes": 0,
+            "messageTypesObserved": [],
+            "authenticationChallengeIssued": False,
+            "authenticationAttemptObserved": False,
+            "testIdentityMatched": False,
+        }
+        worker = threading.Thread(
+            target=_observe_http,
+            args=(listener, config, observation, monotonic() + 5),
+        )
+        worker.start()
+        first = socket.create_connection(("127.0.0.1", port), timeout=2)
+        try:
+            first.sendall(b"GET / HTTP/1.1\r\nHost: csa\r\n\r\n")
+            self.assertIn(b"401 Unauthorized", self._read_http(first))
+        finally:
+            first.close()
+        second = socket.create_connection(("127.0.0.1", port), timeout=2)
+        try:
+            negotiate = b"NTLMSSP\x00" + struct.pack("<I", 1) + b"\x00" * 8
+            self._send_http_token(second, negotiate)
+            self.assertIn(b"WWW-Authenticate: NTLM ", self._read_http(second))
+            self._send_http_token(
+                second,
+                self._type_three("LAB", "CSA-TEST-USER"),
+            )
+            self.assertIn(b"200 OK", self._read_http(second))
+        finally:
+            second.close()
+            worker.join(timeout=5)
+            listener.close()
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(2, observation["connectionCount"])
+        self.assertEqual(
+            ["NEGOTIATE", "CHALLENGE", "AUTHENTICATE"],
+            observation["messageTypesObserved"],
+        )
+        self.assertTrue(observation["testIdentityMatched"])
 
     def test_authenticate_identity_is_hashed_without_response_fields(self) -> None:
         """Type 3 parsing should return only the normalized identity hash."""
@@ -483,6 +545,31 @@ class LiveResponderTransportTests(unittest.TestCase):
             + domain_bytes
             + user_bytes
         )
+
+    @staticmethod
+    def _send_http_token(connection: socket.socket, token: bytes) -> None:
+        """Send one bounded HTTP request containing a synthetic NTLM token."""
+
+        encoded = base64.b64encode(token)
+        connection.sendall(
+            b"GET / HTTP/1.1\r\nHost: csa\r\nAuthorization: NTLM "
+            + encoded
+            + b"\r\n\r\n"
+        )
+
+    @staticmethod
+    def _read_http(connection: socket.socket) -> bytes:
+        """Read one bounded HTTP response header."""
+
+        response = bytearray()
+        while b"\r\n\r\n" not in response:
+            chunk = connection.recv(4096)
+            if not chunk:
+                break
+            response.extend(chunk)
+            if len(response) > 16_384:
+                raise AssertionError("HTTP response exceeded test limit")
+        return bytes(response)
 
 
 if __name__ == "__main__":

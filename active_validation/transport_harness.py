@@ -17,6 +17,7 @@ from time import monotonic
 from typing import Any
 
 from active_validation.deep_protocol import (
+    MAX_HTTP_CONNECTIONS,
     MAX_PAYLOAD_BYTES,
     build_ephemeral_ntlm_challenge,
     build_llmnr_response,
@@ -283,62 +284,91 @@ def _observe_http(
     observation: dict[str, Any],
     deadline: float,
 ) -> None:
-    """Observe one authorized HTTP NTLM exchange without retaining its tokens."""
+    """Observe one bounded HTTP NTLM flow across safe client reconnects."""
 
-    connection: socket.socket | None = None
-    while monotonic() < deadline and connection is None:
+    request_count = 0
+    while (
+        monotonic() < deadline
+        and observation["connectionCount"] < MAX_HTTP_CONNECTIONS
+        and not observation["authenticationAttemptObserved"]
+    ):
         try:
-            candidate, address = listener.accept()
+            connection, address = listener.accept()
         except socket.timeout:
             continue
         if address[0] != config["targetAddress"]:
             observation["scopeMismatchCount"] += 1
-            candidate.close()
+            connection.close()
             continue
-        connection = candidate
         observation["connectionObserved"] = True
-        observation["connectionCount"] = 1
-        observation["sourceEndpointHash"] = (
-            f"sha256:{sha256_digest(address[0])}"
-        )
-    if connection is None:
-        return
-    with connection:
-        connection.settimeout(2)
-        for _ in range(4):
-            token = _read_authentication_token(connection)
-            if token is None:
-                _send_http(connection, 401, "NTLM")
-                continue
-            raw = bytearray(token)
-            observation["payloadBytes"] += len(raw)
-            try:
-                message_type = parse_ntlm_message_type(raw)
-                if message_type not in observation["messageTypesObserved"]:
-                    observation["messageTypesObserved"].append(message_type)
-                if message_type == "NEGOTIATE":
-                    challenge = build_ephemeral_ntlm_challenge(config["runId"])
-                    observation["messageTypesObserved"].append("CHALLENGE")
-                    observation["authenticationChallengeIssued"] = True
-                    _send_http(
-                        connection,
-                        401,
-                        "NTLM " + base64.b64encode(challenge).decode("ascii"),
-                    )
-                elif message_type == "AUTHENTICATE":
-                    observed_hash = parse_ntlm_authenticate_identity_hash(raw)
-                    observation["authenticationAttemptObserved"] = True
-                    observation["testIdentityMatched"] = (
-                        hmac.compare_digest(
-                            observed_hash,
-                            config["expectedIdentityHash"],
+        observation["connectionCount"] += 1
+        if observation["sourceEndpointHash"] is None:
+            observation["sourceEndpointHash"] = (
+                f"sha256:{sha256_digest(address[0])}"
+            )
+        with connection:
+            connection.settimeout(2)
+            while request_count < 6:
+                try:
+                    token = _read_authentication_token(connection)
+                except (ConnectionError, OSError, socket.timeout):
+                    break
+                request_count += 1
+                if token is None:
+                    try:
+                        _send_http(connection, 401, "NTLM")
+                    except OSError:
+                        break
+                    continue
+                raw = bytearray(token)
+                observation["payloadBytes"] += len(raw)
+                if observation["payloadBytes"] > MAX_PAYLOAD_BYTES:
+                    raw[:] = b"\x00" * len(raw)
+                    raise ValueError("Authentication payload exceeded the limit")
+                try:
+                    message_type = parse_ntlm_message_type(raw)
+                    if message_type not in observation["messageTypesObserved"]:
+                        observation["messageTypesObserved"].append(message_type)
+                    if message_type == "NEGOTIATE":
+                        challenge = build_ephemeral_ntlm_challenge(
+                            config["runId"]
                         )
-                    )
-                    _send_http(connection, 200, None)
-                    return
-            finally:
-                raw[:] = b"\x00" * len(raw)
-                del raw, token
+                        if (
+                            "CHALLENGE"
+                            not in observation["messageTypesObserved"]
+                        ):
+                            observation["messageTypesObserved"].append(
+                                "CHALLENGE"
+                            )
+                        observation["authenticationChallengeIssued"] = True
+                        try:
+                            _send_http(
+                                connection,
+                                401,
+                                "NTLM "
+                                + base64.b64encode(challenge).decode("ascii"),
+                            )
+                        except OSError:
+                            break
+                    elif message_type == "AUTHENTICATE":
+                        observed_hash = (
+                            parse_ntlm_authenticate_identity_hash(raw)
+                        )
+                        observation["authenticationAttemptObserved"] = True
+                        observation["testIdentityMatched"] = (
+                            hmac.compare_digest(
+                                observed_hash,
+                                config["expectedIdentityHash"],
+                            )
+                        )
+                        try:
+                            _send_http(connection, 200, None)
+                        except OSError:
+                            pass
+                        return
+                finally:
+                    raw[:] = b"\x00" * len(raw)
+                    del raw, token
 
 
 def _read_authentication_token(connection: socket.socket) -> bytes | None:
@@ -348,7 +378,8 @@ def _read_authentication_token(connection: socket.socket) -> bytes | None:
     while b"\r\n\r\n" not in buffer:
         chunk = connection.recv(4096)
         if not chunk:
-            return None
+            buffer[:] = b"\x00" * len(buffer)
+            raise ConnectionError("HTTP peer closed the connection")
         buffer.extend(chunk)
         if len(buffer) > 32_768:
             raise ValueError("HTTP header exceeded the harness limit")

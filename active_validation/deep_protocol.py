@@ -15,6 +15,7 @@ MARKER_PATTERN = re.compile(
     r"^(?:CSA-RSP-[A-F0-9]{8}-[A-F0-9]{6}|CSAR-[A-F0-9]{10})$"
 )
 MAX_PAYLOAD_BYTES = 65_536
+MAX_HTTP_CONNECTIONS = 3
 NTLM_SIGNATURE = b"NTLMSSP\x00"
 NTLM_MESSAGE_TYPES = {
     1: "NEGOTIATE",
@@ -267,8 +268,8 @@ def scoped_transport_signal(
     payload_bytes = int(observation.get("payloadBytes", 0))
     if not 0 <= response_count <= 1:
         raise ValueError("Response count exceeds the one-shot limit")
-    if not 0 <= connection_count <= 1:
-        raise ValueError("Connection count exceeds the one-shot limit")
+    if not 0 <= connection_count <= MAX_HTTP_CONNECTIONS:
+        raise ValueError("Connection count exceeds the bounded flow limit")
     if not 0 <= payload_bytes <= MAX_PAYLOAD_BYTES:
         raise ValueError("Authentication payload exceeds the limit")
     messages = tuple(observation.get("messageTypesObserved", []))
