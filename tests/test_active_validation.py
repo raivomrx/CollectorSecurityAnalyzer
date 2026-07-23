@@ -644,8 +644,13 @@ class ActiveValidationContractTests(unittest.TestCase):
         """Engine should execute aggregate correlation through the worker boundary."""
 
         validator_id = "VAL-RESPONDER-EXPOSURE-001"
+        dependencies = [
+            "VAL-NTLM-POLICY-001",
+            "VAL-SMB-SIGNING-EXPOSURE-001",
+            "VAL-WPAD-EXPOSURE-001",
+        ]
         authorization = load_authorization(
-            self._authorization(validators=[validator_id])
+            self._authorization(validators=[validator_id, *dependencies])
         )
         audit_path = self.root / "engine-audit.jsonl"
         run = execute_active_validation(
@@ -670,13 +675,16 @@ class ActiveValidationContractTests(unittest.TestCase):
             audit_path=audit_path,
         )
         self.assertTrue(run.formal_authorization_verified)
-        self.assertEqual(1, len(run.results))
-        self.assertEqual(ActiveValidationStatus.INCONCLUSIVE, run.results[0].status)
+        self.assertEqual(4, len(run.results))
+        self.assertEqual(
+            ActiveValidationStatus.INCONCLUSIVE,
+            run.results[-1].status,
+        )
         self.assertIsNotNone(run.responder_exposure)
         self.assertGreaterEqual(len(run.correlations), 1)
-        self.assertEqual(1, run.summary.planned)
-        self.assertEqual(1, run.summary.executed)
-        self.assertEqual(1, run.summary.inconclusive)
+        self.assertEqual(4, run.summary.planned)
+        self.assertEqual(4, run.summary.executed)
+        self.assertGreaterEqual(run.summary.inconclusive, 1)
         self.assertGreaterEqual(verify_audit_log(audit_path), 5)
 
     def _execute_mock(

@@ -138,3 +138,13 @@ class ValidatorRegistry:
             raise ValidatorRegistryError("Validator timeout must be positive")
         if definition.maximum_timeout_seconds < definition.default_timeout_seconds:
             raise ValidatorRegistryError("Maximum timeout is below default timeout")
+        if not 0 <= definition.execution_order <= 10_000:
+            raise ValidatorRegistryError("Validator execution order is invalid")
+        dependencies = (
+            definition.depends_on_validator_ids
+            + definition.optional_dependency_ids
+        )
+        if len(dependencies) != len(set(dependencies)):
+            raise ValidatorRegistryError("Validator dependencies contain duplicates")
+        if definition.validator_id in dependencies:
+            raise ValidatorRegistryError("Validator cannot depend on itself")

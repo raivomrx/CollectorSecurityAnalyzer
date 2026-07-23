@@ -16,6 +16,13 @@ log excerpts are not allowed. The recursive guard scans evidence, limitations,
 error summaries, and remaining cleanup object names. A match replaces validator
 output with `SENSITIVE_EVIDENCE_BLOCKED`; the matched value is never logged.
 
+Deep authentication evidence is a `CredentialFlowObservation`: flow observed,
+protocol, authentication family, identity match/hash, and message-type labels.
+It always records retention, disk write, report inclusion, relay, and cracking as
+false. NetNTLM variants, proof strings, challenge responses, session keys,
+authorization headers, domain identities, and user/password pairs are blocked
+from worker output, JSON sidecars, HTML models, audit events, and CI artifacts.
+
 `ActiveValidationResult` is serialized only after rollback. Any incomplete cleanup
 sets `manualCleanupRequired` and changes the result to `ROLLBACK_FAILED`. Audit
 JSONL records lifecycle metadata but never embeds active evidence.

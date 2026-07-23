@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import subprocess
 from pathlib import Path
@@ -17,6 +18,12 @@ from active_validation.models import (
 from active_validation.validators.base import BaseActiveValidator, utc_start
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1] / "powershell"
+TRUSTED_SCRIPT_HASHES = {
+    "Validate-DefenderRuntime.ps1":
+        "fceb7c2ce0c5490734ee49b89b822566e5b29bfe3ddaf8b1c56a986ed57b711a",
+    "Validate-ScriptBlockLogging.ps1":
+        "b0f3a408ae855752e870cc6f4dceca1b93540b8e3cffaa92edc05294b89de821",
+}
 
 
 class PowerShellScriptBlockLoggingValidator(BaseActiveValidator):
@@ -101,7 +108,27 @@ def _run_contract_script(
     """Execute one JSON-only PowerShell contract script."""
 
     started_at, started_clock = utc_start()
-    script = SCRIPT_DIR / script_name
+    script = (SCRIPT_DIR / script_name).resolve()
+    trusted_root = SCRIPT_DIR.resolve()
+    if script.parent != trusted_root or script_name not in TRUSTED_SCRIPT_HASHES:
+        return validator.result(
+            context,
+            ActiveValidationStatus.BLOCKED_BY_SAFETY_POLICY,
+            started_at,
+            started_clock,
+            error_code="UNTRUSTED_POWERSHELL_SCRIPT",
+            error_summary="PowerShell script is outside the trusted package",
+        )
+    script_digest = hashlib.sha256(script.read_bytes()).hexdigest()
+    if script_digest != TRUSTED_SCRIPT_HASHES[script_name]:
+        return validator.result(
+            context,
+            ActiveValidationStatus.BLOCKED_BY_SAFETY_POLICY,
+            started_at,
+            started_clock,
+            error_code="POWERSHELL_SCRIPT_DIGEST_MISMATCH",
+            error_summary="PowerShell script integrity verification failed",
+        )
     input_path = Path(context.temporary_directory) / "powershell-input.json"
     input_path.write_text(
         json.dumps(
@@ -195,6 +222,11 @@ def _run_contract_script(
         status,
         started_at,
         started_clock,
-        evidence=evidence,
+        evidence=evidence + [{
+            "evidenceType": "EXECUTION_HARNESS",
+            "executionPolicyBypassUsed": True,
+            "scriptDigestVerified": True,
+            "persistentExecutionPolicyChanged": False,
+        }],
         limitations=limitations,
     )

@@ -12,5 +12,16 @@
   "defaultValidatorTimeoutSeconds": 20,
   "requireExplicitAuthorization": true,
   "redactSensitivePaths": true,
-  "retainRawEventData": false
+  "retainRawEventData": false,
+  "allowDeepResponderValidation": false,
+  "allowNameResolutionResponses": false,
+  "allowAuthenticationChallenges": false,
+  "allowTemporaryNetworkListeners": false,
+  "allowTemporaryFirewallChanges": false,
+  "allowSyntheticCredentialFlow": false,
+  "allowRealCredentialObservation": false,
+  "allowCredentialMaterialRetention": false,
+  "allowCredentialRelay": false,
+  "allowHashCracking": false,
+  "allowExternalTargets": false
 }

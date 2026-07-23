@@ -31,6 +31,11 @@ from active_validation.cleanup import (
     CleanupRegistry,
 )
 from active_validation.enums import ActiveValidationStatus, RiskLevel
+from active_validation.evidence import (
+    SensitiveEvidenceError,
+    validate_evidence,
+    validate_output_text,
+)
 from active_validation.models import (
     ActiveValidationResult,
     RegistryEntry,
@@ -93,18 +98,20 @@ class ValidationExecutor:
         payload_path = run_dir / "worker-input.json"
         stdout_path = run_dir / "stdout.json"
         stderr_path = run_dir / "stderr.log"
+        payload = {
+            "entry": {
+                "module": entry.module,
+                "className": entry.class_name,
+            },
+            "context": _context_to_dict(context),
+            "plan": _plan_to_dict(plan),
+        }
+        validate_evidence([{
+            "transportObservation": context.transport_observation,
+            "testIdentity": context.test_identity,
+        }])
         payload_path.write_text(
-            json.dumps(
-                {
-                    "entry": {
-                        "module": entry.module,
-                        "className": entry.class_name,
-                    },
-                    "context": _context_to_dict(context),
-                    "plan": _plan_to_dict(plan),
-                },
-                separators=(",", ":"),
-            ),
+            json.dumps(payload, separators=(",", ":")),
             encoding="utf-8",
         )
         started_at = datetime.now(timezone.utc).isoformat()
@@ -178,9 +185,13 @@ class ValidationExecutor:
             )
         else:
             try:
+                stdout_text = stdout_path.read_text(encoding="utf-8")
+                stderr_text = stderr_path.read_text(encoding="utf-8")
+                validate_output_text(stdout_text)
+                validate_output_text(stderr_text)
                 result = _result_from_dict(
                     json.loads(
-                        stdout_path.read_text(encoding="utf-8"),
+                        stdout_text,
                         object_pairs_hook=_reject_duplicates,
                     )
                 )
@@ -190,6 +201,18 @@ class ValidationExecutor:
                     or result.validator_version != plan.validator_version
                 ):
                     raise ValueError("Worker result identity mismatch")
+            except SensitiveEvidenceError:
+                cleanup = self._rollback_in_recovery(payload_path, run_dir, plan)
+                result = _failure_result(
+                    context,
+                    plan,
+                    ActiveValidationStatus.ERROR,
+                    started_at,
+                    started_clock,
+                    cleanup,
+                    "SENSITIVE_WORKER_OUTPUT_BLOCKED",
+                    "Worker output violated the sensitive-data policy",
+                )
             except (OSError, UnicodeError, ValueError, KeyError, TypeError):
                 cleanup = self._rollback_in_recovery(payload_path, run_dir, plan)
                 result = _failure_result(
@@ -410,6 +433,11 @@ def _context_to_dict(context: ValidationContext) -> dict[str, Any]:
         "passiveResults": context.passive_results,
         "priorResults": context.prior_results,
         "policy": context.policy,
+        "authorizationScope": context.authorization_scope,
+        "authorizationPermissions": context.authorization_permissions,
+        "testIdentity": context.test_identity,
+        "profile": context.profile,
+        "transportObservation": context.transport_observation,
     }
 
 
@@ -425,6 +453,7 @@ def _plan_to_dict(plan: ValidationPlan) -> dict[str, Any]:
         "requiresRollback": plan.requires_rollback,
         "temporaryObjectPrefix": plan.temporary_object_prefix,
         "sequence": plan.sequence,
+        "profile": plan.profile,
     }
 
 

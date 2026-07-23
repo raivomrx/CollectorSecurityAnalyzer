@@ -2,12 +2,24 @@
 
 Validate policy and authorization before an assessment, then create a deterministic
 plan. Prefer explicit validator IDs. Profiles are also explicit selections:
-`safe-read-only`, `safe-local`, and `controlled-temporary`.
+`safe-read-only`, `safe-local`, `controlled-temporary`, and the separately gated
+`deep-responder-validation`.
+
+Preview the plan first and pass its `planDigest` back to `run` with
+`--require-plan-digest`. A mismatch stops before validators or the audit lifecycle
+start. The planner expands formal dependencies, rejects unknown, disabled,
+unauthorized, policy-blocked, or risk-escalating dependencies, and applies a
+stable topological order.
 
 Audit events are append-only JSONL entries linked by `previousEntryHash` and
 `entryHash`. Events include authorization/policy digests, plan IDs, validator
 status, duration, and cleanup status, but no raw evidence. `verify-audit` rejects
 tampering, broken links, and incomplete lifecycle logs.
+
+PowerShell validators use process-scoped `-ExecutionPolicy Bypass` only for a
+canonical script inside the trusted CSA package after its SHA-256 digest matches
+the packaged allowlist. CSA never changes persistent Execution Policy. The audit
+records that the harness used Bypass.
 
 Crash cleanup operates only on tracked allowlisted objects whose names begin with
 `CSA-VALIDATION-` and exceed the configured age. It is dry-run unless `--apply` is

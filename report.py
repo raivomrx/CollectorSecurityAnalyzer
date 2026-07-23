@@ -20,6 +20,8 @@ from risk import AuditFinding
 from compliance.models import ComplianceSummary
 from cve.enrichment_models import EnrichedCveScanSummary
 from cve.models import ApplicabilityStatus, CveScanSummary
+from active_validation.evidence import validate_evidence
+from active_validation.serialization import active_run_to_dict
 from rules.metadata import RuleMetadata
 from policies.loader import WindowsEndpointPolicy
 from software.models import SoftwareInventory, SoftwareProduct
@@ -68,6 +70,8 @@ def generate_html_report(
     environment.filters["safe_reference"] = _safe_reference
     template = environment.get_template(REPORT_TEMPLATE)
     collection_quality = _build_collection_quality(collector_document, privacy_mode)
+    if active_validation is not None:
+        validate_evidence([active_run_to_dict(active_validation)])
     html = template.render(
         data=data,
         summary=_build_summary(data, audit_findings, score, privacy_mode),

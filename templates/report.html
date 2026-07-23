@@ -192,6 +192,11 @@
           <div><span>Run ID</span><strong>{{ active_validation.run_id or "Not created" }}</strong></div>
           <div><span>Assessment</span><strong>{{ active_validation.assessment_id or "Not available" }}</strong></div>
           <div><span>Policy digest</span><strong class="digest">{{ active_validation.policy_digest or "Not available" }}</strong></div>
+          <div><span>Plan digest</span><strong class="digest">{{ active_validation.plan_digest or "Not available" }}</strong></div>
+          <div><span>Assessment depth</span><strong>{{ active_validation.assessment_depth }}</strong></div>
+          <div><span>Audit verification</span><strong>{{ active_validation.audit_verification_status }}</strong></div>
+          <div><span>Audit entries</span><strong>{{ active_validation.audit_entry_count }}</strong></div>
+          <div><span>Final audit hash</span><strong class="digest">{{ active_validation.final_audit_entry_hash or "Not available" }}</strong></div>
           <div><span>Planned validators</span><strong>{{ active_validation.summary.planned }}</strong></div>
           <div><span>Executed validators</span><strong>{{ active_validation.summary.executed }}</strong></div>
           <div><span>Passed</span><strong>{{ active_validation.summary.passed }}</strong></div>
@@ -256,19 +261,46 @@
         {% endif %}
 
         <h3>Responder Attack Surface</h3>
-        <p class="muted">
-          This assessment used no spoofed LLMNR or NBT-NS responses, no rogue WPAD
-          server, no SMB or HTTP authentication challenge, and retained no packet capture
-          or credential material.
-        </p>
-        <p class="muted">
-          CSA did not send a spoofed name-resolution response, request authentication,
-          generate NetNTLM material, or store credentials.
-        </p>
-        <p class="muted">
-          CSA ei saatnud võltsitud nimeeraldusvastust, ei küsinud autentimist,
-          ei genereerinud NetNTLM-materjali ega salvestanud kasutajatunnuseid.
-        </p>
+        {% if active_validation.assessment_depth == "DEEP_VALIDATION" %}
+          <p class="muted">
+            Deep validation uses one exact assessment marker and an authorized test
+            identity. Credential material is not retained, relayed, or cracked.
+          </p>
+        {% else %}
+          <p class="muted">
+            Safe observation sent no name-resolution response or authentication
+            challenge and retained no credential material.
+          </p>
+        {% endif %}
+        {% set deep = namespace(response=false, challenge=false, identity=false, attempt=false, protocol="Not observed", retained=false, relay=false, cracking=false, cleanup="Not run") %}
+        {% for result in active_validation.results %}
+          {% if result.validator_id == "VAL-RESPONDER-DEEP-001" %}
+            {% set deep.cleanup = "FAILED" if result.cleanup.manual_cleanup_required else ("COMPLETE" if result.cleanup.completed else "INCOMPLETE") %}
+            {% for evidence in result.evidence %}
+              {% if evidence.evidenceType == "RESPONDER_DEEP_VALIDATION" %}
+                {% set deep.response = evidence.nameResolutionResponseSent %}
+                {% set deep.challenge = evidence.authenticationChallengeIssued %}
+                {% set deep.identity = evidence.authorizedTestIdentityUsed %}
+                {% set deep.attempt = evidence.authenticationAttemptObserved %}
+                {% set deep.protocol = evidence.protocol or "Not observed" %}
+                {% set deep.retained = evidence.credentialMaterialRetained %}
+                {% set deep.relay = evidence.relayAttempted %}
+                {% set deep.cracking = evidence.crackingAttempted %}
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+        {% endfor %}
+        <div class="summary-grid compact">
+          <div><span>Name-resolution response sent</span><strong>{{ deep.response }}</strong></div>
+          <div><span>Authentication challenge issued</span><strong>{{ deep.challenge }}</strong></div>
+          <div><span>Authorized test identity used</span><strong>{{ deep.identity }}</strong></div>
+          <div><span>Authentication attempt observed</span><strong>{{ deep.attempt }}</strong></div>
+          <div><span>Authentication protocol</span><strong>{{ deep.protocol }}</strong></div>
+          <div><span>Credential material retained</span><strong>{{ deep.retained }}</strong></div>
+          <div><span>Relay attempted</span><strong>{{ deep.relay }}</strong></div>
+          <div><span>Cracking attempted</span><strong>{{ deep.cracking }}</strong></div>
+          <div><span>Cleanup status</span><strong>{{ deep.cleanup }}</strong></div>
+        </div>
         {% if active_validation.responder_exposure %}
           {% set responder = active_validation.responder_exposure %}
           <div class="summary-grid compact">

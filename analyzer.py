@@ -76,6 +76,7 @@ def analyze_file(
     active_authorization: str | Path | None = None,
     active_validators: list[str] | None = None,
     active_profile: str | None = None,
+    active_plan_digest: str | None = None,
 ) -> tuple[list[AuditFinding], int, SoftwareInventory, Path]:
     """Analyze a collector JSON file and generate an HTML report."""
 
@@ -125,6 +126,7 @@ def analyze_file(
         authorization_path=active_authorization,
         validators=active_validators,
         profile=active_profile,
+        required_plan_digest=active_plan_digest,
     )
 
     score = calculate_score(findings)
@@ -193,6 +195,7 @@ def _run_active_validation(
     authorization_path: str | Path | None,
     validators: list[str] | None,
     profile: str | None,
+    required_plan_digest: str | None,
 ) -> ActiveValidationRun:
     """Run active validation only with explicit policy and authorization."""
 
@@ -233,6 +236,7 @@ def _run_active_validation(
         requested_validator_ids=validators or [],
         audit_path=audit_path,
         profile=profile,
+        required_plan_digest=required_plan_digest,
     )
 
 
@@ -558,8 +562,17 @@ def main() -> None:
     )
     argument_parser.add_argument(
         "--active-profile",
-        choices=["safe-read-only", "safe-local", "controlled-temporary"],
+        choices=[
+            "safe-read-only",
+            "safe-local",
+            "controlled-temporary",
+            "deep-responder-validation",
+        ],
         help="Explicit active validation risk profile",
+    )
+    argument_parser.add_argument(
+        "--require-plan-digest",
+        help="Require the exact previously previewed active validation plan",
     )
     args = argument_parser.parse_args()
 
@@ -619,6 +632,7 @@ def main() -> None:
         active_authorization=args.active_authorization,
         active_validators=args.validator,
         active_profile=args.active_profile,
+        active_plan_digest=args.require_plan_digest,
     )
 
 

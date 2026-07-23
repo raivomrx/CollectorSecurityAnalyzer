@@ -13,5 +13,17 @@ The target hostname must exactly match `scope.deviceIdentifiers`, and every plan
 validator must be present in `scope.validatorIds`. CSA never auto-elevates and does
 not infer authorization from administrator privileges.
 
+Deep validation additionally requires exact `networkInterfaces`,
+`allowedSourceAddresses`, `allowedTargetAddresses`, and `allowedProtocols`.
+Name-resolution response, authentication challenge, temporary listener, and
+temporary firewall change are separate permissions. Credential retention, relay,
+and cracking must all be false.
+
+Use `DEDICATED_TEST_ACCOUNT` or `SYNTHETIC_LOCAL_ACCOUNT` by default. Current-user
+and machine-account observation need their own explicit permission. Authorization
+contains only a `secret://...` or `secure-runtime-reference`; plaintext passwords
+and password-like fields are rejected. The worker receives a one-way identity hash
+but never the credential reference.
+
 Use a short expiry and the smallest practical validator scope. The example file is
 illustrative and must be replaced for each assessment.

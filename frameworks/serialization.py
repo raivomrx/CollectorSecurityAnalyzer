@@ -35,9 +35,12 @@ def write_analysis_json(
         "frameworkEvaluations": [evaluation_to_dict(item) for item in evaluations],
     }
     if active_validation is not None:
+        from active_validation.evidence import validate_evidence
         from active_validation.serialization import active_run_to_dict
 
-        document["activeValidation"] = active_run_to_dict(active_validation)
+        serialized_run = active_run_to_dict(active_validation)
+        validate_evidence([serialized_run])
+        document["activeValidation"] = serialized_run
     output.write_text(json.dumps(document, indent=2, ensure_ascii=False), encoding="utf-8")
     return output
 

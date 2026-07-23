@@ -17,7 +17,18 @@
     "defaultValidatorTimeoutSeconds",
     "requireExplicitAuthorization",
     "redactSensitivePaths",
-    "retainRawEventData"
+    "retainRawEventData",
+    "allowDeepResponderValidation",
+    "allowNameResolutionResponses",
+    "allowAuthenticationChallenges",
+    "allowTemporaryNetworkListeners",
+    "allowTemporaryFirewallChanges",
+    "allowSyntheticCredentialFlow",
+    "allowRealCredentialObservation",
+    "allowCredentialMaterialRetention",
+    "allowCredentialRelay",
+    "allowHashCracking",
+    "allowExternalTargets"
   ],
   "properties": {
     "schemaVersion": {"const": "1.0"},
@@ -38,5 +49,16 @@
     "requireExplicitAuthorization": {"const": true},
     "redactSensitivePaths": {"type": "boolean"},
     "retainRawEventData": {"const": false}
+    ,"allowDeepResponderValidation": {"type": "boolean", "default": false}
+    ,"allowNameResolutionResponses": {"type": "boolean", "default": false}
+    ,"allowAuthenticationChallenges": {"type": "boolean", "default": false}
+    ,"allowTemporaryNetworkListeners": {"type": "boolean", "default": false}
+    ,"allowTemporaryFirewallChanges": {"type": "boolean", "default": false}
+    ,"allowSyntheticCredentialFlow": {"type": "boolean", "default": false}
+    ,"allowRealCredentialObservation": {"const": false}
+    ,"allowCredentialMaterialRetention": {"const": false}
+    ,"allowCredentialRelay": {"const": false}
+    ,"allowHashCracking": {"const": false}
+    ,"allowExternalTargets": {"const": false}
   }
 }

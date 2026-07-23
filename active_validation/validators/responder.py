@@ -73,13 +73,13 @@ class _RegistryPolicyValidator(BaseActiveValidator):
 
 
 class WpadExposureValidator(_RegistryPolicyValidator):
-    """Read machine WPAD policy without starting a server or resolving a name."""
+    """Resolve bounded WPAD policy evidence without starting a rogue service."""
 
     definition = ValidatorDefinition(
         validator_id="VAL-WPAD-EXPOSURE-001",
         version="1.0.0",
         title="WPAD policy exposure",
-        description="Reads machine auto-proxy policy only.",
+        description="Correlates machine, collected user, service, and policy evidence.",
         supported_rule_ids=("PROTO-003",),
         supported_platforms=("windows",),
         required_privileges=("STANDARD_USER",),
@@ -90,9 +90,11 @@ class WpadExposureValidator(_RegistryPolicyValidator):
         default_timeout_seconds=10,
         maximum_timeout_seconds=20,
         required_capabilities=("REGISTRY_READ",),
-        evidence_produced=("BOOLEAN_OBSERVATION", "PROVENANCE"),
+        evidence_produced=("WPAD_POLICY_STATE", "PROVENANCE"),
         safety_constraints=("NO_ROGUE_SERVER", "NO_NAME_RESOLUTION"),
         domain="RESPONDER_EXPOSURE",
+        produced_evidence_types=("WPAD_POLICY_STATE",),
+        execution_order=300,
     )
     registry_queries = (
         (
@@ -112,13 +114,39 @@ class WpadExposureValidator(_RegistryPolicyValidator):
         """Report whether machine policy explicitly disables WPAD."""
 
         disabled = observations["disableWpad"] == 1
-        known = observations["disableWpad"] is not None
+        settings = _settings_by_id(context.passive_data)
+        auto_detect = _setting_value(settings, "WININET_AUTODETECT")
+        auto_config_url = _setting_value(settings, "WININET_AUTOCONFIG_URL")
+        web_client = _setting_value(settings, "WEBCLIENT_SERVICE_STATE")
+        win_http = _setting_value(settings, "WINHTTP_PROXY_CONFIGURATION")
+        policy_sources = [
+            item for item in (
+                "LOCAL_MACHINE_DISABLE_FLAG"
+                if observations["disableWpad"] is not None else None,
+                "WININET_USER_POLICY" if auto_detect is not None else None,
+                "AUTOCONFIG_POLICY" if auto_config_url is not None else None,
+                "WINHTTP_CONFIGURATION" if win_http is not None else None,
+                "WEBCLIENT_SERVICE" if web_client is not None else None,
+            )
+            if item
+        ]
+        known = bool(policy_sources)
+        exposed = (
+            not disabled
+            and (
+                auto_detect is True
+                or bool(auto_config_url)
+                or str(web_client).casefold() in {"running", "enabled", "automatic"}
+            )
+        )
         if not known:
             status = ActiveValidationStatus.INCONCLUSIVE
         elif disabled:
             status = ActiveValidationStatus.PASSED
-        else:
+        elif exposed or observations["disableWpad"] == 0:
             status = ActiveValidationStatus.FAILED
+        else:
+            status = ActiveValidationStatus.INCONCLUSIVE
         return self.result(
             context,
             status,
@@ -128,7 +156,18 @@ class WpadExposureValidator(_RegistryPolicyValidator):
                 "evidenceType": "WPAD_POLICY",
                 "explicitlyDisabled": disabled,
                 "machinePolicyKnown": known,
-                "provenance": "LOCAL_MACHINE_POLICY",
+                "autoDetectEnabled": auto_detect is True,
+                "autoConfigUrlConfigured": bool(auto_config_url),
+                "webClientEnabled": str(web_client).casefold() in {
+                    "running", "enabled", "automatic"
+                },
+                "winHttpConfigurationKnown": win_http is not None,
+                "policySources": policy_sources,
+                "precedenceConfirmed": any(
+                    item in {"WININET_USER_POLICY", "AUTOCONFIG_POLICY"}
+                    for item in policy_sources
+                ),
+                "provenance": "CANONICAL_WPAD_RESOLVER",
             }],
             limitations=[] if known else ["No explicit machine policy was available."],
         )
@@ -155,6 +194,8 @@ class NtlmPolicyValidator(_RegistryPolicyValidator):
         evidence_produced=("POLICY_STATE", "PROVENANCE"),
         safety_constraints=("NO_AUTHENTICATION", "NO_CREDENTIAL_MATERIAL"),
         domain="RESPONDER_EXPOSURE",
+        produced_evidence_types=("AUTHENTICATION_POLICY",),
+        execution_order=100,
     )
     registry_queries = (
         (
@@ -174,20 +215,74 @@ class NtlmPolicyValidator(_RegistryPolicyValidator):
         """Classify local policy conservatively."""
 
         value = observations["compatibilityLevel"]
-        state = "UNKNOWN"
+        settings = _settings_by_id(context.passive_data)
+        source_candidates = (
+            ("NTLM_MDM_POLICY", "MDM_POLICY"),
+            ("NTLM_DOMAIN_POLICY", "DOMAIN_POLICY"),
+            ("NTLM_OUTGOING_POLICY", "GROUP_POLICY_RESULT"),
+            ("NTLM_INCOMING_POLICY", "GROUP_POLICY_RESULT"),
+            ("NTLM_AUDIT_POLICY", "AUDIT_POLICY"),
+        )
+        sources = []
+        effective_value = None
+        for setting_id, source_class in source_candidates:
+            if setting_id in settings:
+                sources.append({
+                    "sourceClass": source_class,
+                    "settingId": setting_id,
+                })
+                if effective_value is None:
+                    effective_value = settings[setting_id].get("effectiveValue")
         if isinstance(value, int):
-            state = "LEGACY_ALLOWED" if value < 5 else "RESTRICTED_LOCAL"
+            sources.append({
+                "sourceClass": "REGISTRY_FALLBACK",
+                "settingId": "LM_COMPATIBILITY_LEVEL",
+            })
+        effective_confirmed = any(
+            item["sourceClass"] in {
+                "MDM_POLICY",
+                "DOMAIN_POLICY",
+                "GROUP_POLICY_RESULT",
+            }
+            for item in sources
+        )
+        state = "UNKNOWN"
+        normalized = str(effective_value).casefold()
+        if effective_confirmed:
+            if effective_value in {0, False} or normalized in {
+                "deny", "denied", "blocked", "disabled"
+            }:
+                state = "DENIED"
+            elif normalized in {"audit", "audit_only"}:
+                state = "AUDIT_ONLY"
+            elif normalized in {"exceptions", "restricted_with_exceptions"}:
+                state = "RESTRICTED_WITH_EXCEPTIONS"
+            else:
+                state = "PERMITTED"
         return self.result(
             context,
-            ActiveValidationStatus.INCONCLUSIVE,
+            (
+                ActiveValidationStatus.PASSED
+                if effective_confirmed and state == "DENIED"
+                else ActiveValidationStatus.INCONCLUSIVE
+            ),
             started_at,
             started_clock,
             evidence=[{
                 "evidenceType": "AUTHENTICATION_POLICY",
+                "state": state,
                 "policyState": state,
                 "numericLevel": value if isinstance(value, int) else None,
-                "provenance": "LOCAL_POLICY",
-                "effectivePolicyConfirmed": False,
+                "sources": sources,
+                "precedence": [
+                    "MDM_POLICY",
+                    "DOMAIN_POLICY",
+                    "GROUP_POLICY_RESULT",
+                    "LOCAL_POLICY",
+                    "REGISTRY_FALLBACK",
+                ],
+                "provenance": "CANONICAL_NTLM_POLICY_RESOLVER",
+                "effectivePolicyConfirmed": effective_confirmed,
             }],
             limitations=[
                 "Local policy alone does not prove domain-effective "
@@ -217,6 +312,8 @@ class SmbSigningExposureValidator(_RegistryPolicyValidator):
         evidence_produced=("BOOLEAN_OBSERVATION", "PROVENANCE"),
         safety_constraints=("NO_SESSION", "NO_AUTHENTICATION_CHALLENGE"),
         domain="RESPONDER_EXPOSURE",
+        produced_evidence_types=("SMB_SIGNING_POLICY",),
+        execution_order=200,
     )
     registry_queries = (
         (
@@ -258,6 +355,10 @@ class SmbSigningExposureValidator(_RegistryPolicyValidator):
                 "evidenceType": "SMB_SIGNING_POLICY",
                 "clientRequired": client,
                 "serverRequired": server,
+                "outboundClientSigningRequired": client,
+                "inboundServerSigningRequired": server,
+                "outboundRelayMitigated": client,
+                "inboundRelayMitigated": server,
                 "policyKnown": known,
                 "provenance": "LOCAL_MACHINE_POLICY",
             }],
@@ -297,6 +398,24 @@ class ResponderExposureValidator(BaseActiveValidator):
             "NO_CREDENTIAL_MATERIAL",
         ),
         domain="RESPONDER_EXPOSURE",
+        depends_on_validator_ids=(
+            "VAL-NTLM-POLICY-001",
+            "VAL-SMB-SIGNING-EXPOSURE-001",
+            "VAL-WPAD-EXPOSURE-001",
+        ),
+        optional_dependency_ids=(
+            "VAL-LLMNR-OBSERVE-001",
+            "VAL-NBTNS-OBSERVE-001",
+            "VAL-OUTBOUND-SMB-PATH-001",
+            "VAL-RESPONDER-DEEP-001",
+        ),
+        required_evidence_types=(
+            "AUTHENTICATION_POLICY",
+            "SMB_SIGNING_POLICY",
+            "WPAD_POLICY_STATE",
+        ),
+        produced_evidence_types=("ATTACK_PATH_SUMMARY", "CONFIDENCE"),
+        execution_order=1000,
     )
 
     def execute(
@@ -311,6 +430,14 @@ class ResponderExposureValidator(BaseActiveValidator):
             item.get("validatorId"): item for item in context.prior_results
             if isinstance(item, dict)
         }
+        deep_exposure = _evidence_value(
+            indexed.get("VAL-RESPONDER-DEEP-001"),
+            "exposureStatus",
+        )
+        deep_protocol = _evidence_value(
+            indexed.get("VAL-RESPONDER-DEEP-001"),
+            "protocol",
+        )
         classic_observation_ids = {
             "VAL-LLMNR-OBSERVE-001",
             "VAL-NBTNS-OBSERVE-001",
@@ -333,9 +460,21 @@ class ResponderExposureValidator(BaseActiveValidator):
         )
         auth_permitted = auth_effective and auth_state == "PERMITTED"
         auth_denied = auth_effective and auth_state in {
+            "DENIED",
             "DENIED_EFFECTIVE",
             "RESTRICTED_EFFECTIVE",
         }
+        wpad_disabled = _evidence_value(
+            indexed.get("VAL-WPAD-EXPOSURE-001"),
+            "explicitlyDisabled",
+        )
+        wpad_known = (
+            _evidence_value(
+                indexed.get("VAL-WPAD-EXPOSURE-001"),
+                "machinePolicyKnown",
+            )
+            is True
+        )
         path_value = _evidence_value(
             indexed.get("VAL-OUTBOUND-SMB-PATH-001"),
             "pathReachable",
@@ -356,7 +495,8 @@ class ResponderExposureValidator(BaseActiveValidator):
         )
         client_signing = client_signing_value is True
         server_signing = server_signing_value is True
-        signing_required = client_signing and server_signing
+        outbound_relay_mitigated = client_signing
+        inbound_relay_mitigated = server_signing
         config_likely = _passive_true(
             context.passive_data,
             "LLMNR_ENABLED",
@@ -369,12 +509,44 @@ class ResponderExposureValidator(BaseActiveValidator):
         risk = ResponderRiskLevel.UNKNOWN
         active_status = ActiveValidationStatus.INCONCLUSIVE
         confidence = 35
-        if (
+        if deep_exposure == "EXPOSURE_CONFIRMED":
+            status, risk, active_status, confidence = (
+                ResponderExposureStatus.EXPOSURE_CONFIRMED,
+                (
+                    ResponderRiskLevel.MEDIUM
+                    if outbound_relay_mitigated
+                    else ResponderRiskLevel.HIGH
+                ),
+                ActiveValidationStatus.FAILED,
+                98,
+            )
+        elif deep_exposure == "EXPOSURE_LIKELY":
+            status, risk, active_status, confidence = (
+                ResponderExposureStatus.EXPOSURE_LIKELY,
+                ResponderRiskLevel.MEDIUM,
+                ActiveValidationStatus.FAILED,
+                80,
+            )
+        elif deep_exposure == "EXPOSURE_PARTIALLY_MITIGATED":
+            status, risk, active_status, confidence = (
+                ResponderExposureStatus.EXPOSURE_PARTIALLY_MITIGATED,
+                ResponderRiskLevel.LOW,
+                ActiveValidationStatus.INCONCLUSIVE,
+                88,
+            )
+        elif deep_exposure == "EXPOSURE_NOT_OBSERVED":
+            status, risk, active_status, confidence = (
+                ResponderExposureStatus.EXPOSURE_NOT_OBSERVED,
+                ResponderRiskLevel.LOW,
+                ActiveValidationStatus.PASSED,
+                92,
+            )
+        elif (
             legacy_observed
             and auth_permitted
             and path_available
             and signing_known
-            and not signing_required
+            and not outbound_relay_mitigated
         ):
             status, risk, active_status, confidence = (
                 ResponderExposureStatus.EXPOSURE_CONFIRMED,
@@ -393,7 +565,7 @@ class ResponderExposureValidator(BaseActiveValidator):
             config_likely
             and auth_permitted
             and signing_known
-            and not signing_required
+            and not outbound_relay_mitigated
         ):
             status, risk, active_status, confidence = (
                 ResponderExposureStatus.EXPOSURE_LIKELY,
@@ -401,14 +573,14 @@ class ResponderExposureValidator(BaseActiveValidator):
                 ActiveValidationStatus.FAILED,
                 70,
             )
-        elif legacy_observed and auth_denied and signing_required:
+        elif legacy_observed and auth_denied and outbound_relay_mitigated:
             status, risk, active_status, confidence = (
                 ResponderExposureStatus.EXPOSURE_PARTIALLY_MITIGATED,
                 ResponderRiskLevel.LOW,
                 ActiveValidationStatus.INCONCLUSIVE,
                 80,
             )
-        elif legacy_not_observed and auth_denied and signing_required:
+        elif legacy_not_observed and auth_denied and outbound_relay_mitigated:
             status, risk, active_status, confidence = (
                 ResponderExposureStatus.EXPOSURE_NOT_OBSERVED,
                 ResponderRiskLevel.LOW,
@@ -425,8 +597,10 @@ class ResponderExposureValidator(BaseActiveValidator):
         mitigations = []
         if auth_denied:
             mitigations.append("Integrated authentication effectively restricted")
-        if signing_required:
-            mitigations.append("Client and server signing required")
+        if outbound_relay_mitigated:
+            mitigations.append("Outbound SMB relay mitigated by client signing")
+        if inbound_relay_mitigated:
+            mitigations.append("Local SMB relay mitigated by server signing")
         missing = [
             label
             for validator_id, label in (
@@ -435,6 +609,7 @@ class ResponderExposureValidator(BaseActiveValidator):
                 ("VAL-NTLM-POLICY-001", "effective authentication policy"),
                 ("VAL-SMB-SIGNING-EXPOSURE-001", "SMB signing policy"),
                 ("VAL-OUTBOUND-SMB-PATH-001", "outbound service path"),
+                ("VAL-WPAD-EXPOSURE-001", "WPAD policy"),
             )
             if (
                 validator_id not in indexed
@@ -450,6 +625,10 @@ class ResponderExposureValidator(BaseActiveValidator):
                     validator_id == "VAL-OUTBOUND-SMB-PATH-001"
                     and not path_known
                 )
+                or (
+                    validator_id == "VAL-WPAD-EXPOSURE-001"
+                    and not wpad_known
+                )
             )
         ]
         attack_paths = []
@@ -458,9 +637,50 @@ class ResponderExposureValidator(BaseActiveValidator):
                 "path": "LEGACY_NAME_RESOLUTION_TO_INTEGRATED_AUTH",
                 "observation": "CONFIRMED" if legacy_observed else "CONFIGURATION_ONLY",
                 "mitigation": (
-                    "SIGNING_REQUIRED"
-                    if signing_required
+                    "OUTBOUND_CLIENT_SIGNING_REQUIRED"
+                    if outbound_relay_mitigated
                     else "NOT_CONFIRMED"
+                ),
+            })
+        if deep_exposure:
+            authentication_path = (
+                "RESPONDER_NAME_RESOLUTION_TO_HTTP_NTLM_AUTH"
+                if deep_protocol == "HTTP"
+                else "RESPONDER_NAME_RESOLUTION_TO_OUTBOUND_SMB_AUTH"
+            )
+            attack_paths.extend([
+                {
+                    "path": authentication_path,
+                    "observation": deep_exposure,
+                    "mitigation": (
+                        "CLIENT_SIGNING_REQUIRED"
+                        if outbound_relay_mitigated else "NOT_CONFIRMED"
+                    ),
+                },
+                {
+                    "path": "RELAY_TO_REMOTE_SMB_SERVICE",
+                    "observation": "NOT_ATTEMPTED",
+                    "mitigation": (
+                        "CLIENT_SIGNING_REQUIRED"
+                        if outbound_relay_mitigated else "NOT_CONFIRMED"
+                    ),
+                },
+                {
+                    "path": "RELAY_TO_LOCAL_SMB_SERVER",
+                    "observation": "NOT_ATTEMPTED",
+                    "mitigation": (
+                        "SERVER_SIGNING_REQUIRED"
+                        if inbound_relay_mitigated else "NOT_CONFIRMED"
+                    ),
+                },
+            ])
+        if wpad_known and not wpad_disabled:
+            attack_paths.append({
+                "path": "WPAD_TO_HTTP_NTLM_AUTH",
+                "observation": "POLICY_PATH_PRESENT",
+                "mitigation": (
+                    "NTLM_EFFECTIVELY_DENIED"
+                    if auth_denied else "NOT_CONFIRMED"
                 ),
             })
         evidence = [{
@@ -512,3 +732,24 @@ def _passive_true(data: dict[str, Any], setting_id: str) -> bool:
         if setting.get("settingId") == setting_id:
             return setting.get("effectiveValue") is True
     return False
+
+
+def _settings_by_id(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Index canonical collector settings by ID."""
+
+    settings = data.get("security", {}).get("settings", [])
+    return {
+        str(item.get("settingId")): item
+        for item in settings
+        if isinstance(item, dict) and item.get("settingId")
+    }
+
+
+def _setting_value(
+    settings: dict[str, dict[str, Any]],
+    setting_id: str,
+) -> Any:
+    """Return one canonical setting's effective value."""
+
+    item = settings.get(setting_id)
+    return item.get("effectiveValue") if item else None

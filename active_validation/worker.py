@@ -198,6 +198,11 @@ def _context_from_dict(data: dict[str, Any]) -> ValidationContext:
         passive_results=data.get("passiveResults", {}),
         prior_results=data.get("priorResults", []),
         policy=data.get("policy", {}),
+        authorization_scope=data.get("authorizationScope", {}),
+        authorization_permissions=data.get("authorizationPermissions", {}),
+        test_identity=data.get("testIdentity"),
+        profile=data.get("profile"),
+        transport_observation=data.get("transportObservation"),
     )
 
 
@@ -213,6 +218,7 @@ def _plan_from_dict(data: dict[str, Any]) -> ValidationPlan:
         requires_rollback=bool(data["requiresRollback"]),
         temporary_object_prefix=data["temporaryObjectPrefix"],
         sequence=int(data["sequence"]),
+        profile=data.get("profile"),
     )
 
 

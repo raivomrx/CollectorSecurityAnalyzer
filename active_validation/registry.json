@@ -90,6 +90,14 @@
       "supportedRuleIds": ["PROTO-002", "PROTO-003", "PROTO-004", "PROTO-006"]
     },
     {
+      "validatorId": "VAL-RESPONDER-DEEP-001",
+      "version": "1.0.0",
+      "module": "active_validation.validators.responder_deep",
+      "class": "ResponderDeepValidator",
+      "status": "ACTIVE",
+      "supportedRuleIds": ["PROTO-002", "PROTO-003", "PROTO-004", "PROTO-006"]
+    },
+    {
       "validatorId": "VAL-SMB-SIGNING-EXPOSURE-001",
       "version": "1.0.0",
       "module": "active_validation.validators.responder",

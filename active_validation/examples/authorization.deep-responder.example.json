@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "1.0",
+  "authorized": true,
+  "assessmentId": "CSA-2026-001",
+  "scope": {
+    "deviceIdentifiers": ["HOSTNAME-01"],
+    "validatorIds": [
+      "VAL-NTLM-POLICY-001",
+      "VAL-SMB-SIGNING-EXPOSURE-001",
+      "VAL-WPAD-EXPOSURE-001",
+      "VAL-RESPONDER-DEEP-001",
+      "VAL-RESPONDER-EXPOSURE-001"
+    ],
+    "networkInterfaces": ["Ethernet"],
+    "allowedSourceAddresses": ["192.0.2.10"],
+    "allowedTargetAddresses": ["192.0.2.25"],
+    "allowedProtocols": ["LLMNR", "NBT_NS", "SMB", "HTTP"]
+  },
+  "permissions": {
+    "nameResolutionSpoofing": true,
+    "authenticationChallenge": true,
+    "temporaryListener": true,
+    "temporaryFirewallChange": true,
+    "credentialMaterialRetention": false,
+    "credentialRelay": false,
+    "hashCracking": false
+  },
+  "testIdentity": {
+    "mode": "DEDICATED_TEST_ACCOUNT",
+    "identifier": "CSA-TEST-USER",
+    "credentialReference": "secure-runtime-reference",
+    "authorizedForAuthenticationTest": true
+  },
+  "authorizedBy": "assessment-operator",
+  "authorizedAt": "2026-07-23T08:00:00Z",
+  "expiresAt": "2026-07-23T18:00:00Z",
+  "purpose": "Authorized Responder exposure validation"
+}

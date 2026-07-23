@@ -26,6 +26,31 @@ DEFAULT_POLICY: dict[str, Any] = {
     "requireExplicitAuthorization": True,
     "redactSensitivePaths": True,
     "retainRawEventData": False,
+    "allowDeepResponderValidation": False,
+    "allowNameResolutionResponses": False,
+    "allowAuthenticationChallenges": False,
+    "allowTemporaryNetworkListeners": False,
+    "allowTemporaryFirewallChanges": False,
+    "allowSyntheticCredentialFlow": False,
+    "allowRealCredentialObservation": False,
+    "allowCredentialMaterialRetention": False,
+    "allowCredentialRelay": False,
+    "allowHashCracking": False,
+    "allowExternalTargets": False,
+}
+
+DEEP_POLICY_REQUIREMENTS = {
+    "allowDeepResponderValidation": True,
+    "allowNameResolutionResponses": True,
+    "allowAuthenticationChallenges": True,
+    "allowTemporaryNetworkListeners": True,
+    "allowTemporaryFirewallChanges": True,
+    "allowSyntheticCredentialFlow": True,
+    "allowRealCredentialObservation": False,
+    "allowCredentialMaterialRetention": False,
+    "allowCredentialRelay": False,
+    "allowHashCracking": False,
+    "allowExternalTargets": False,
 }
 
 
@@ -62,9 +87,12 @@ def validate_validator_safety(
         and not policy.allow_temporary_system_changes
     ):
         return False, "Temporary system changes are not allowed"
-    if definition.network_impact == "LOOPBACK_LISTENER" and (
+    if definition.network_impact in {"LOOPBACK_LISTENER", "SCOPED_LISTENER"} and (
         not policy.allow_network_listeners
-        or not policy.allow_loopback_network_tests
+    ):
+        return False, "Network listener is not allowed"
+    if definition.network_impact == "LOOPBACK_LISTENER" and (
+        not policy.allow_loopback_network_tests
     ):
         return False, "Loopback listener is not allowed"
     if (
@@ -72,6 +100,37 @@ def validate_validator_safety(
         and not policy.allow_outbound_network_tests
     ):
         return False, "Outbound network tests are not allowed"
+    return True, ""
+
+
+def validate_deep_responder_policy(policy: SafetyPolicy) -> tuple[bool, str]:
+    """Require every deep-validation permit and every mandatory prohibition."""
+
+    values = {
+        "allowDeepResponderValidation": policy.allow_deep_responder_validation,
+        "allowNameResolutionResponses": policy.allow_name_resolution_responses,
+        "allowAuthenticationChallenges": policy.allow_authentication_challenges,
+        "allowTemporaryNetworkListeners":
+            policy.allow_temporary_network_listeners,
+        "allowTemporaryFirewallChanges":
+            policy.allow_temporary_firewall_changes,
+        "allowSyntheticCredentialFlow": policy.allow_synthetic_credential_flow,
+        "allowRealCredentialObservation":
+            policy.allow_real_credential_observation,
+        "allowCredentialMaterialRetention":
+            policy.allow_credential_material_retention,
+        "allowCredentialRelay": policy.allow_credential_relay,
+        "allowHashCracking": policy.allow_hash_cracking,
+        "allowExternalTargets": policy.allow_external_targets,
+    }
+    missing = [
+        key for key, expected in DEEP_POLICY_REQUIREMENTS.items()
+        if values[key] is not expected
+    ]
+    if not policy.enabled:
+        missing.insert(0, "enabled")
+    if missing:
+        return False, "Deep responder policy gate failed: " + ", ".join(missing)
     return True, ""
 
 
@@ -96,6 +155,17 @@ def _parse_policy(data: dict[str, Any]) -> SafetyPolicy:
         "requireExplicitAuthorization",
         "redactSensitivePaths",
         "retainRawEventData",
+        "allowDeepResponderValidation",
+        "allowNameResolutionResponses",
+        "allowAuthenticationChallenges",
+        "allowTemporaryNetworkListeners",
+        "allowTemporaryFirewallChanges",
+        "allowSyntheticCredentialFlow",
+        "allowRealCredentialObservation",
+        "allowCredentialMaterialRetention",
+        "allowCredentialRelay",
+        "allowHashCracking",
+        "allowExternalTargets",
     ):
         if not isinstance(data[key], bool):
             raise SafetyPolicyError(f"Policy field {key} must be boolean")
@@ -103,6 +173,15 @@ def _parse_policy(data: dict[str, Any]) -> SafetyPolicy:
         raise SafetyPolicyError("Explicit authorization cannot be disabled")
     if data["retainRawEventData"] is True:
         raise SafetyPolicyError("Raw event retention is not supported")
+    for prohibited in (
+        "allowRealCredentialObservation",
+        "allowCredentialMaterialRetention",
+        "allowCredentialRelay",
+        "allowHashCracking",
+        "allowExternalTargets",
+    ):
+        if data[prohibited] is True:
+            raise SafetyPolicyError(f"{prohibited} cannot be enabled")
     try:
         risks = tuple(RiskLevel(value) for value in data["allowedRiskLevels"])
     except (TypeError, ValueError) as error:
@@ -152,4 +231,23 @@ def _parse_policy(data: dict[str, Any]) -> SafetyPolicy:
         redact_sensitive_paths=data["redactSensitivePaths"],
         retain_raw_event_data=data["retainRawEventData"],
         digest=sha256_digest(data),
+        allow_deep_responder_validation=data["allowDeepResponderValidation"],
+        allow_name_resolution_responses=data["allowNameResolutionResponses"],
+        allow_authentication_challenges=data["allowAuthenticationChallenges"],
+        allow_temporary_network_listeners=data[
+            "allowTemporaryNetworkListeners"
+        ],
+        allow_temporary_firewall_changes=data[
+            "allowTemporaryFirewallChanges"
+        ],
+        allow_synthetic_credential_flow=data["allowSyntheticCredentialFlow"],
+        allow_real_credential_observation=data[
+            "allowRealCredentialObservation"
+        ],
+        allow_credential_material_retention=data[
+            "allowCredentialMaterialRetention"
+        ],
+        allow_credential_relay=data["allowCredentialRelay"],
+        allow_hash_cracking=data["allowHashCracking"],
+        allow_external_targets=data["allowExternalTargets"],
     )

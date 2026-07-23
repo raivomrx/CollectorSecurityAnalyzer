@@ -8,9 +8,10 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from active_validation.audit import AuditLog
+from active_validation.audit import AuditLog, audit_verification_summary
 from active_validation.correlation import correlate
 from active_validation.digest import sha256_digest
+from active_validation.deep_protocol import build_run_marker
 from active_validation.enums import ResponderExposureStatus, ResponderRiskLevel
 from active_validation.executor import ValidationExecutor
 from active_validation.models import (
@@ -22,7 +23,7 @@ from active_validation.models import (
     ValidationAuthorization,
     ValidationContext,
 )
-from active_validation.planner import ValidationPlanner
+from active_validation.planner import ValidationPlanner, plan_digest
 from active_validation.registry import ValidatorRegistry
 from active_validation.serialization import active_result_to_dict
 from risk import Finding
@@ -51,6 +52,8 @@ def execute_active_validation(
     registry: ValidatorRegistry | None = None,
     executor: ValidationExecutor | None = None,
     require_related_rule: bool = True,
+    required_plan_digest: str | None = None,
+    transport_observations: dict[str, dict[str, Any]] | None = None,
 ) -> ActiveValidationRun:
     """Plan and execute an explicitly authorized active validation run."""
 
@@ -75,6 +78,12 @@ def execute_active_validation(
             else None
         ),
     )
+    current_plan_digest = plan_digest(plans)
+    if (
+        required_plan_digest is not None
+        and required_plan_digest != current_plan_digest
+    ):
+        raise ValueError("Required plan digest does not match the execution plan")
     audit = AuditLog(audit_path)
     audit.append(
         "authorization_loaded",
@@ -105,7 +114,14 @@ def execute_active_validation(
         assert entry is not None
         audit.append(
             "validator_started",
-            {"runId": run_id, "validatorId": plan.validator_id},
+            {
+                "runId": run_id,
+                "validatorId": plan.validator_id,
+                "executionPolicyBypassUsed": (
+                    "POWERSHELL"
+                    in validator_registry.definition(entry).required_capabilities
+                ),
+            },
         )
         context = ValidationContext(
             schema_version="1.0",
@@ -122,6 +138,16 @@ def execute_active_validation(
             passive_results=passive_results,
             prior_results=[active_result_to_dict(item) for item in results],
             policy=_policy_context(policy),
+            authorization_scope=_authorization_scope_context(authorization),
+            authorization_permissions=_authorization_permissions_context(
+                authorization
+            ),
+            test_identity=_test_identity_context(authorization),
+            profile=profile,
+            transport_observation=_transport_context(
+                (transport_observations or {}).get(plan.validator_id),
+                run_id,
+            ),
         )
         result = validation_executor.execute(entry, plan, context)
         definition = validator_registry.definition(entry)
@@ -175,7 +201,7 @@ def execute_active_validation(
                 )
             )
     completed_at = datetime.now(timezone.utc).isoformat()
-    audit.append(
+    final_hash = audit.append(
         "run_completed",
         {
             "runId": run_id,
@@ -185,6 +211,9 @@ def execute_active_validation(
             ),
         },
     )
+    verification = audit_verification_summary(audit_path)
+    if verification["finalAuditEntryHash"] != final_hash:
+        raise RuntimeError("Audit terminal hash verification failed")
     return ActiveValidationRun(
         run_id=run_id,
         enabled=True,
@@ -202,6 +231,15 @@ def execute_active_validation(
         correlations=correlations,
         responder_exposure=_extract_responder_assessment(results),
         audit_log_path=Path(audit_path).name,
+        plan_digest=current_plan_digest,
+        assessment_depth=(
+            "DEEP_VALIDATION"
+            if profile == "deep-responder-validation"
+            else "SAFE_OBSERVATION"
+        ),
+        final_audit_entry_hash=verification["finalAuditEntryHash"],
+        audit_entry_count=verification["auditEntryCount"],
+        audit_verification_status=verification["auditVerificationStatus"],
     )
 
 
@@ -326,7 +364,90 @@ def _policy_context(policy: SafetyPolicy) -> dict[str, Any]:
         "allowOutboundNetworkTests": policy.allow_outbound_network_tests,
         "allowLoopbackNetworkTests": policy.allow_loopback_network_tests,
         "retainRawEventData": policy.retain_raw_event_data,
+        "allowDeepResponderValidation":
+            policy.allow_deep_responder_validation,
+        "allowNameResolutionResponses":
+            policy.allow_name_resolution_responses,
+        "allowAuthenticationChallenges":
+            policy.allow_authentication_challenges,
+        "allowTemporaryNetworkListeners":
+            policy.allow_temporary_network_listeners,
+        "allowTemporaryFirewallChanges":
+            policy.allow_temporary_firewall_changes,
+        "allowSyntheticCredentialFlow":
+            policy.allow_synthetic_credential_flow,
+        "allowRealCredentialObservation":
+            policy.allow_real_credential_observation,
+        "allowCredentialMaterialRetention":
+            policy.allow_credential_material_retention,
+        "allowCredentialRelay": policy.allow_credential_relay,
+        "allowHashCracking": policy.allow_hash_cracking,
+        "allowExternalTargets": policy.allow_external_targets,
     }
+
+
+def _authorization_scope_context(
+    authorization: ValidationAuthorization,
+) -> dict[str, Any]:
+    """Return explicit network scope for an isolated validator."""
+
+    return {
+        "networkInterfaces": list(authorization.scope.network_interfaces),
+        "allowedSourceAddresses": list(
+            authorization.scope.allowed_source_addresses
+        ),
+        "allowedTargetAddresses": list(
+            authorization.scope.allowed_target_addresses
+        ),
+        "allowedProtocols": list(authorization.scope.allowed_protocols),
+    }
+
+
+def _authorization_permissions_context(
+    authorization: ValidationAuthorization,
+) -> dict[str, bool]:
+    """Return operation booleans without authorization prose or identities."""
+
+    permissions = authorization.permissions
+    return {
+        "nameResolutionSpoofing": permissions.name_resolution_spoofing,
+        "authenticationChallenge": permissions.authentication_challenge,
+        "temporaryListener": permissions.temporary_listener,
+        "temporaryFirewallChange": permissions.temporary_firewall_change,
+        "credentialMaterialRetention": permissions.credential_material_retention,
+        "credentialRelay": permissions.credential_relay,
+        "hashCracking": permissions.hash_cracking,
+    }
+
+
+def _test_identity_context(
+    authorization: ValidationAuthorization,
+) -> dict[str, Any] | None:
+    """Return a hashed test-identity descriptor without its secret reference."""
+
+    identity = authorization.test_identity
+    if identity is None:
+        return None
+    return {
+        "mode": identity.mode.value,
+        "identityHash": f"sha256:{sha256_digest(identity.identifier)}",
+        "authorizedForAuthenticationTest":
+            identity.authorized_for_authentication_test,
+    }
+
+
+def _transport_context(
+    observation: dict[str, Any] | None,
+    run_id: str,
+) -> dict[str, Any] | None:
+    """Bind a controlled integration transport signal to the actual run marker."""
+
+    if observation is None:
+        return None
+    bounded = dict(observation)
+    if bounded.get("queryMarker") == "$CSA_RUN_MARKER":
+        bounded["queryMarker"] = build_run_marker(run_id)
+    return bounded
 
 
 def _extract_responder_assessment(

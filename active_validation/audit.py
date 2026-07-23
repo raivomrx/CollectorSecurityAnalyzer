@@ -84,6 +84,18 @@ def verify_audit_log(path: str | Path) -> int:
     return len(entries)
 
 
+def audit_verification_summary(path: str | Path) -> dict[str, Any]:
+    """Return the verified terminal hash and entry count."""
+
+    entry_count = verify_audit_log(path)
+    final_hash = _last_hash(Path(path))
+    return {
+        "finalAuditEntryHash": final_hash,
+        "auditEntryCount": entry_count,
+        "auditVerificationStatus": "VERIFIED",
+    }
+
+
 def _last_hash(path: Path) -> str | None:
     """Read the final hash without retaining audit contents."""
 

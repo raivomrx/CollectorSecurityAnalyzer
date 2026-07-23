@@ -14,7 +14,7 @@ from active_validation.cleanup import (
     CleanupRegistry,
 )
 from active_validation.engine import execute_active_validation
-from active_validation.planner import ValidationPlanner
+from active_validation.planner import ValidationPlanner, plan_digest
 from active_validation.policy import load_policy
 from active_validation.registry import ValidatorRegistry
 from active_validation.serialization import active_run_to_dict, to_camel_dict
@@ -80,9 +80,14 @@ def main() -> None:
             assessment_id=args.assessment_id,
             profile=args.profile,
         )
-        print(
-            json.dumps(to_camel_dict(plans), indent=2)
-        )
+        print(json.dumps({
+            "planDigest": plan_digest(plans),
+            "profile": args.profile,
+            "deepResponderSummary": _deep_summary(
+                policy, authorization, args.profile
+            ),
+            "plans": to_camel_dict(plans),
+        }, indent=2))
         return
     data = parse_collector_file(args.input)
     run = execute_active_validation(
@@ -96,6 +101,7 @@ def main() -> None:
         profile=args.profile,
         registry=registry,
         require_related_rule=False,
+        required_plan_digest=args.require_plan_digest,
     )
     print(json.dumps(active_run_to_dict(run), indent=2))
 
@@ -133,12 +139,44 @@ def _build_parser() -> argparse.ArgumentParser:
         child.add_argument("--validator", action="append")
         child.add_argument(
             "--profile",
-            choices=["safe-read-only", "safe-local", "controlled-temporary"],
+            choices=[
+                "safe-read-only",
+                "safe-local",
+                "controlled-temporary",
+                "deep-responder-validation",
+            ],
         )
         if command == "run":
             child.add_argument("--input", required=True)
             child.add_argument("--audit", required=True)
+            child.add_argument("--require-plan-digest")
     return parser
+
+
+def _deep_summary(policy, authorization, profile: str | None):
+    """Return a credential-free deep plan summary."""
+
+    if profile != "deep-responder-validation":
+        return None
+    return {
+        "title": "Deep Responder Validation",
+        "nameResolutionResponse": (
+            "ENABLED" if policy.allow_name_resolution_responses else "DISABLED"
+        ),
+        "authenticationChallenge": (
+            "ENABLED" if policy.allow_authentication_challenges else "DISABLED"
+        ),
+        "credentialRelay": "DISABLED",
+        "credentialCracking": "DISABLED",
+        "credentialRetention": "DISABLED",
+        "authorizedInterfaces": list(authorization.scope.network_interfaces),
+        "authorizedTargets": list(
+            authorization.scope.allowed_target_addresses
+        ),
+        "temporaryListener": policy.allow_temporary_network_listeners,
+        "temporaryFirewallRule": policy.allow_temporary_firewall_changes,
+        "rollbackRequired": True,
+    }
 
 
 if __name__ == "__main__":

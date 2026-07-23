@@ -90,3 +90,12 @@ class ResponderRiskLevel(str, Enum):
     LOW = "LOW"
     INFORMATIONAL = "INFORMATIONAL"
     UNKNOWN = "UNKNOWN"
+
+
+class TestIdentityMode(str, Enum):
+    """Describe an explicitly authorized deep-validation identity."""
+
+    DEDICATED_TEST_ACCOUNT = "DEDICATED_TEST_ACCOUNT"
+    SYNTHETIC_LOCAL_ACCOUNT = "SYNTHETIC_LOCAL_ACCOUNT"
+    EXPLICIT_CURRENT_USER_TEST = "EXPLICIT_CURRENT_USER_TEST"
+    MACHINE_ACCOUNT_OBSERVATION = "MACHINE_ACCOUNT_OBSERVATION"

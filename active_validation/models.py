@@ -12,6 +12,7 @@ from active_validation.enums import (
     ResponderRiskLevel,
     RiskLevel,
     ValidatorStatus,
+    TestIdentityMode,
 )
 
 
@@ -36,6 +37,11 @@ class ValidatorDefinition:
     evidence_produced: tuple[str, ...]
     safety_constraints: tuple[str, ...]
     domain: str = "GENERAL"
+    depends_on_validator_ids: tuple[str, ...] = ()
+    optional_dependency_ids: tuple[str, ...] = ()
+    required_evidence_types: tuple[str, ...] = ()
+    produced_evidence_types: tuple[str, ...] = ()
+    execution_order: int = 100
 
 
 @dataclass(slots=True, frozen=True)
@@ -68,6 +74,11 @@ class ValidationContext:
     passive_results: dict[str, str]
     prior_results: list[dict[str, Any]]
     policy: dict[str, Any]
+    authorization_scope: dict[str, Any] = field(default_factory=dict)
+    authorization_permissions: dict[str, bool] = field(default_factory=dict)
+    test_identity: dict[str, Any] | None = None
+    profile: str | None = None
+    transport_observation: dict[str, Any] | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -91,6 +102,7 @@ class ValidationPlan:
     requires_rollback: bool
     temporary_object_prefix: str
     sequence: int
+    profile: str | None = None
 
 
 @dataclass(slots=True)
@@ -194,6 +206,11 @@ class ActiveValidationRun:
     responder_exposure: ResponderExposureAssessment | None = None
     warnings: list[str] = field(default_factory=list)
     audit_log_path: str | None = None
+    plan_digest: str | None = None
+    assessment_depth: str = "SAFE_OBSERVATION"
+    final_audit_entry_hash: str | None = None
+    audit_entry_count: int = 0
+    audit_verification_status: str = "NOT_VERIFIED"
 
 
 @dataclass(slots=True, frozen=True)
@@ -215,6 +232,17 @@ class SafetyPolicy:
     redact_sensitive_paths: bool
     retain_raw_event_data: bool
     digest: str
+    allow_deep_responder_validation: bool = False
+    allow_name_resolution_responses: bool = False
+    allow_authentication_challenges: bool = False
+    allow_temporary_network_listeners: bool = False
+    allow_temporary_firewall_changes: bool = False
+    allow_synthetic_credential_flow: bool = False
+    allow_real_credential_observation: bool = False
+    allow_credential_material_retention: bool = False
+    allow_credential_relay: bool = False
+    allow_hash_cracking: bool = False
+    allow_external_targets: bool = False
 
 
 @dataclass(slots=True, frozen=True)
@@ -223,6 +251,35 @@ class AuthorizationScope:
 
     device_identifiers: tuple[str, ...]
     validator_ids: tuple[str, ...]
+    network_interfaces: tuple[str, ...] = ()
+    allowed_source_addresses: tuple[str, ...] = ()
+    allowed_target_addresses: tuple[str, ...] = ()
+    allowed_protocols: tuple[str, ...] = ()
+
+
+@dataclass(slots=True, frozen=True)
+class AuthorizationPermissions:
+    """Describe separately granted deep-validation operations."""
+
+    name_resolution_spoofing: bool = False
+    authentication_challenge: bool = False
+    temporary_listener: bool = False
+    temporary_firewall_change: bool = False
+    credential_material_retention: bool = False
+    credential_relay: bool = False
+    hash_cracking: bool = False
+    explicit_current_user_test: bool = False
+    machine_account_observation: bool = False
+
+
+@dataclass(slots=True, frozen=True)
+class TestIdentity:
+    """Describe a test identity without carrying credential material."""
+
+    mode: TestIdentityMode
+    identifier: str
+    credential_reference: str
+    authorized_for_authentication_test: bool
 
 
 @dataclass(slots=True, frozen=True)
@@ -238,3 +295,24 @@ class ValidationAuthorization:
     expires_at: str
     purpose: str
     digest: str
+    permissions: AuthorizationPermissions = field(
+        default_factory=AuthorizationPermissions
+    )
+    test_identity: TestIdentity | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class CredentialFlowObservation:
+    """Store only minimized facts derived from an authentication flow."""
+
+    flow_observed: bool
+    protocol: str | None
+    authentication_family: str | None
+    test_identity_matched: bool
+    identity_hash: str | None
+    message_types_observed: tuple[str, ...]
+    credential_material_retained: bool = False
+    credential_material_written_to_disk: bool = False
+    credential_material_included_in_report: bool = False
+    relay_attempted: bool = False
+    cracking_attempted: bool = False
