@@ -1,0 +1,33 @@
+name: Standard User Live Acceptance
+
+on:
+  workflow_dispatch:
+
+jobs:
+  production-non-admin-flow:
+    runs-on: [self-hosted, windows, csa-standard-user]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run true non-admin Windows acceptance
+        shell: powershell
+        run: |
+          if (([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw "Self-hosted runner process is elevated."
+          }
+          $groups = (& "$env:SystemRoot\System32\whoami.exe" /groups /fo csv /nh) -join "`n"
+          if ($groups -match "S-1-5-32-544") {
+            throw "Runner account is a Local Administrators group member; true non-admin account required."
+          }
+          python -m csa_console.live_acceptance --output-root test-artifacts/standard-user-live
+      - name: Upload live acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: standard-user-live-acceptance
+          path: test-artifacts/standard-user-live/

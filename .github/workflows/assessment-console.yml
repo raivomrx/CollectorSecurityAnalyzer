@@ -1,0 +1,49 @@
+name: Assessment Console
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  console-security:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Submission API security and evidence validation
+        run: python -W error::ResourceWarning -m unittest tests.test_console_sprint5 -v
+      - name: Fleet analysis and stress isolation
+        run: python -W error::ResourceWarning -m unittest tests.test_console_stress -v
+      - name: Full Python regression
+        run: python -W error::ResourceWarning -m unittest discover -s tests -p "test_*.py" -q
+      - name: Upload Console test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: assessment-console-test-evidence
+          path: test-artifacts/
+          if-no-files-found: ignore
+
+  standard-user-collector-contract:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Pester
+        shell: pwsh
+        run: Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force -SkipPublisherCheck
+      - name: Validate standard-user source contract
+        shell: pwsh
+        run: |
+          ./scripts/Invoke-CollectorTests.ps1 `
+            -Path tests/powershell/ConsoleCollector.Tests.ps1 `
+            -ResultPath test-artifacts/console-collector-pester.xml
+      - name: Upload contract evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: standard-user-collector-contract
+          path: test-artifacts/

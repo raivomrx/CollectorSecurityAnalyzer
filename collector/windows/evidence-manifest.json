@@ -267,6 +267,36 @@
         {"id": "UAC_ENABLE_INSTALLER_DETECTION", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "UAC_ENABLE_INSTALLER_DETECTION", "canonical": true},
         {"id": "UAC_ENABLE_VIRTUALIZATION", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "UAC_ENABLE_VIRTUALIZATION", "canonical": true}
       ]
+    },
+    {
+      "module": "Browser",
+      "domain": "security.settings",
+      "mandatoryEvidence": [
+        {"id": "BROWSER_EDGE_INSTALLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "BROWSER_EDGE_INSTALLED", "canonical": true},
+        {"id": "BROWSER_CHROME_INSTALLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "BROWSER_CHROME_INSTALLED", "canonical": true},
+        {"id": "BROWSER_FIREFOX_INSTALLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "BROWSER_FIREFOX_INSTALLED", "canonical": true},
+        {"id": "BROWSER_EXTENSION_INVENTORY_COLLECTED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "BROWSER_EXTENSION_INVENTORY_COLLECTED", "canonical": true}
+      ],
+      "optionalEvidence": [
+        {"id": "BROWSER_EDGE_VERSION", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "BROWSER_EDGE_VERSION", "canonical": true},
+        {"id": "BROWSER_EDGE_POLICY_PRESENT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "BROWSER_EDGE_POLICY_PRESENT", "canonical": true},
+        {"id": "BROWSER_CHROME_VERSION", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "BROWSER_CHROME_VERSION", "canonical": true},
+        {"id": "BROWSER_CHROME_POLICY_PRESENT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "BROWSER_CHROME_POLICY_PRESENT", "canonical": true},
+        {"id": "BROWSER_FIREFOX_VERSION", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "BROWSER_FIREFOX_VERSION", "canonical": true},
+        {"id": "BROWSER_FIREFOX_POLICY_PRESENT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "BROWSER_FIREFOX_POLICY_PRESENT", "canonical": true}
+      ]
+    },
+    {
+      "module": "Certificates",
+      "domain": "security.settings",
+      "mandatoryEvidence": [
+        {"id": "CERTIFICATE_CURRENT_USER_MY_COUNT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "CERTIFICATE_CURRENT_USER_MY_COUNT", "canonical": true},
+        {"id": "CERTIFICATE_LOCAL_MACHINE_ROOT_COUNT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "CERTIFICATE_LOCAL_MACHINE_ROOT_COUNT", "canonical": true},
+        {"id": "CERTIFICATE_EXPIRED_COUNT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "CERTIFICATE_EXPIRED_COUNT", "canonical": true},
+        {"id": "CERTIFICATE_PRIVATE_KEY_PRESENT_COUNT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "CERTIFICATE_PRIVATE_KEY_PRESENT_COUNT", "canonical": true}
+      ],
+      "optionalEvidence": [],
+      "inventoryDomains": ["certificates.items"]
     }
   ]
 }

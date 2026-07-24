@@ -71,6 +71,8 @@ class BitLockerRule(BaseRule):
                         score=0 if enabled else 20,
                     )
                 ]
+            if context and context.evidence_registry:
+                return self.not_evaluated(["BITLOCKER_OS_PROTECTION"])
             enabled = bool(safe_get(data, "Bitlocker-C", False))
             if enabled:
                 return [

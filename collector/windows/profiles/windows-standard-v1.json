@@ -1,0 +1,26 @@
+{
+  "profileId": "windows-standard-v1",
+  "version": "1.0.0",
+  "collectorMode": "STANDARD_USER_COLLECTION",
+  "privacyPolicy": "privacy-default.json",
+  "capabilities": [
+    "COL-OS-DEVICE-001",
+    "COL-SOFTWARE-001",
+    "COL-SERVICES-001",
+    "COL-BITLOCKER-STATUS-001",
+    "COL-DEFENDER-001",
+    "COL-FIREWALL-001",
+    "COL-IDENTITY-001",
+    "COL-DEVICE-GUARD-001",
+    "COL-CREDENTIAL-GUARD-001",
+    "COL-PROTOCOLS-001",
+    "COL-REMOTE-ACCESS-001",
+    "COL-NETWORK-001",
+    "COL-POWERSHELL-001",
+    "COL-UAC-001",
+    "COL-UPDATES-001",
+    "COL-BROWSER-001",
+    "COL-CERTIFICATES-001",
+    "COL-AUDIT-POLICY-001"
+  ]
+}

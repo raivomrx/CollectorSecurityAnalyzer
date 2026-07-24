@@ -70,6 +70,8 @@ class DefenderRule(BaseRule):
                         score=0 if enabled else 20,
                     )
                 ]
+            if context and context.evidence_registry:
+                return self.not_evaluated(["DEFENDER_ENABLED"])
             product_state = str(safe_get(data, "Windows Defender.ProductState", "")).strip()
             enabled = product_state.casefold() == "on"
             return [

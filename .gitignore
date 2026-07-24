@@ -10,3 +10,7 @@ test-artifacts/
 .env
 software/unknown_products.json
 active_validation/state/
+assessments/
+collector-packages/
+*.csa
+*.csa.zip

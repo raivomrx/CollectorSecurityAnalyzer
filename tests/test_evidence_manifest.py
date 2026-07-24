@@ -30,7 +30,7 @@ class EvidenceManifestTests(unittest.TestCase):
         """Every manifest module and literal should map to collector source."""
 
         loaded = load_evidence_manifest(MANIFEST_PATH)
-        self.assertEqual(len(loaded["modules"]), 13)
+        self.assertEqual(len(loaded["modules"]), 15)
 
     def test_literal_placeholder_is_rejected(self) -> None:
         """Literal entries must not conceal placeholder syntax."""

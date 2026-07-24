@@ -10,7 +10,15 @@ from unittest.mock import patch
 
 import analyzer
 from analysis_context import AnalysisContext
+from evidence.registry import WindowsEvidenceRegistry
+from risk import Status
+from rules.admins import AdminRule
+from rules.bitlocker import BitLockerRule
+from rules.defender import DefenderRule
+from rules.firewall import FirewallRule
+from rules.network import NetworkRule
 from rules.software import SoftwareInventoryRule
+from rules.updates import UpdatesRule
 from software.inventory import build_inventory
 from software.models import SoftwareInventory, SoftwareProduct
 
@@ -55,6 +63,28 @@ class AnalysisContextTests(unittest.TestCase):
 
         self.assertEqual(findings[0].evidence["unknown_product_count"], 1)
         self.assertEqual(findings[0].evidence["unknown_product_names"], ["Unknown Product"])
+
+    def test_missing_canonical_evidence_never_becomes_failure(self) -> None:
+        """Canonical Console runs must not treat absent evidence as false."""
+
+        context = AnalysisContext(
+            raw_data={},
+            software_inventory=build_inventory([]),
+            evidence_registry=WindowsEvidenceRegistry([]),
+        )
+        for rule in (
+            BitLockerRule(),
+            DefenderRule(),
+            FirewallRule(),
+            AdminRule(),
+            NetworkRule(),
+            UpdatesRule(),
+        ):
+            with self.subTest(rule_id=rule.id):
+                findings = rule.run({}, context)
+                self.assertEqual(len(findings), 1)
+                self.assertEqual(findings[0].status, Status.NOT_EVALUATED)
+                self.assertEqual(findings[0].score, 0)
 
     def test_passive_analysis_records_active_validation_disabled(self) -> None:
         """Normal analyzer flow should explicitly report that active testing was disabled."""

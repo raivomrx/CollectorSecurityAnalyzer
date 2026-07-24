@@ -72,6 +72,8 @@ class NetworkRule(BaseRule):
                         score=10 if is_public else 0,
                     )
                 ]
+            if context and context.evidence_registry:
+                return self.not_evaluated(["ACTIVE_NETWORK_CATEGORY"])
             category = str(
                 safe_get(data, "Net_connection_profile.NetworkCategory", "")
             ).strip()

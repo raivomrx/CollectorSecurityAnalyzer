@@ -17,6 +17,50 @@
   "properties": {
     "schemaVersion": { "type": "string", "pattern": "^2\\.[0-9]+$" },
     "collectorVersion": { "type": "string" },
+    "collectionMode": {
+      "enum": ["STANDARD_USER_COLLECTION", "ELEVATED_COLLECTION"]
+    },
+    "collectionProfile": { "type": "string" },
+    "privilegeContext": {
+      "type": "object",
+      "properties": {
+        "executionMode": {
+          "enum": [
+            "STANDARD_USER",
+            "ADMIN_MEMBER_NOT_ELEVATED",
+            "ELEVATED_ADMINISTRATOR",
+            "SYSTEM",
+            "UNKNOWN"
+          ]
+        },
+        "isElevated": { "type": "boolean" },
+        "isLocalAdministratorMember": { "type": "boolean" },
+        "integrityLevel": { "type": "string" },
+        "effectiveUserHash": { "type": "string" }
+      }
+    },
+    "capabilityResults": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["capabilityId", "status"],
+        "properties": {
+          "capabilityId": { "type": "string" },
+          "status": {
+            "enum": [
+              "COLLECTED",
+              "COLLECTED_PARTIAL",
+              "NOT_SUPPORTED",
+              "NOT_COLLECTED_PRIVILEGE_REQUIRED",
+              "NOT_COLLECTED_POLICY_BLOCKED",
+              "NOT_COLLECTED_TIMEOUT",
+              "NOT_COLLECTED_ACCESS_DENIED",
+              "NOT_COLLECTED_ERROR"
+            ]
+          }
+        }
+      }
+    },
     "collectionId": { "type": "string" },
     "collectionStartedAt": { "type": "string", "format": "date-time" },
     "collectionCompletedAt": { "type": "string", "format": "date-time" },

@@ -75,6 +75,10 @@ class UpdatesRule(BaseRule):
                         score=10 if stale else 0,
                     )
                 ]
+            if context and context.evidence_registry:
+                return self.not_evaluated(
+                    ["WINDOWS_UPDATE_LAST_INSTALL_AGE_DAYS"]
+                )
             value = safe_get(data, "Updates_lastInstallationSuccessDate")
             parsed = parse_date(value)
             if parsed is None:

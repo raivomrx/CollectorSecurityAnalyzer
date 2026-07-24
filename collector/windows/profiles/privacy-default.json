@@ -1,0 +1,13 @@
+{
+  "includeHostname": false,
+  "hashUsername": true,
+  "hashTenantId": true,
+  "includeIpAddresses": false,
+  "includeMacAddresses": false,
+  "includeSoftwareInventory": true,
+  "includeBrowserExtensions": false,
+  "includeCertificateSubjects": false,
+  "includeLocalAdminNames": false,
+  "includeFilePaths": "REDACT_USER_PROFILE",
+  "includeRawRegistryValues": false
+}

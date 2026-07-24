@@ -62,11 +62,13 @@ function New-CSAModuleResult {
         [string]$Status = "",
         [object[]]$SoftwareItems = @(),
         [object[]]$Services = @(),
-        [object[]]$ScheduledTasks = @()
+        [object[]]$ScheduledTasks = @(),
+        [object[]]$Certificates = @()
     )
 
     $completedAt = (Get-Date).ToUniversalTime()
-    $collectedCount = @($Settings).Count + @($SoftwareItems).Count + @($Services).Count + @($ScheduledTasks).Count
+    $collectedCount = @($Settings).Count + @($SoftwareItems).Count +
+        @($Services).Count + @($ScheduledTasks).Count + @($Certificates).Count
     if ([string]::IsNullOrWhiteSpace($Status)) {
         if (@($Errors).Count -gt 0 -and $collectedCount -eq 0) {
             $Status = "FAILED"
@@ -97,6 +99,7 @@ function New-CSAModuleResult {
         SoftwareItems = @($SoftwareItems)
         Services = @($Services)
         ScheduledTasks = @($ScheduledTasks)
+        Certificates = @($Certificates)
     }
 }
 

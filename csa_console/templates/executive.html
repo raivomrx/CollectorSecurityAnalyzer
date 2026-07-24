@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>CSA Executive Report</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<header><h1>Executive Security Assessment</h1><p>{{ model.assessment.name }}</p><p>{{ model.assessment.customerReference }}</p></header>
+<main>
+  <section><h2>Executive Summary</h2><p>The assessment reviewed {{ model.posture.endpointCount }} Windows endpoints using privacy-preserving standard-user collection. The fleet risk rating is <strong>{{ model.posture.riskRating }}</strong>, with average evidence coverage of <strong>{{ model.posture.averageCoveragePercent }}%</strong>.</p></section>
+  <section><h2>Overall Security Posture</h2><div class="metrics"><div class="metric"><strong>{{ model.posture.riskRating }}</strong><span>Risk rating</span></div><div class="metric"><strong>{{ model.posture.fleetRiskScore }}</strong><span>Fleet risk score</span></div><div class="metric"><strong>{{ model.posture.endpointCount }}</strong><span>Endpoints assessed</span></div><div class="metric"><strong>{{ model.positiveObservationCount }}</strong><span>Positive control results</span></div></div></section>
+  <section><h2>Most Significant Systemic Risks</h2>{% for item in model.significantRisks %}<article class="finding {{ item.severity }}"><h3>{{ item.title }}</h3><p>This issue affected {{ item.affectedPercent }}% of assessed endpoints and should be addressed as an organization-wide control improvement.</p><p><strong>Recommended action:</strong> {{ item.recommendation }}</p></article>{% else %}<p>No systemic risk met the reporting threshold.</p>{% endfor %}</section>
+  <section><h2>Priority Remediation Plan</h2><div class="table-wrap"><table><thead><tr><th>Priority</th><th>Action</th><th>Affected fleet</th></tr></thead><tbody>{% for item in model.priorityRemediation %}<tr><td>{{ item.priority }}</td><td><strong>{{ item.title }}</strong><br>{{ item.recommendation }}</td><td>{{ item.affectedPercent }}%</td></tr>{% endfor %}</tbody></table></div></section>
+  <section><h2>Coverage and Limitations</h2><div class="notice warning">{{ model.coverageStatement }}</div></section>
+  <section><h2>Conclusion</h2><p>Prioritize systemic high-severity controls first, then validate the remaining privilege-dependent controls through a separately authorized elevated collection where justified.</p></section>
+  <section><h2>Integrity</h2><dl><dt>Evidence set digest</dt><dd>{{ model.integrity.evidenceSetDigest }}</dd><dt>Report model digest</dt><dd>{{ model.integrity.reportModelDigest }}</dd><dt>Audit hash at generation</dt><dd>{{ model.integrity.auditHashAtGeneration }}</dd>{% for pack, digest in model.integrity.frameworkPackDigests.items() %}<dt>Framework pack {{ pack }}</dt><dd>{{ digest }}</dd>{% endfor %}</dl></section>
+</main><footer>CSA client executive assessment</footer>
+</body></html>

@@ -116,3 +116,7 @@ class CollectorDocument:
     collection_summary: CollectionSummary
     errors: list[CollectionError]
     metadata: dict[str, Any] = field(default_factory=dict)
+    collection_mode: str = "STANDARD_USER_COLLECTION"
+    collection_profile: str = "windows-standard-v1"
+    privilege_context: dict[str, Any] = field(default_factory=dict)
+    capability_results: list[dict[str, Any]] = field(default_factory=list)

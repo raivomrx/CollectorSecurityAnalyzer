@@ -84,6 +84,18 @@ def _parse_v2_document(data: dict[str, Any]) -> CollectorDocument:
             if isinstance(item, dict)
         ],
         metadata=data.get("metadata", {}) if isinstance(data.get("metadata", {}), dict) else {},
+        collection_mode=str(data.get("collectionMode", "STANDARD_USER_COLLECTION")),
+        collection_profile=str(data.get("collectionProfile", "windows-standard-v1")),
+        privilege_context=(
+            data.get("privilegeContext", {})
+            if isinstance(data.get("privilegeContext", {}), dict)
+            else {}
+        ),
+        capability_results=[
+            item
+            for item in data.get("capabilityResults", [])
+            if isinstance(item, dict)
+        ],
     )
 
 

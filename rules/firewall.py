@@ -80,6 +80,13 @@ class FirewallRule(BaseRule):
                             score=0 if enabled else 20,
                         )
                     ]
+                return self.not_evaluated(
+                    [
+                        "WINDOWS_FIREWALL_DOMAIN_ENABLED",
+                        "WINDOWS_FIREWALL_PRIVATE_ENABLED",
+                        "WINDOWS_FIREWALL_PUBLIC_ENABLED",
+                    ]
+                )
             states = {
                 profile: bool(safe_get(data, f"Firewall.{profile}.Enabled", False))
                 for profile in PROFILES

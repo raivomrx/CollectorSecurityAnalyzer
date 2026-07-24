@@ -69,6 +69,8 @@ class AdminRule(BaseRule):
                         score=10 if elevated else 0,
                     )
                 ]
+            if context and context.evidence_registry:
+                return self.not_evaluated(["LOCAL_ADMINISTRATOR_COUNT"])
             admins = safe_get(data, "All_local_admins")
             if admins is None:
                 return [
