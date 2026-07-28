@@ -9,6 +9,7 @@ import tempfile
 import threading
 import unittest
 import zipfile
+from contextlib import redirect_stdout
 from pathlib import Path
 
 import requests
@@ -23,6 +24,8 @@ from csa_console.collector_package import (
     create_collector_package,
     verify_collector_package,
 )
+from csa_console.cli import main as console_main
+from csa_console.enums import SessionStatus
 from csa_console.fleet import FleetAnalyzer
 from csa_console.offline import (
     OfflineImportError,
@@ -206,6 +209,36 @@ class CapabilityAndSessionTests(Sprint5TestCase):
         self.assertFalse(any("private" in item.casefold() for item in names))
         self.assertTrue((output / "Invoke-CSACollector.ps1").exists())
 
+    def test_cli_session_pause_resume_and_close(self) -> None:
+        """Session lifecycle commands should update the requested session."""
+
+        for command, expected in (
+            ("pause", SessionStatus.PAUSED),
+            ("resume", SessionStatus.OPEN),
+            ("close", SessionStatus.CLOSED),
+        ):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                console_main(
+                    [
+                        "--data-root",
+                        str(self.storage.root),
+                        "session",
+                        command,
+                        "--assessment",
+                        self.assessment.assessment_id,
+                        "--session",
+                        self.session.session_id,
+                    ]
+                )
+            self.assertEqual(
+                self.sessions.load_session(
+                    self.assessment.assessment_id,
+                    self.session.session_id,
+                ).status,
+                expected,
+            )
+
     def test_privacy_scanner_rejects_secret_fields(self) -> None:
         """Credential-like fields should be rejected before packaging."""
 
@@ -256,6 +289,8 @@ class SubmissionSecurityTests(Sprint5TestCase):
         )
         self.assertTrue(accepted_path.exists())
         self.assertEqual(receipt.package_digest, package.package_digest)
+        submissions = service.list_submissions(self.assessment.assessment_id)
+        self.assertEqual(submissions[0]["transport"], "HTTPS")
         receipt_value = {
             "assessmentId": receipt.assessment_id,
             "sessionId": receipt.session_id,

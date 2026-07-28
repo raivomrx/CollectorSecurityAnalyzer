@@ -233,7 +233,7 @@ def _dispatch(args: argparse.Namespace, storage: AssessmentStorage) -> None:
                     "warning": "The enrollment token is shown once and stored only as a hash.",
                 }
             )
-        elif args.submission_command == "retry-analysis":
+        else:
             status = {
                 "pause": SessionStatus.PAUSED,
                 "resume": SessionStatus.OPEN,

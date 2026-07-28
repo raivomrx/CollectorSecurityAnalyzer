@@ -12,7 +12,8 @@ python -m pip install -r requirements.txt
 
 python -m csa_console.cli assessment create `
   --name "Client Windows endpoint assessment" `
-  --customer-reference CLIENT-A
+  --customer-reference CLIENT-A `
+  --assessment-id CSA-2026-001
 
 python -m csa_console.cli session open `
   --assessment CSA-2026-001 `
@@ -52,3 +53,6 @@ registry or firewall, or run Active Validation.
 See [standard-user collection](docs/standard-user-collection.md),
 [Console operations](docs/assessment-console.md), and the
 [live assessment guide](docs/standard-user-live-assessment-guide.md).
+
+For a step-by-step two-computer Windows 11 test in Estonian, use the
+[kahe arvuti standard-user testijuhend](docs/standard-user-two-computer-lab-guide-et.md).

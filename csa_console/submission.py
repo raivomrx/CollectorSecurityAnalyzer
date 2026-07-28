@@ -221,6 +221,7 @@ class SubmissionService:
                     "deviceId": package.manifest["deviceId"],
                     "packageDigest": package.package_digest,
                     "transportDigest": received_digest,
+                    "transport": "HTTPS",
                     "state": SubmissionState.EVIDENCE_ACCEPTED.value,
                     "receivedAt": utc_text(),
                     "sourceAddressHash": sha256_bytes(

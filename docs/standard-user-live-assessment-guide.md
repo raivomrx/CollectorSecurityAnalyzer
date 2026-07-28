@@ -3,6 +3,10 @@
 This guide covers one Windows 11 laboratory computer and 13 Windows 11
 endpoints.
 
+For the first live test with one laboratory computer and one true non-admin
+Windows 11 endpoint, follow the detailed Estonian
+[two-computer lab guide](standard-user-two-computer-lab-guide-et.md).
+
 ## 1. Laboratory Preparation
 
 1. Use an encrypted lab volume and install Python 3.12 dependencies.
