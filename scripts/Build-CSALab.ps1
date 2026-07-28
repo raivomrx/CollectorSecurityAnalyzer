@@ -49,7 +49,7 @@ try {
 
     if (-not $SkipInstaller) {
         $makensis = @(
-            "$env:ProgramFiles(x86)\NSIS\makensis.exe",
+            "${env:ProgramFiles(x86)}\NSIS\makensis.exe",
             "$env:ProgramFiles\NSIS\makensis.exe"
         ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
             Select-Object -First 1
