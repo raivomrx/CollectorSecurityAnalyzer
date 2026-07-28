@@ -35,6 +35,12 @@ class ConsoleAnalysisPipeline:
         manifest = package.manifest
         assessment_id = str(manifest["assessmentId"])
         submission_id = str(manifest["submissionId"])
+        from csa_console.submission import SubmissionService
+
+        submission_service = SubmissionService(self.storage)
+        submission_service.update_processing_state(
+            assessment_id, submission_id, "NORMALIZING"
+        )
         audit = ConsoleAuditLog(
             self.storage.path(assessment_id, "audit", "audit.jsonl")
         )
@@ -62,6 +68,9 @@ class ConsoleAnalysisPipeline:
             package.evidence,
         )
         audit.append("analysis_started", {"submissionId": submission_id})
+        submission_service.update_processing_state(
+            assessment_id, submission_id, "ANALYZING"
+        )
         output_dir = self.storage.path(
             assessment_id, "reports", "endpoints"
         )
@@ -116,6 +125,9 @@ class ConsoleAnalysisPipeline:
                 "submissionId": submission_id,
                 "reportDigest": sha256_value(report_path.read_text(encoding="utf-8")),
             },
+        )
+        submission_service.update_processing_state(
+            assessment_id, submission_id, "COMPLETE"
         )
         return analysis
 

@@ -1,0 +1,36 @@
+name: CSA Collector Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  collector:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install application dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Build stable Collector bootstrapper
+        shell: pwsh
+        run: ./scripts/Build-CSACollector.ps1
+      - name: Run Collector overlay contract tests
+        run: python -W error::ResourceWarning -m unittest tests.test_lab_sprint51.CollectorExecutableTests -v
+      - name: Validate standard-user PowerShell contract
+        shell: pwsh
+        run: |
+          Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force -SkipPublisherCheck
+          ./scripts/Invoke-CollectorTests.ps1 `
+            -Path tests/powershell/ConsoleCollector.Tests.ps1 `
+            -ResultPath test-artifacts/console-collector-pester.xml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CSA-Collector-Windows
+          path: |
+            build/collector/CSA-Collector.exe
+            test-artifacts/
+

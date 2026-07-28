@@ -12,5 +12,7 @@ software/unknown_products.json
 active_validation/state/
 assessments/
 collector-packages/
+build/
+dist/
 *.csa
 *.csa.zip

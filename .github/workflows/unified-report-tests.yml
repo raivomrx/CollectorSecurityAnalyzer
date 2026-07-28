@@ -1,0 +1,27 @@
+name: CSA Unified Report Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  report:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run unified report and 13-endpoint tests
+        run: python -W error::ResourceWarning -m unittest tests.test_lab_sprint51.UnifiedReportTests -v
+      - name: Generate inspectable synthetic report
+        run: python scripts/Generate-SyntheticUnifiedReport.py --output test-artifacts/CSA-Unified-Assessment-Report.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CSA-Unified-Assessment-Report
+          path: test-artifacts/CSA-Unified-Assessment-Report.html
+

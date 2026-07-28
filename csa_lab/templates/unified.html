@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{{ model.assessment.name }} - CSA Assessment Report</title>
+  <style>{{ inline_style | safe }}</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to report</a>
+<header class="report-header" id="top">
+  <div>
+    <p class="product-name">CSA Security Assessment</p>
+    <h1>{{ model.assessment.name }}</h1>
+    <p>{{ model.assessment.organization or model.assessment.referenceNumber }}</p>
+  </div>
+  <div class="header-actions no-print">
+    <label class="search-label">
+      <span>Search report</span>
+      <input id="report-search" type="search" placeholder="Finding, endpoint, control">
+    </label>
+    <button type="button" id="theme-toggle" title="Toggle display theme">Theme</button>
+    <button type="button" id="print-report">Print full report</button>
+  </div>
+</header>
+
+<nav class="report-nav no-print" aria-label="Report sections">
+  <strong>Contents</strong>
+  <ol>
+    <li><a href="#executive">Executive Summary</a></li>
+    <li><a href="#scope">Assessment Scope</a></li>
+    <li><a href="#risk">Overall Risk and Coverage</a></li>
+    <li><a href="#fleet">Fleet Dashboard</a></li>
+    <li><a href="#priority">Priority Findings</a></li>
+    <li><a href="#systemic">Systemic Findings</a></li>
+    <li><a href="#remediation">Remediation Plan</a></li>
+    <li><a href="#comparison">Endpoint Comparison</a></li>
+    <li><a href="#endpoints">Endpoint Details</a></li>
+    <li><a href="#gaps">Coverage Gaps and Limitations</a></li>
+    <li><a href="#frameworks">Framework Mapping</a></li>
+    <li><a href="#evidence">Technical Evidence</a></li>
+    <li><a href="#methodology">Methodology</a></li>
+    <li><a href="#integrity">Audit and Integrity</a></li>
+  </ol>
+</nav>
+
+<main id="main">
+  <section id="executive" class="report-section">
+    <div class="section-heading">
+      <p>01</p><h2>Executive Summary</h2>
+    </div>
+    <div class="summary-grid">
+      <div class="metric"><span>Overall risk</span><strong class="severity-{{ model.risk.rating | lower }}">{{ model.risk.rating }}</strong></div>
+      <div class="metric"><span>Unique endpoints</span><strong>{{ model.scope.uniqueEndpointCount }}</strong></div>
+      <div class="metric"><span>Average coverage</span><strong>{{ "%.1f"|format(model.risk.averageCoverage) }}%</strong></div>
+      <div class="metric"><span>Critical / high risks</span><strong>{{ model.charts.severityDistribution[0].count + model.charts.severityDistribution[1].count }}</strong></div>
+    </div>
+    <p class="lead">{{ model.assessment.description or "This report summarizes the Windows endpoint security assessment." }}</p>
+    {% if model.systemicFindings %}
+    <h3>Top systemic risks</h3>
+    <ul class="plain-list">
+      {% for item in model.systemicFindings[:5] %}
+      <li><strong>{{ item.title }}</strong> affects {{ item.affectedEndpointCount }} of {{ item.assessedEndpointCount }} endpoints.</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p>No finding met the systemic threshold in the assessed fleet.</p>
+    {% endif %}
+    {% if model.coverageGaps %}
+    <p class="notice warning"><strong>Important limitation:</strong> {{ model.coverageGaps|length }} coverage gap records remain. Missing evidence is not treated as a control failure.</p>
+    {% endif %}
+    <a class="back-top no-print" href="#top">Back to top</a>
+  </section>
+
+  <section id="scope" class="report-section">
+    <div class="section-heading"><p>02</p><h2>Assessment Scope</h2></div>
+    <table>
+      <tbody>
+        <tr><th>Assessment</th><td>{{ model.assessment.name }}</td></tr>
+        <tr><th>Organization</th><td>{{ model.assessment.organization or "Not specified" }}</td></tr>
+        <tr><th>Reference</th><td>{{ model.assessment.referenceNumber or "Not specified" }}</td></tr>
+        <tr><th>Created</th><td>{{ model.assessment.createdAt }}</td></tr>
+        <tr><th>Expected / assessed endpoints</th><td>{{ model.assessment.expectedEndpoints }} / {{ model.scope.uniqueEndpointCount }}</td></tr>
+        <tr><th>Collection mode</th><td>{{ model.scope.collectionMode }}</td></tr>
+        <tr><th>Transports</th><td>{% for name, count in model.scope.transportCounts.items() %}{{ name }}: {{ count }}{% if not loop.last %}, {% endif %}{% endfor %}</td></tr>
+        <tr><th>Active Validation</th><td>Not performed</td></tr>
+      </tbody>
+    </table>
+    <a class="back-top no-print" href="#top">Back to top</a>
+  </section>
+
+  <section id="risk" class="report-section">
+    <div class="section-heading"><p>03</p><h2>Overall Risk and Coverage</h2></div>
+    <div class="risk-layout">
+      <div class="score-gauge severity-{{ model.risk.rating | lower }}">
+        <span>Fleet risk score</span><strong>{{ "%.1f"|format(model.risk.score) }}</strong><small>out of 100 risk</small>
+      </div>
+      <div>
+        <h3>Coverage by domain</h3>
+        {% for name, value in model.risk.coverageByDomain.items() %}
+        <div class="bar-row"><span>{{ name }}</span><div class="bar-track"><i style="width: {{ value }}%"></i></div><b>{{ "%.1f"|format(value) }}%</b></div>
+        {% endfor %}
+      </div>
+    </div>
+    <a class="back-top no-print" href="#top">Back to top</a>
+  </section>
+
+  <section id="fleet" class="report-section">
+    <div class="section-heading"><p>04</p><h2>Fleet Dashboard</h2></div>
+    <div class="chart-grid">
+      <div class="chart">
+        <h3>Risk distribution</h3>
+        {% for item in model.charts.riskDistribution %}
+        <div class="bar-row"><span>{{ item.label }}</span><div class="bar-track"><i class="bar-{{ item.label|lower }}" style="width: {{ item.percentOfMaximum }}%"></i></div><b>{{ item.count }}</b></div>
+        {% endfor %}
+      </div>
+      <div class="chart">
+        <h3>Coverage distribution</h3>
+        {% for item in model.charts.coverageDistribution %}
+        <div class="bar-row"><span>{{ item.label }}</span><div class="bar-track"><i style="width: {{ item.percentOfMaximum }}%"></i></div><b>{{ item.count }}</b></div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="control-grid">
+      {% for key, values in model.charts.securityControls.items() %}
+      <div>
+        <h3>{{ key }}</h3>
+        {% for status, count in values.items() %}<span class="status status-{{ status|lower }}">{{ status }}: {{ count }}</span>{% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+    <a class="back-top no-print" href="#top">Back to top</a>
+  </section>
+
+  <section id="priority" class="report-section searchable-group">
+    <div class="section-heading"><p>05</p><h2>Priority Findings</h2></div>
+    <div class="filter-bar no-print" role="group" aria-label="Finding filters">
+      {% for filter in ["All", "Critical", "High", "Medium", "Low", "Coverage Gaps", "Endpoints"] %}
+      <button type="button" class="filter-button{% if loop.first %} active{% endif %}" data-filter="{{ filter|lower|replace(' ', '-') }}">{{ filter }}</button>
+      {% endfor %}
+    </div>
+    {% for item in model.priorityFindings %}
+    <article class="finding searchable" data-kind="finding" data-severity="{{ item.severity|lower }}">
+      <header><span class="severity severity-{{ item.severity|lower }}">{{ item.severity }}</span><span>{{ item.ruleId }}</span><h3>{{ item.title }}</h3></header>
+      <p><strong>Affected:</strong> {{ item.affectedEndpointCount }}/{{ item.assessedEndpointCount }} ({{ item.affectedPercent }}%)</p>
+      <p><strong>Recommendation:</strong> {{ item.recommendation }}</p>
+      <details><summary>Show affected endpoints and mappings</summary>
+        <p>{{ item.endpointReferences|join(", ") }}</p>
+        <p>{% for framework, controls in item.frameworkMappings.items() %}<strong>{{ framework }}:</strong> {{ controls|join(", ") }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
+      </details>
+    </article>
+    {% else %}<p>No priority failures were identified.</p>{% endfor %}
+    <a class="back-top no-print" href="#top">Back to top</a>
+  </section>
+
+  <section id="systemic" class="report-section">
+    <div class="section-heading"><p>06</p><h2>Systemic Findings</h2></div>
+    {% for item in model.systemicFindings %}
+    <article class="finding searchable" data-kind="finding" data-severity="{{ item.severity|lower }}">
+      <header><span class="severity severity-{{ item.severity|lower }}">{{ item.severity }}</span><span>{{ item.ruleId }}</span><h3>{{ item.title }}</h3></header>
+      <p>{{ item.affectedPercent }}% prevalence across assessed endpoints. {{ item.recommendation }}</p>
+    </article>
+    {% else %}<p>No finding met the systemic fleet threshold.</p>{% endfor %}
+    <a class="back-top no-print" href="#top">Back to top</a>
+  </section>
+
+  <section id="remediation" class="report-section">
+    <div class="section-heading"><p>07</p><h2>Remediation Plan</h2></div>
+    <table>
+      <thead><tr><th>Priority</th><th>Finding</th><th>Severity</th><th>Affected</th><th>Recommended action</th></tr></thead>
+      <tbody>{% for item in model.remediationPlan %}
+        <tr><td>{{ item.priority }}</td><td>{{ item.ruleId }} - {{ item.title }}</td><td><span class="severity severity-{{ item.severity|lower }}">{{ item.severity }}</span></td><td>{{ item.affectedPercent }}%</td><td>{{ item.recommendation }}</td></tr>
+      {% endfor %}</tbody>
+    </table>
+    <a class="back-top no-print" href="#top">Back to top</a>
+  </section>
+
+  <section id="comparison" class="report-section">
+    <div class="section-heading"><p>08</p><h2>Endpoint Comparison</h2></div>
+    <div class="table-scroll">
+    <table>
+      <thead><tr><th>Endpoint</th><th>Transport</th><th>Security score</th><th>Coverage</th><th>Critical</th><th>High</th><th>Medium</th><th>Context</th></tr></thead>
+      <tbody>{% for item in model.endpoints %}
+        <tr class="searchable" data-kind="endpoint"><td>{{ item.displayName }}</td><td>{{ item.transport }}</td><td>{{ item.score }}</td><td>{{ item.coverage }}%</td><td>{{ item.severityCounts.get("CRITICAL", 0) }}</td><td>{{ item.severityCounts.get("HIGH", 0) }}</td><td>{{ item.severityCounts.get("MEDIUM", 0) }}</td><td>{{ item.privilegeContext.executionMode }}</td></tr>
+      {% endfor %}</tbody>
+    </table>
+    </div>
+    <a class="back-top no-print" href="#top">Back to top</a>
+  </section>
+
+  <section id="endpoints" class="report-section">
+    <div class="section-heading"><p>09</p><h2>Endpoint Details</h2></div>
+    {% if model.options.includeEndpointDetails %}
+    {% for endpoint in model.endpoints %}
+    <details class="endpoint searchable" data-kind="endpoint">
+      <summary><span>{{ endpoint.displayName }}</span><span>{{ endpoint.coverage }}% coverage</span><span>{{ endpoint.findingCount }} findings</span></summary>
+      <div class="endpoint-body">
+        <dl class="details-grid">
+          <div><dt>Device identity</dt><dd>{{ endpoint.deviceId }}</dd></div>
+          <div><dt>Submission</dt><dd>{{ endpoint.submissionId }}</dd></div>
+          <div><dt>Transport</dt><dd>{{ endpoint.transport }}</dd></div>
+          <div><dt>Received</dt><dd>{{ endpoint.receivedAt }}</dd></div>
+          <div><dt>Collector</dt><dd>{{ endpoint.collectorVersion }}</dd></div>
+          <div><dt>Execution mode</dt><dd>{{ endpoint.privilegeContext.executionMode }}</dd></div>
+          <div><dt>Integrity level</dt><dd>{{ endpoint.privilegeContext.integrityLevel }}</dd></div>
+          <div><dt>Elevated</dt><dd>{{ "YES" if endpoint.privilegeContext.isElevated else "NO" }}</dd></div>
+        </dl>
+        <h3>Findings</h3>
+        {% for audit_finding in endpoint.findings %}
+        {% set finding = audit_finding.finding %}{% set knowledge = audit_finding.knowledge %}
+        <article class="endpoint-finding">
+          <h4><span class="severity severity-{{ finding.severity|lower }}">{{ finding.severity }}</span> {{ finding.rule_id }} - {{ knowledge.title }}</h4>
+          <p><strong>Status:</strong> {{ finding.status }}. {{ knowledge.description }}</p>
+          <p><strong>Risk:</strong> {{ knowledge.risk }}</p>
+          <p><strong>Recommendation:</strong> {{ knowledge.recommendation }}</p>
+          <details><summary>Show technical evidence</summary><pre>{{ finding.evidence|json_pretty }}</pre></details>
+        </article>
+        {% endfor %}
+      </div>
+    </details>
+    {% endfor %}
+    {% else %}<p>Endpoint detail pages were excluded by the report options.</p>{% endif %}
+    <a class="back-top no-print" href="#top">Back to top</a>
+  </section>
+
+  <section id="gaps" class="report-section">
+    <div class="section-heading"><p>10</p><h2>Coverage Gaps and Limitations</h2></div>
+    <p>Coverage gaps represent controls that could not be evaluated. They are not failures.</p>
+    <table>
+      <thead><tr><th>Endpoint</th><th>Capability</th><th>Domain</th><th>Reason</th></tr></thead>
+      <tbody>{% for gap in model.coverageGaps %}
+        <tr class="searchable" data-kind="coverage-gap"><td>{{ gap.deviceId }}</td><td>{{ gap.capabilityId }}</td><td>{{ gap.domain }}</td><td>{{ gap.reason }}</td></tr>
+      {% else %}<tr><td colspan="4">No coverage gaps were recorded.</td></tr>{% endfor %}</tbody>
+    </table>
+    <a class="back-top no-print" href="#top">Back to top</a>
+  </section>
+
+  <section id="frameworks" class="report-section">
+    <div class="section-heading"><p>11</p><h2>Framework Mapping</h2></div>
+    <p>Mappings provide traceability and do not by themselves claim certification or full compliance.</p>
+    <table>
+      <thead><tr><th>Framework</th><th>Control ID</th><th>Related findings</th></tr></thead>
+      <tbody>{% for row in model.frameworkRows %}
+        <tr><td>{{ row.framework }}</td><td>{{ row.controlId }}</td><td>{{ row.findingIds|join(", ") }}</td></tr>
+      {% endfor %}</tbody>
+    </table>
+    <a class="back-top no-print" href="#top">Back to top</a>
+  </section>
+
+  <section id="evidence" class="report-section">
+    <div class="section-heading"><p>12</p><h2>Technical Evidence</h2></div>
+    {% if model.options.includeTechnicalEvidence %}
+    <p>Normalized evidence is collapsed by default. Sensitive material prohibited by the CSA privacy policy is not included.</p>
+    {% for endpoint in model.endpoints %}
+    <details class="technical-evidence">
+      <summary>{{ endpoint.displayName }} normalized evidence</summary>
+      <pre>{{ endpoint.technicalEvidence|json_pretty }}</pre>
+    </details>
+    {% endfor %}
+    {% else %}<p>Technical evidence was excluded by the report options.</p>{% endif %}
+    <a class="back-top no-print" href="#top">Back to top</a>
+  </section>
+
+  <section id="methodology" class="report-section">
+    <div class="section-heading"><p>13</p><h2>Methodology</h2></div>
+    <p>{{ model.methodology.summary }}</p>
+    <p>{{ model.methodology.limitations }}</p>
+    <p>Fleet findings are grouped by rule ID and affected endpoint. The latest accepted submission per device is selected deterministically. Security score and collection coverage are distinct measures.</p>
+    <a class="back-top no-print" href="#top">Back to top</a>
+  </section>
+
+  <section id="integrity" class="report-section">
+    <div class="section-heading"><p>14</p><h2>Audit and Integrity</h2></div>
+    <dl class="details-grid">
+      <div><dt>Audit status</dt><dd class="status status-verified">{{ model.integrity.auditVerificationStatus }}</dd></div>
+      <div><dt>Audit entries</dt><dd>{{ model.integrity.auditEntryCount }}</dd></div>
+      <div><dt>Evidence set digest</dt><dd class="digest">{{ model.integrity.evidenceSetDigest }}</dd></div>
+      <div><dt>Report model digest</dt><dd class="digest">{{ model.integrity.reportModelDigest }}</dd></div>
+      <div><dt>Audit final hash</dt><dd class="digest">{{ model.integrity.auditHashAtGeneration }}</dd></div>
+    </dl>
+    {% if model.options.includeAudit %}
+    <details><summary>Show audit event index</summary>
+      <table><thead><tr><th>Time</th><th>Event</th><th>Entry hash</th></tr></thead>
+      <tbody>{% for event in model.integrity.auditEvents %}<tr><td>{{ event.timestamp }}</td><td>{{ event.eventType }}</td><td class="digest">{{ event.entryHash }}</td></tr>{% endfor %}</tbody></table>
+    </details>
+    {% endif %}
+    <a class="back-top no-print" href="#top">Back to top</a>
+  </section>
+</main>
+<footer>
+  <p>Generated by CSA {{ model.reportVersion }}. Report timestamp: {{ model.generatedAt }}.</p>
+</footer>
+<script>{{ inline_script | safe }}</script>
+</body>
+</html>

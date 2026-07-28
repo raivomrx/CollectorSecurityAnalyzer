@@ -1,58 +1,89 @@
 # Collector Security Analyzer
 
-CSA is an evidence-first Windows endpoint assessment toolkit. The Sprint 5.0
-Assessment Console adds session-bound standard-user collection, secure HTTPS
-submission, canonical evidence normalization, fleet analysis, and endpoint,
-technical, and executive HTML reports.
+Collector Security Analyzer (CSA) is an evidence-first Windows endpoint
+assessment toolkit. CSA Lab turns the secure collection, analysis, fleet
+aggregation, and reporting pipeline into one assessor-facing Windows
+application.
 
-## Quick Start
+## Normal Assessment Flow
+
+1. Install `CSA-Lab-Setup.exe`.
+2. Open **CSA Lab** from the Start menu.
+3. Select **New Assessment**.
+4. Enter the assessment name and expected endpoint count.
+5. Confirm the collection network and select **Start Collection**.
+6. Open the displayed Collector page on each Windows endpoint.
+7. Download and run `CSA-Collector.exe` as the current standard user.
+8. Wait until each endpoint appears as **Complete**.
+9. Select **Generate Assessment Report**.
+10. Open the single self-contained HTML report and stop collection.
+
+The endpoint user does not install Python, unpack a ZIP, enter a token, change
+PowerShell policy, or run a command. CSA Collector does not require
+administrator rights, request UAC, install an agent, modify the endpoint
+firewall or registry, or run Active Validation.
+
+## Security Boundaries
+
+The simpler workflow preserves the existing security controls:
+
+- HTTPS evidence submission with exact certificate pinning;
+- assessment and session binding;
+- short-lived enrollment credentials;
+- one-use nonce and replay protection;
+- package, profile, and collector build digests;
+- canonical schema and strict privacy validation;
+- signed receipt and tamper-evident audit chain;
+- authenticated encrypted offline fallback;
+- coverage-aware evaluation and latest-device fleet deduplication;
+- localhost-only administration and source-scoped remote collection access.
+
+The generated download certificate can cause a browser warning. The endpoint
+must verify that the displayed address belongs to the CSA Lab computer.
+Collector TLS validation remains pinned and has no silent bypass.
+
+## Reports
+
+The primary customer output is one file:
+
+```text
+<Assessment-Name>-CSA-Assessment-Report.html
+```
+
+It contains the executive summary, fleet dashboard, findings, remediation,
+endpoint details, evidence, framework mappings, methodology, and audit
+integrity information. CSS and JavaScript are embedded, so the report opens
+offline and can be archived or printed to PDF.
+
+## Documentation
+
+- [Paigaldamine](docs/installation-et.md)
+- [Kiirjuhend](docs/quick-start-et.md)
+- [Kahe arvuti hindamine](docs/two-computer-assessment-et.md)
+- [Offline-hindamine](docs/offline-assessment-et.md)
+- [Unified raport](docs/unified-report-et.md)
+- [Tõrkeotsing](docs/troubleshooting-et.md)
+- [TLS ja sertifikaadid](docs/tls-and-certificates-et.md)
+- [Security model](docs/security-model.md)
+- [Architecture](docs/architecture.md)
+
+## Advanced and Developer CLI
+
+The existing CLI remains supported for automation, CI, diagnostics, and
+backward compatibility. It uses the same domain and service layers as CSA Lab:
 
 ```powershell
 python -m pip install -r requirements.txt
-
-python -m csa_console.cli assessment create `
-  --name "Client Windows endpoint assessment" `
-  --customer-reference CLIENT-A `
-  --assessment-id CSA-2026-001
-
-python -m csa_console.cli session open `
-  --assessment CSA-2026-001 `
-  --expected-devices 13 `
-  --listen-address 192.0.2.10 `
-  --allowed-source-network 192.0.2.0/24
+python -m csa_console.cli --help
+python -m csa_console.cli report unified --assessment CSA-...
 ```
 
-The enrollment token is displayed once and stored by the Console only as a
-SHA-256 verifier. Set it temporarily in `CSA_ENROLLMENT_TOKEN`, create the
-Collector package, and then remove it from the environment:
+Developer builds additionally use `requirements-build.txt`,
+`scripts/Build-CSACollector.ps1`, and `scripts/Build-CSALab.ps1`.
 
-```powershell
-$env:CSA_ENROLLMENT_TOKEN = Read-Host "Enrollment token"
-python -m csa_console.cli collector-package create `
-  --assessment CSA-2026-001 `
-  --session SES-... `
-  --output .\collector-packages\CSA-2026-001
-Remove-Item Env:\CSA_ENROLLMENT_TOKEN
+## Release Trust
 
-python -m csa_console.cli server start `
-  --assessment CSA-2026-001 `
-  --session SES-...
-```
-
-On an endpoint, run the generated package from a normal, non-elevated
-PowerShell process:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File .\Invoke-CSACollector.ps1
-```
-
-This one-shot flow does not request elevation, install an agent, change the
-registry or firewall, or run Active Validation.
-
-See [standard-user collection](docs/standard-user-collection.md),
-[Console operations](docs/assessment-console.md), and the
-[live assessment guide](docs/standard-user-live-assessment-guide.md).
-
-For a step-by-step two-computer Windows 11 test in Estonian, use the
-[kahe arvuti standard-user testijuhend](docs/standard-user-two-computer-lab-guide-et.md).
+The build is Authenticode-ready and emits SHA-256 digests. CI can sign the Lab,
+Collector, and installer when signing secrets are configured. Until a trusted
+production code-signing certificate is configured, Windows SmartScreen may
+warn about locally built or CI-produced executables.

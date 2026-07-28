@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="csa-csrf" content="__CSA_CSRF__">
+  <title>CSA Lab</title>
+  <style>/*__CSA_STYLE__*/</style>
+</head>
+<body>
+<a class="skip-link" href="#workspace">Skip to workspace</a>
+<header class="app-header">
+  <div class="brand">
+    <img src="__CSA_LOGO__" alt="" width="36" height="36">
+    <div><strong>CSA Lab</strong><span>Security Assessment Console</span></div>
+  </div>
+  <div class="header-actions">
+    <span id="connection-state" class="status status-ok">Local console</span>
+    <button id="settings-button" class="icon-button" type="button" title="Settings" aria-label="Settings">&#9881;</button>
+    <button id="exit-button" class="icon-button" type="button" title="Exit CSA Lab" aria-label="Exit CSA Lab">&#10005;</button>
+  </div>
+</header>
+
+<div id="error-banner" class="message error hidden" role="alert"></div>
+<div id="success-banner" class="message success hidden" role="status"></div>
+
+<div class="app-layout">
+  <aside class="assessment-list" aria-label="Recent assessments">
+    <div class="aside-heading">
+      <h2>Assessments</h2>
+      <button id="new-assessment" type="button">New Assessment</button>
+    </div>
+    <div id="recent-assessments" class="assessment-items">
+      <p class="muted">Loading assessments...</p>
+    </div>
+  </aside>
+
+  <main id="workspace" tabindex="-1">
+    <section id="home-view" class="view">
+      <div class="workspace-heading">
+        <div><p class="eyebrow">CSA Security Assessment</p><h1>Assessment workspace</h1></div>
+        <button id="home-new-assessment" type="button">New Assessment</button>
+      </div>
+      <div class="empty-state">
+        <img src="__CSA_LOGO__" alt="" width="72" height="72">
+        <h2>Start or open an assessment</h2>
+        <p>Collection remains closed until you start it for a selected network.</p>
+      </div>
+    </section>
+
+    <section id="assessment-view" class="view hidden" aria-live="polite">
+      <div class="workspace-heading">
+        <div><p id="assessment-reference" class="eyebrow"></p><h1 id="assessment-name"></h1></div>
+        <span id="assessment-status" class="status"></span>
+      </div>
+
+      <div id="recovery-panel" class="notice critical hidden">
+        <div><strong>Recovery required</strong><p id="recovery-details"></p></div>
+        <div class="action-row">
+          <button id="resume-recovery" type="button">Resume Assessment</button>
+          <button id="cleanup-recovery" type="button" class="danger">Close and Clean Up</button>
+        </div>
+      </div>
+
+      <div class="metric-strip">
+        <div><span>Unique endpoints</span><strong id="endpoint-count">0 / 0</strong></div>
+        <div><span>Accepted submissions</span><strong id="submission-count">0</strong></div>
+        <div><span>Audit</span><strong id="audit-status">Checking</strong></div>
+        <div><span>Report</span><strong id="report-status">Not generated</strong></div>
+      </div>
+
+      <section class="collection-band">
+        <div class="collection-heading">
+          <div>
+            <h2>Collection</h2>
+            <p id="listener-status">Collection server is stopped.</p>
+          </div>
+          <div class="action-row">
+            <button id="start-collection" type="button">Start Collection</button>
+            <button id="pause-collection" type="button">Pause</button>
+            <button id="resume-collection" type="button">Resume</button>
+            <button id="stop-collection" class="danger" type="button">Stop</button>
+          </div>
+        </div>
+        <div id="portal-panel" class="portal-panel hidden">
+          <div>
+            <span>Collector page</span>
+            <strong id="portal-url"></strong>
+            <p>The temporary certificate may cause a browser warning. Verify that the address matches this CSA Lab computer. Collector submission still uses certificate pinning.</p>
+          </div>
+          <div class="action-row">
+            <button id="copy-portal" type="button">Copy Address</button>
+            <button id="open-portal" type="button">Open Locally</button>
+          </div>
+        </div>
+        <div class="privacy-line">
+          <strong>Privacy validation:</strong> enforced before evidence is accepted.
+          Passwords, browser credentials, private keys, recovery keys, and user documents are excluded.
+        </div>
+      </section>
+
+      <section class="endpoint-band">
+        <div class="section-toolbar">
+          <div><h2>Endpoints</h2><p id="endpoint-summary" class="muted">No analyzed endpoints received.</p></div>
+          <div class="action-row">
+            <label class="file-button">Import Offline Package<input id="offline-file" type="file" accept=".csa,application/json"></label>
+            <button id="refresh-assessment" class="icon-button" type="button" title="Refresh assessment" aria-label="Refresh assessment">&#8635;</button>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Endpoint</th><th>Status</th><th>Transport</th><th>Coverage</th><th>Findings</th><th>Context</th><th>Last received</th></tr></thead>
+            <tbody id="endpoint-table"><tr><td colspan="7">No endpoints received.</td></tr></tbody>
+          </table>
+        </div>
+        <div id="endpoint-detail" class="endpoint-detail hidden"></div>
+      </section>
+
+      <section class="report-band">
+        <div>
+          <h2>Unified assessment report</h2>
+          <p id="report-preview">A report can be generated after at least one endpoint is analyzed.</p>
+          <div class="report-options">
+            <label><input id="include-evidence" type="checkbox" checked> Include technical evidence</label>
+            <label><input id="include-audit" type="checkbox" checked> Include audit details</label>
+            <label><input id="include-endpoints" type="checkbox" checked> Include endpoint details</label>
+          </div>
+        </div>
+        <div class="report-actions">
+          <button id="generate-report" type="button">Generate Assessment Report</button>
+          <button id="open-report" type="button">Open Report</button>
+          <button id="show-report" type="button">Show in Folder</button>
+          <button id="export-archive" type="button">Export Assessment Archive</button>
+        </div>
+      </section>
+
+      <details class="advanced-details">
+        <summary>Advanced Details</summary>
+        <dl id="advanced-values"></dl>
+      </details>
+    </section>
+  </main>
+</div>
+
+<dialog id="wizard-dialog">
+  <form id="wizard-form">
+    <header><div><p class="eyebrow">New Assessment</p><h2>Assessment setup</h2></div><button class="icon-button close-dialog" type="button" aria-label="Close">&#10005;</button></header>
+    <div class="dialog-body">
+      <div class="form-grid">
+        <label class="full">Assessment name<input name="name" required maxlength="120" autocomplete="off"></label>
+        <label>Expected endpoints<input name="expectedEndpoints" type="number" min="1" max="10000" value="1" required></label>
+        <label>Organization<input name="organization" maxlength="120" autocomplete="organization"></label>
+        <label>Reference number<input name="referenceNumber" maxlength="80" autocomplete="off"></label>
+        <label class="full">Description<textarea name="description" rows="2" maxlength="1000"></textarea></label>
+      </div>
+      <fieldset>
+        <legend>Collection network</legend>
+        <label>Network interface<select id="network-interface" name="networkInterface" required><option value="">Detecting networks...</option></select></label>
+        <div id="network-warning" class="notice warning hidden"></div>
+      </fieldset>
+      <details>
+        <summary>Advanced settings</summary>
+        <div class="form-grid advanced-form">
+          <label>Collection profile<input name="collectionProfile" value="windows-standard-v1" readonly></label>
+          <label>Session expiry (hours)<input name="sessionExpiryHours" type="number" min="1" max="72" value="2"></label>
+          <label>Allowed submissions<input name="allowedSubmissions" type="number" min="1" placeholder="Automatic"></label>
+          <label>Listener port<input name="listenerPort" type="number" min="1" max="65535" value="8443"></label>
+          <label><input name="offlineCollection" type="checkbox" checked> Offline collection enabled</label>
+          <label><input type="checkbox" disabled> Active Validation disabled</label>
+          <label class="full">Assessor notes<textarea name="assessorNotes" rows="2" maxlength="2000"></textarea></label>
+        </div>
+      </details>
+    </div>
+    <footer><button class="close-dialog" type="button">Cancel</button><button id="create-assessment" type="submit">Create Assessment</button></footer>
+  </form>
+</dialog>
+
+<dialog id="settings-dialog">
+  <form method="dialog">
+    <header><div><p class="eyebrow">CSA Lab</p><h2>Settings</h2></div><button class="icon-button" value="cancel" aria-label="Close">&#10005;</button></header>
+    <div class="settings-layout">
+      <div class="settings-tabs" role="tablist">
+        <button type="button" class="settings-tab active" data-tab="general">General</button>
+        <button type="button" class="settings-tab" data-tab="storage">Storage</button>
+        <button type="button" class="settings-tab" data-tab="network">Network</button>
+        <button type="button" class="settings-tab" data-tab="tls">TLS Certificate</button>
+        <button type="button" class="settings-tab" data-tab="collector">Collector</button>
+        <button type="button" class="settings-tab" data-tab="reporting">Reporting</button>
+        <button type="button" class="settings-tab" data-tab="privacy">Privacy</button>
+        <button type="button" class="settings-tab" data-tab="advanced">Advanced</button>
+      </div>
+      <div class="settings-content">
+        <section data-panel="general"><h3>General</h3><p>Language: English. Reports open in the system browser.</p></section>
+        <section data-panel="storage" class="hidden"><h3>Storage</h3><p>Assessment data is stored outside the installation directory with restricted access.</p></section>
+        <section data-panel="network" class="hidden"><h3>Network</h3><p>CSA uses the interface and source subnet confirmed in each assessment.</p></section>
+        <section data-panel="tls" class="hidden"><h3>TLS Certificate</h3><p>Generated assessment certificates are the current fallback. Collector identity validation is pinned and cannot be bypassed.</p></section>
+        <section data-panel="collector" class="hidden"><h3>Collector</h3><p>Collector 5.1, standard-user profile, offline fallback enabled by default.</p></section>
+        <section data-panel="reporting" class="hidden"><h3>Reporting</h3><p>The unified self-contained HTML report is the primary output.</p></section>
+        <section data-panel="privacy" class="hidden"><h3>Privacy</h3><p>Strict privacy validation is mandatory. Sensitive evidence is quarantined.</p></section>
+        <section data-panel="advanced" class="hidden">
+          <h3>Advanced</h3>
+          <p>The CLI and legacy reports remain available for development and automation.</p>
+          <button id="export-diagnostics" type="button">Export Diagnostic Bundle</button>
+        </section>
+      </div>
+    </div>
+    <footer><button value="cancel">Close</button></footer>
+  </form>
+</dialog>
+
+<script>/*__CSA_SCRIPT__*/</script>
+</body>
+</html>

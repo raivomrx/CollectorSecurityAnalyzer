@@ -17,7 +17,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 from csa_console.audit import ConsoleAuditLog
-from csa_console.canonical import canonical_bytes, canonical_json
+from csa_console.canonical import canonical_bytes, canonical_json, path_lock
 from csa_console.enums import SubmissionState
 from csa_console.identifiers import random_id, utc_text
 from csa_console.models import SubmissionReceipt
@@ -228,40 +228,46 @@ class OfflineImportService:
             )
         if package.package_digest != associated.get("packageDigest"):
             raise OfflineImportError("Offline package digest binding is invalid")
-        existing = self.submissions.list_submissions(assessment_id)
-        if any(
-            item.get("submissionId") == submission_id
-            or item.get("packageDigest") == package.package_digest
-            for item in existing
-        ):
-            raise SubmissionRejected(
-                SubmissionState.REJECTED_REPLAY,
-                "Duplicate offline submission",
+        index_path = self.storage.path(
+            assessment_id, "submissions", "index.json"
+        )
+        with path_lock(index_path):
+            existing = self.submissions.list_submissions(assessment_id)
+            if any(
+                item.get("submissionId") == submission_id
+                or item.get("packageDigest") == package.package_digest
+                for item in existing
+            ):
+                raise SubmissionRejected(
+                    SubmissionState.REJECTED_REPLAY,
+                    "Duplicate offline submission",
+                )
+            accepted = self.storage.path(
+                assessment_id,
+                "submissions",
+                "accepted",
+                f"{submission_id}.csa.zip",
             )
-        accepted = self.storage.path(
-            assessment_id,
-            "submissions",
-            "accepted",
-            f"{submission_id}.csa.zip",
-        )
-        accepted.write_bytes(decrypted.archive_bytes)
-        accepted.chmod(0o600)
-        existing.append(
-            {
-                "assessmentId": assessment_id,
-                "sessionId": session_id,
-                "submissionId": submission_id,
-                "deviceId": package.manifest["deviceId"],
-                "packageDigest": package.package_digest,
-                "state": "EVIDENCE_ACCEPTED",
-                "receivedAt": utc_text(),
-                "transport": "OFFLINE_ENCRYPTED",
-            }
-        )
-        existing.sort(key=lambda item: str(item["submissionId"]))
-        self.storage.write_json(
-            assessment_id, ("submissions", "index.json"), {"items": existing}
-        )
+            accepted.write_bytes(decrypted.archive_bytes)
+            accepted.chmod(0o600)
+            existing.append(
+                {
+                    "assessmentId": assessment_id,
+                    "sessionId": session_id,
+                    "submissionId": submission_id,
+                    "deviceId": package.manifest["deviceId"],
+                    "packageDigest": package.package_digest,
+                    "state": "EVIDENCE_ACCEPTED",
+                    "receivedAt": utc_text(),
+                    "transport": "OFFLINE_ENCRYPTED",
+                }
+            )
+            existing.sort(key=lambda item: str(item["submissionId"]))
+            self.storage.write_json(
+                assessment_id,
+                ("submissions", "index.json"),
+                {"items": existing},
+            )
         self.sessions.record_token_use(session)
         received_at = utc_text()
         if not session.tls_private_key_path:

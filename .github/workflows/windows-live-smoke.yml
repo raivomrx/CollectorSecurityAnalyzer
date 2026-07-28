@@ -1,0 +1,32 @@
+name: Windows Live Smoke
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  hosted-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Build Collector bootstrapper
+        shell: pwsh
+        run: ./scripts/Build-CSACollector.ps1
+      - name: Exercise local Lab lifecycle and pinned portal
+        run: >-
+          python -W error::ResourceWarning -m unittest
+          tests.test_lab_sprint51.LabServiceTests.test_collection_lifecycle_and_portal_security
+          tests.test_lab_sprint51.LabServiceTests.test_local_admin_server_binds_loopback_and_requires_csrf
+          -v
+      - name: Clarify hosted-runner boundary
+        shell: pwsh
+        run: |
+          "GitHub hosted smoke validates localhost admin isolation, the scoped HTTPS portal, pinning, and cleanup."
+          "It does not replace the required true non-admin two-computer manual acceptance test."

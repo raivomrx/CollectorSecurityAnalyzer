@@ -148,7 +148,7 @@ def _parser() -> argparse.ArgumentParser:
     endpoint_report = report_commands.add_parser("endpoint")
     endpoint_report.add_argument("--assessment", required=True)
     endpoint_report.add_argument("--submission", required=True)
-    for name in ("fleet", "executive", "generate-all"):
+    for name in ("fleet", "executive", "unified", "generate-all"):
         item = report_commands.add_parser(name)
         item.add_argument("--assessment", required=True)
     return parser
@@ -373,6 +373,12 @@ def _dispatch(args: argparse.Namespace, storage: AssessmentStorage) -> None:
             outputs = [reports.generate_fleet(args.assessment)]
         elif args.report_command == "executive":
             outputs = [reports.generate_executive(args.assessment)]
+        elif args.report_command == "unified":
+            from csa_lab.unified_report import UnifiedReportGenerator
+
+            outputs = [
+                UnifiedReportGenerator(storage).generate(args.assessment)
+            ]
         else:
             outputs = reports.generate_all(args.assessment)
         _output({"reports": [str(item) for item in outputs]})

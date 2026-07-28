@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from csa_console.audit import ConsoleAuditLog
-from csa_console.canonical import sha256_bytes, write_canonical_json
+from csa_console.canonical import (
+    path_lock,
+    sha256_bytes,
+    write_canonical_json,
+)
 from csa_console.enums import SubmissionState
 from csa_console.identifiers import random_id, utc_now, utc_text
 from csa_console.models import AssessmentSession, SubmissionReceipt
@@ -187,7 +191,10 @@ class SubmissionService:
                 SubmissionState.REJECTED_UNTRUSTED_COLLECTOR,
                 "Collector build digest is not trusted for this session",
             )
-        with self._lock:
+        index_path = self.storage.path(
+            assessment_id, "submissions", "index.json"
+        )
+        with self._lock, path_lock(index_path):
             index = self._load_index(assessment_id)
             duplicate = any(
                 item.get("submissionId") == submission_id
@@ -280,6 +287,45 @@ class SubmissionService:
 
         return self._load_index(assessment_id)
 
+    def update_processing_state(
+        self,
+        assessment_id: str,
+        submission_id: str,
+        state: str,
+    ) -> None:
+        """Persist one allowlisted endpoint processing transition."""
+
+        allowed = {
+            "RECEIVED",
+            "VALIDATING",
+            "NORMALIZING",
+            "ANALYZING",
+            "COMPLETE",
+            "ERROR",
+        }
+        if state not in allowed:
+            raise ValueError("Unknown endpoint processing state")
+        index_path = self.storage.path(
+            assessment_id, "submissions", "index.json"
+        )
+        with self._lock, path_lock(index_path):
+            index = self._load_index(assessment_id)
+            matched = False
+            for item in index:
+                if item.get("submissionId") == submission_id:
+                    item["processingState"] = state
+                    matched = True
+                    break
+            if not matched:
+                raise ValueError("Submission was not found")
+            self.storage.write_json(
+                assessment_id, ("submissions", "index.json"), {"items": index}
+            )
+        self._audit(assessment_id).append(
+            "submission_processing_state_changed",
+            {"submissionId": submission_id, "processingState": state},
+        )
+
     def remove_submission(
         self,
         assessment_id: str,
@@ -287,7 +333,10 @@ class SubmissionService:
     ) -> None:
         """Remove one explicitly selected endpoint submission and derived data."""
 
-        with self._lock:
+        index_path = self.storage.path(
+            assessment_id, "submissions", "index.json"
+        )
+        with self._lock, path_lock(index_path):
             index = self._load_index(assessment_id)
             remaining = [
                 item

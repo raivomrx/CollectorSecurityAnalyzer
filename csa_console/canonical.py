@@ -4,10 +4,24 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import threading
+import uuid
 from dataclasses import asdict, is_dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any
+
+_LOCKS: dict[str, threading.RLock] = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def path_lock(path: str | Path) -> threading.RLock:
+    """Return one process-wide reentrant lock for a canonical file path."""
+
+    key = os.path.normcase(str(Path(path).resolve()))
+    with _LOCKS_GUARD:
+        return _LOCKS.setdefault(key, threading.RLock())
 
 
 def normalize(value: Any) -> Any:
@@ -73,17 +87,24 @@ def write_canonical_json(path: str | Path, value: Any) -> Path:
 
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    temporary = output.with_name(f".{output.name}.tmp")
-    temporary.write_bytes(canonical_bytes(value))
-    temporary.chmod(0o600)
-    temporary.replace(output)
+    with path_lock(output):
+        temporary = output.with_name(
+            f".{output.name}.{uuid.uuid4().hex}.tmp"
+        )
+        try:
+            temporary.write_bytes(canonical_bytes(value))
+            temporary.chmod(0o600)
+            temporary.replace(output)
+        finally:
+            temporary.unlink(missing_ok=True)
     return output
 
 
 def read_json(path: str | Path) -> dict[str, Any]:
     """Read a JSON object from disk."""
 
-    value = json.loads(Path(path).read_text(encoding="utf-8"))
+    with path_lock(path):
+        value = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise ValueError(f"JSON root must be an object: {path}")
     return value

@@ -1,0 +1,41 @@
+name: CSA Lab Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install application and build dependencies
+        run: python -m pip install -r requirements.txt -r requirements-build.txt
+      - name: Install NSIS
+        run: choco install nsis --no-progress -y
+      - name: Build CSA Lab and installer
+        shell: pwsh
+        env:
+          CSA_SIGNING_CERTIFICATE_BASE64: ${{ secrets.CSA_SIGNING_CERTIFICATE_BASE64 }}
+          CSA_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.CSA_SIGNING_CERTIFICATE_PASSWORD }}
+        run: ./scripts/Build-CSALab.ps1
+      - name: Verify build artifacts
+        shell: pwsh
+        run: |
+          Get-Item `
+            dist/CSA-Lab/CSA-Lab.exe, `
+            build/collector/CSA-Collector.exe, `
+            dist/installer/CSA-Lab-Setup.exe |
+            Select-Object FullName, Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CSA-Lab-Windows
+          path: |
+            dist/CSA-Lab/
+            dist/installer/CSA-Lab-Setup.exe
+            build/collector/CSA-Collector.exe

@@ -14,6 +14,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from csa_console.network import validate_listen_address
+from csa_console.portal import PortalBinding
 from csa_console.pipeline import ConsoleAnalysisPipeline
 from csa_console.reporting import ConsoleReportGenerator
 from csa_console.serde import model_to_dict
@@ -48,6 +49,7 @@ class ConsoleHttpsServer:
         *,
         allow_wildcard_bind: bool = False,
         analyze_automatically: bool = True,
+        portal: PortalBinding | None = None,
     ) -> None:
         """Create a configured but not yet started HTTPS server."""
 
@@ -62,6 +64,7 @@ class ConsoleHttpsServer:
         )
         self._stop_path.unlink(missing_ok=True)
         self._stopped = threading.Event()
+        self._serving = threading.Event()
         validate_listen_address(
             self.session.listen_address, allow_wildcard=allow_wildcard_bind
         )
@@ -72,6 +75,7 @@ class ConsoleHttpsServer:
             session_id,
             self.storage,
             analyze_automatically,
+            portal,
         )
         self._server = ThreadingHTTPServer(
             (self.session.listen_address, self.session.listen_port), handler
@@ -92,16 +96,19 @@ class ConsoleHttpsServer:
 
         monitor = threading.Thread(target=self._monitor_stop, daemon=True)
         monitor.start()
+        self._serving.set()
         try:
             self._server.serve_forever(poll_interval=0.2)
         finally:
+            self._serving.clear()
             self._stopped.set()
             self._server.server_close()
 
     def shutdown(self) -> None:
         """Stop accepting requests and close the listener."""
 
-        self._server.shutdown()
+        if self._serving.is_set():
+            self._server.shutdown()
         self._stopped.set()
         self._server.server_close()
 
@@ -173,6 +180,7 @@ def _handler_factory(
     session_id: str,
     storage: AssessmentStorage,
     analyze_automatically: bool,
+    portal: PortalBinding | None = None,
 ):
     """Build a request handler bound to one assessment session."""
 
@@ -182,8 +190,61 @@ def _handler_factory(
     limiter = _RateLimiter()
 
     class SubmissionHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Console/5.0"
+        server_version = "CSA-Lab/5.1"
         protocol_version = "HTTP/1.1"
+
+        def do_GET(self) -> None:
+            source = str(self.client_address[0])
+            path = urlparse(self.path).path
+            try:
+                if portal is None:
+                    self._json(HTTPStatus.NOT_FOUND, {"error": "NOT_FOUND"})
+                    return
+                prefix = "/join/"
+                if not path.startswith(prefix):
+                    self._json(HTTPStatus.NOT_FOUND, {"error": "NOT_FOUND"})
+                    return
+                remainder = path[len(prefix) :].strip("/")
+                parts = remainder.split("/") if remainder else []
+                if not parts or len(parts) > 2:
+                    self._json(HTTPStatus.NOT_FOUND, {"error": "NOT_FOUND"})
+                    return
+                join_code = parts[0]
+                if not portal.authorize(join_code, source):
+                    self._json(
+                        HTTPStatus.GONE,
+                        {"error": "PORTAL_UNAVAILABLE"},
+                    )
+                    return
+                if len(parts) == 1:
+                    body = portal.render_page(
+                        submission_service.sessions.load_session(
+                            assessment_id, session_id
+                        ).assessment_name
+                    )
+                    self._bytes(
+                        HTTPStatus.OK,
+                        body,
+                        "text/html; charset=utf-8",
+                    )
+                    return
+                if parts[1] != "download":
+                    self._json(HTTPStatus.NOT_FOUND, {"error": "NOT_FOUND"})
+                    return
+                body = portal.collector_path.read_bytes()
+                portal.record_download(source)
+                self._bytes(
+                    HTTPStatus.OK,
+                    body,
+                    "application/vnd.microsoft.portable-executable",
+                    attachment="CSA-Collector.exe",
+                )
+            except (OSError, ValueError):
+                LOGGER.exception("Collector portal request failed safely")
+                self._json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": "PORTAL_ERROR"},
+                )
 
         def do_POST(self) -> None:
             source = str(self.client_address[0])
@@ -283,6 +344,9 @@ def _handler_factory(
                     LOGGER.exception(
                         "Accepted submission analysis failed: %s", submission_id
                     )
+                    submission_service.update_processing_state(
+                        assessment_id, submission_id, "ERROR"
+                    )
                     analysis_state = "FAILED"
             response = model_to_dict(receipt)
             response["analysisState"] = analysis_state
@@ -331,15 +395,36 @@ def _handler_factory(
             body = json.dumps(
                 value, ensure_ascii=False, separators=(",", ":"), sort_keys=True
             ).encode("utf-8")
+            self._bytes(status, body, "application/json")
+
+        def _bytes(
+            self,
+            status: HTTPStatus,
+            body: bytes,
+            content_type: str,
+            *,
+            attachment: str | None = None,
+        ) -> None:
             self.send_response(status)
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("Pragma", "no-cache")
             self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Referrer-Policy", "no-referrer")
+            if attachment is not None:
+                self.send_header(
+                    "Content-Disposition", f'attachment; filename="{attachment}"'
+                )
             self.end_headers()
             self.wfile.write(body)
 
         def log_message(self, format: str, *args: Any) -> None:
-            LOGGER.info("HTTPS request from %s: %s", self.client_address[0], args[0])
+            LOGGER.info(
+                "HTTPS request completed source=%s status=%s",
+                self.client_address[0],
+                args[1] if len(args) > 1 else "unknown",
+            )
 
     return SubmissionHandler
