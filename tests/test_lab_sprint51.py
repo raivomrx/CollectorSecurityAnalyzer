@@ -78,6 +78,20 @@ class LabUiContractTests(unittest.TestCase):
         self.assertIn('item.status === "COMPLETE"', script)
         self.assertIn('"READY_FOR_REPORT", "COMPLETED"', script)
 
+    def test_terminal_assessments_are_explicitly_deletable(self) -> None:
+        script = (ROOT / "csa_lab" / "templates" / "lab.js").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            '["DRAFT", "CLOSED", "COMPLETED"].includes(status)',
+            script,
+        )
+        self.assertIn(
+            "its evidence, reports, and local audit history",
+            script,
+        )
+
     def test_packaged_lab_includes_default_policy_profile(self) -> None:
         specification = (ROOT / "packaging" / "csa-lab.spec").read_text(
             encoding="utf-8"
@@ -194,7 +208,7 @@ class LabServiceTests(unittest.TestCase):
             / "audit"
             / "application.jsonl"
         ).read_text(encoding="utf-8")
-        self.assertIn("draft_assessment_deleted", application_audit)
+        self.assertIn("assessment_deleted", application_audit)
 
     def test_non_draft_assessment_cannot_be_deleted(self) -> None:
         state = self.service.create_assessment(self.request())
@@ -202,6 +216,80 @@ class LabServiceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "Only an empty draft"):
             self.service.delete_draft_assessment(state.assessment_id)
+
+    def test_completed_assessment_and_local_evidence_can_be_deleted(
+        self,
+    ) -> None:
+        state = self.service.create_assessment(self.request())
+        state.status = LabAssessmentStatus.COMPLETED
+        state.report_path = str(
+            self.service.storage.path(
+                state.assessment_id, "reports", "assessment.html"
+            )
+        )
+        self.service.storage.path(
+            state.assessment_id, "reports"
+        ).mkdir(parents=True, exist_ok=True)
+        Path(state.report_path).write_text("report", encoding="utf-8")
+        self.service._write_state(state)
+
+        self.service.delete_assessment(state.assessment_id)
+
+        self.assertFalse(
+            self.service.storage.assessment_path(
+                state.assessment_id
+            ).exists()
+        )
+        application_audit = (
+            self.service.storage.root.parent
+            / "audit"
+            / "application.jsonl"
+        ).read_text(encoding="utf-8")
+        self.assertIn('"status":"COMPLETED"', application_audit)
+
+    def test_closed_assessment_can_be_deleted(self) -> None:
+        state = self.service.create_assessment(self.request())
+        state.status = LabAssessmentStatus.CLOSED
+        self.service._write_state(state)
+
+        self.service.delete_assessment(state.assessment_id)
+
+        self.assertFalse(
+            self.service.storage.assessment_path(
+                state.assessment_id
+            ).exists()
+        )
+
+    def test_active_assessment_cannot_be_deleted(self) -> None:
+        state = self.service.create_assessment(self.request())
+        self.service.start_collection(state.assessment_id)
+
+        with self.assertRaisesRegex(
+            ValueError, "draft, closed, or completed"
+        ):
+            self.service.delete_assessment(state.assessment_id)
+
+    def test_terminal_assessment_with_firewall_access_cannot_be_deleted(
+        self,
+    ) -> None:
+        state = self.service.create_assessment(self.request())
+        state.status = LabAssessmentStatus.CLOSED
+        self.service._write_state(state)
+        self.firewall.create(
+            FirewallRuleSpec(
+                rule_name=state.firewall_rule_name,
+                program_path=str(Path(__file__).resolve()),
+                local_address=state.listener_address,
+                local_port=state.listener_port,
+                remote_subnet=state.source_subnet,
+                profile=state.network_profile,
+            )
+        )
+
+        with self.assertRaisesRegex(
+            ValueError, "network access must be cleaned up"
+        ):
+            self.service.delete_assessment(state.assessment_id)
 
     def test_encrypted_assessment_archive_export_is_verifiable(self) -> None:
         state = self.service.create_assessment(self.request())
@@ -304,6 +392,18 @@ class LabServiceTests(unittest.TestCase):
         self.assertIn("Download CSA Collector", response.text)
         self.assertIn('href="download"', response.text)
         self.assertNotIn("enrollmentToken", response.text)
+        unavailable = requests.get(
+            (
+                f"https://127.0.0.1:{state.listener_port}/join/"
+                "INVALID-ASSESSMENT-LINK/"
+            ),
+            verify=session.tls_certificate_path,
+            timeout=5,
+        )
+        self.assertEqual(unavailable.status_code, 410)
+        self.assertIn("Collector page unavailable", unavailable.text)
+        self.assertIn("Copy Collector Page", unavailable.text)
+        self.assertNotIn("PORTAL_UNAVAILABLE", unavailable.text)
         download = requests.get(
             urljoin(response.url, "download"),
             verify=session.tls_certificate_path,

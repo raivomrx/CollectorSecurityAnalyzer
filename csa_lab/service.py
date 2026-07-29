@@ -233,26 +233,45 @@ class LabApplicationService:
     def delete_draft_assessment(self, assessment_id: str) -> None:
         """Delete an empty draft after closing its unused session."""
 
+        state = self.load_state(assessment_id)
+        if state.status != LabAssessmentStatus.DRAFT:
+            raise ValueError("Only an empty draft assessment can be deleted")
+        self.delete_assessment(assessment_id)
+
+    def delete_assessment(self, assessment_id: str) -> None:
+        """Permanently delete a draft or terminal local assessment."""
+
         with self._lock:
             state = self.load_state(assessment_id)
-            if state.status != LabAssessmentStatus.DRAFT:
-                raise ValueError("Only an empty draft assessment can be deleted")
+            allowed_statuses = {
+                LabAssessmentStatus.DRAFT,
+                LabAssessmentStatus.CLOSED,
+                LabAssessmentStatus.COMPLETED,
+            }
+            if state.status not in allowed_statuses:
+                raise ValueError(
+                    "Only a draft, closed, or completed assessment can be "
+                    "deleted"
+                )
             if assessment_id in self._servers:
                 raise ValueError("Stop collection before deleting an assessment")
             if (
-                state.download_count
-                or state.report_path
-                or self.submissions.list_submissions(assessment_id)
-                or self.dashboard(assessment_id)
+                state.status == LabAssessmentStatus.DRAFT
+                and (
+                    state.download_count
+                    or state.report_path
+                    or self.submissions.list_submissions(assessment_id)
+                    or self.dashboard(assessment_id)
+                )
             ):
                 raise ValueError(
                     "This assessment contains activity or evidence and cannot "
-                    "be deleted"
+                    "be deleted as a draft"
                 )
             if self.firewall.exists(state.firewall_rule_name):
                 raise ValueError(
                     "Temporary network access must be cleaned up before "
-                    "deleting this draft"
+                    "deleting this assessment"
                 )
             session = self.sessions.load_session(
                 assessment_id, state.session_id
@@ -266,23 +285,29 @@ class LabApplicationService:
             self.sessions.close_assessment(assessment_id)
             assessment_audit = self._audit(assessment_id)
             assessment_audit.append(
-                "draft_assessment_deletion_requested",
-                {"assessmentId": assessment_id, "sessionId": state.session_id},
+                "assessment_deletion_requested",
+                {
+                    "assessmentId": assessment_id,
+                    "sessionId": state.session_id,
+                    "status": state.status.value,
+                },
             )
             final_hash = assessment_audit.final_hash()
             self._application_audit().append(
-                "draft_assessment_deletion_started",
+                "assessment_deletion_started",
                 {
                     "assessmentId": assessment_id,
                     "assessmentAuditFinalHash": final_hash,
+                    "status": state.status.value,
                 },
             )
             shutil.rmtree(self.storage.assessment_path(assessment_id))
             self._application_audit().append(
-                "draft_assessment_deleted",
+                "assessment_deleted",
                 {
                     "assessmentId": assessment_id,
                     "assessmentAuditFinalHash": final_hash,
+                    "status": state.status.value,
                 },
             )
 

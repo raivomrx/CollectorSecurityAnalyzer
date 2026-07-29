@@ -138,3 +138,35 @@ class PortalBinding:
 </body>
 </html>"""
         return document.encode("utf-8")
+
+    @staticmethod
+    def render_unavailable_page() -> bytes:
+        """Render a safe explanation for an invalid or expired portal URL."""
+
+        document = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>CSA Collector Page Unavailable</title>
+  <style>
+    :root { color-scheme: light dark; font-family: "Segoe UI", Arial, sans-serif; }
+    body { margin: 0; background: Canvas; color: CanvasText; }
+    main { max-width: 680px; margin: 9vh auto; padding: 36px;
+      border: 1px solid GrayText; border-radius: 8px; }
+    h1 { margin-top: 0; font-size: 28px; }
+    p { line-height: 1.6; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Collector page unavailable</h1>
+  <p>This link is invalid, expired, or belongs to another assessment.</p>
+  <p>On the assessment computer, open the active <strong>COLLECTING</strong>
+     assessment and select <strong>Copy Collector Page</strong>. Close the old
+     browser tab and paste the complete new address into the address bar.</p>
+</main>
+</body>
+</html>"""
+        return document.encode("utf-8")

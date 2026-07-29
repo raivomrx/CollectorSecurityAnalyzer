@@ -211,9 +211,10 @@ def _handler_factory(
                     return
                 join_code = parts[0]
                 if not portal.authorize(join_code, source):
-                    self._json(
+                    self._bytes(
                         HTTPStatus.GONE,
-                        {"error": "PORTAL_UNAVAILABLE"},
+                        portal.render_unavailable_page(),
+                        "text/html; charset=utf-8",
                     )
                     return
                 if len(parts) == 1:

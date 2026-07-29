@@ -263,7 +263,7 @@ def _admin_handler_factory(application: LabAdminServer):
                         HTTPStatus.OK, {"assessment": model_to_dict(state)}
                     )
                 elif action == "delete":
-                    service.delete_draft_assessment(assessment_id)
+                    service.delete_assessment(assessment_id)
                     self._json(HTTPStatus.OK, {"status": "DELETED"})
                 elif action == "recovery-cleanup":
                     state = service.cleanup_recovery(assessment_id)
