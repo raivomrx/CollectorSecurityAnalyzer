@@ -52,6 +52,19 @@ def _free_port() -> int:
         return int(value.getsockname()[1])
 
 
+class LabUiContractTests(unittest.TestCase):
+    """Verify durable browser-side assessment workflow contracts."""
+
+    def test_create_assessment_retains_form_across_async_request(self) -> None:
+        script = (ROOT / "csa_lab" / "templates" / "lab.js").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("const formElement = event.currentTarget;", script)
+        self.assertIn("formElement.reset();", script)
+        self.assertNotIn("event.currentTarget.reset()", script)
+
+
 class LabServiceTests(unittest.TestCase):
     """Verify wizard, lifecycle, portal and recovery behavior."""
 

@@ -229,7 +229,8 @@
 
   async function createAssessment(event) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const network = state.interfaces[Number(form.get("networkInterface"))];
     if (!network) return showMessage("Select a connected collection network.", true);
     const button = $("create-assessment");
@@ -257,7 +258,7 @@
         },
       });
       $("wizard-dialog").close();
-      event.currentTarget.reset();
+      formElement.reset();
       await loadAssessments();
       await openAssessment(data.assessment.assessmentId);
       showMessage("Assessment created. Collection remains closed until you start it.");
