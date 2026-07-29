@@ -179,7 +179,11 @@ def validate_firewall_spec(spec: FirewallRuleSpec) -> None:
     if spec.remote_subnet in {"", "*", "Any", "0.0.0.0/0"}:
         raise ValueError("Firewall rule requires a bounded source subnet")
     if spec.profile.casefold() not in {"private", "domain"}:
-        raise ValueError("Public-profile collection requires explicit redesign")
+        raise ValueError(
+            "The selected Windows network profile is Public. Change this "
+            "trusted lab network to Private in Windows Settings, or select "
+            "another Private or Domain network, then create a new assessment."
+        )
 
 
 def _validate_rule_name(rule_name: str) -> None:
@@ -187,4 +191,3 @@ def _validate_rule_name(rule_name: str) -> None:
         raise ValueError("Firewall rule name is outside the CSA namespace")
     if len(rule_name) > 160 or any(char in rule_name for char in "\r\n\""):
         raise ValueError("Firewall rule name is unsafe")
-

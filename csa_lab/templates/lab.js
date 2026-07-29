@@ -92,6 +92,7 @@
     $("pause-collection").disabled = status !== "COLLECTING";
     $("resume-collection").disabled = !["PAUSED", "RECOVERY_REQUIRED"].includes(status);
     $("stop-collection").disabled = !["COLLECTING", "PAUSED", "RECOVERY_REQUIRED"].includes(status);
+    $("delete-draft").classList.toggle("hidden", status !== "DRAFT");
     $("generate-report").disabled = payload.endpoints.length === 0;
     $("open-report").disabled = !assessment.reportPath;
     $("show-report").disabled = !assessment.reportPath;
@@ -301,6 +302,22 @@
     }
   }
 
+  async function deleteDraft() {
+    if (!state.currentId || state.current?.assessment?.status !== "DRAFT") return;
+    if (!window.confirm("Permanently delete this empty draft assessment? This action cannot be undone.")) return;
+    try {
+      await request(`/api/v1/assessments/${encodeURIComponent(state.currentId)}/delete`, { method: "POST" });
+      state.currentId = "";
+      state.current = null;
+      await loadAssessments();
+      $("assessment-view").classList.add("hidden");
+      $("home-view").classList.remove("hidden");
+      showMessage("Draft assessment deleted.");
+    } catch (error) {
+      showMessage(error.message, true);
+    }
+  }
+
   async function exportArchive() {
     const passphrase = window.prompt("Archive passphrase (minimum 12 characters):");
     if (passphrase === null) return;
@@ -357,6 +374,7 @@
   $("pause-collection").addEventListener("click", () => action("pause"));
   $("resume-collection").addEventListener("click", () => action("resume"));
   $("stop-collection").addEventListener("click", () => action("stop", "Stop collection and invalidate unused session credentials? Received evidence will be retained."));
+  $("delete-draft").addEventListener("click", deleteDraft);
   $("resume-recovery").addEventListener("click", () => action("resume"));
   $("cleanup-recovery").addEventListener("click", () => action("recovery-cleanup", "Close orphaned collection access and retain all evidence?"));
   $("refresh-assessment").addEventListener("click", () => openAssessment(state.currentId).catch((error) => showMessage(error.message, true)));

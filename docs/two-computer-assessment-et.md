@@ -5,7 +5,7 @@
 - laboriarvutis on CSA Lab;
 - testarvuti kasutaja ei kuulu Local Administrators gruppi;
 - mõlemad arvutid on samas LAN-is;
-- laboriarvuti võrguprofiil on soovitatavalt Private;
+- laboriarvuti valitud LAN-i võrguprofiil on Private või Domain;
 - testarvutis ei avata Collectorit administraatorina.
 
 ## 1. Assessment laboriarvutis

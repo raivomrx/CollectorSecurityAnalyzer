@@ -149,6 +149,32 @@ class LabServiceTests(unittest.TestCase):
         self.assertNotIn(token, json.dumps(model_to_dict(state)))
         self.assertEqual(len(self.service.join_code(state.assessment_id)), 24)
 
+    def test_empty_draft_can_be_deleted_without_leaving_session_state(
+        self,
+    ) -> None:
+        state = self.service.create_assessment(self.request())
+        assessment_path = self.service.storage.assessment_path(
+            state.assessment_id
+        )
+
+        self.service.delete_draft_assessment(state.assessment_id)
+
+        self.assertFalse(assessment_path.exists())
+        self.assertEqual(self.service.list_assessments(), [])
+        application_audit = (
+            self.service.storage.root.parent
+            / "audit"
+            / "application.jsonl"
+        ).read_text(encoding="utf-8")
+        self.assertIn("draft_assessment_deleted", application_audit)
+
+    def test_non_draft_assessment_cannot_be_deleted(self) -> None:
+        state = self.service.create_assessment(self.request())
+        self.service.start_collection(state.assessment_id)
+
+        with self.assertRaisesRegex(ValueError, "Only an empty draft"):
+            self.service.delete_draft_assessment(state.assessment_id)
+
     def test_encrypted_assessment_archive_export_is_verifiable(self) -> None:
         state = self.service.create_assessment(self.request())
         output = self.service.export_archive(

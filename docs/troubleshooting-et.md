@@ -14,6 +14,24 @@ Kontrolli:
 
 Veakood: `CSA-NET-001`.
 
+## Start Collection ütleb, et võrguprofiil on Public
+
+CSA ei ava collection-porti Windowsi Public-profiiliga võrgus. Kui tegemist on
+sinu hallatava usaldatud laborivõrguga, ava Windows 11-s **Settings → Network &
+internet**, vali aktiivne Etherneti või Wi-Fi ühendus ning määra **Network
+profile type: Private**. Seejärel loo CSA Labis uus assessment, et selle
+võrguseadistus salvestataks uuesti.
+
+Ära muuda avaliku, külalis- või muu mitteusaldatud võrgu profiili Private'iks.
+Sellisel juhul vali teine Private või Domain võrguliides.
+
+## Tühja draft-assessment'i kustutamine
+
+Ava vasakult soovitud `DRAFT` assessment ja vali **Delete Draft**. CSA lubab
+kustutada ainult tühja drafti, mille collection ei ole käivitatud ning mis ei
+sisalda submission'eid, evidence'i ega raportit. Muude assessment'ide andmed
+säilitatakse.
+
 ## Firewall UAC lükati tagasi
 
 Collection ei käivitu. Evidence'i ega assessment'i ei kustutata. Vajuta Start

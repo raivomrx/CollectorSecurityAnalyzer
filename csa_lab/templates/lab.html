@@ -52,7 +52,10 @@
     <section id="assessment-view" class="view hidden" aria-live="polite">
       <div class="workspace-heading">
         <div><p id="assessment-reference" class="eyebrow"></p><h1 id="assessment-name"></h1></div>
-        <span id="assessment-status" class="status"></span>
+        <div class="action-row">
+          <span id="assessment-status" class="status"></span>
+          <button id="delete-draft" class="danger hidden" type="button">Delete Draft</button>
+        </div>
       </div>
 
       <div id="recovery-panel" class="notice critical hidden">

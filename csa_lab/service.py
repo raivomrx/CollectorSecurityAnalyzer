@@ -9,6 +9,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import sys
 import threading
 import zipfile
@@ -228,6 +229,62 @@ class LabApplicationService:
                 }
             )
         return values
+
+    def delete_draft_assessment(self, assessment_id: str) -> None:
+        """Delete an empty draft after closing its unused session."""
+
+        with self._lock:
+            state = self.load_state(assessment_id)
+            if state.status != LabAssessmentStatus.DRAFT:
+                raise ValueError("Only an empty draft assessment can be deleted")
+            if assessment_id in self._servers:
+                raise ValueError("Stop collection before deleting an assessment")
+            if (
+                state.download_count
+                or state.report_path
+                or self.submissions.list_submissions(assessment_id)
+                or self.dashboard(assessment_id)
+            ):
+                raise ValueError(
+                    "This assessment contains activity or evidence and cannot "
+                    "be deleted"
+                )
+            if self.firewall.exists(state.firewall_rule_name):
+                raise ValueError(
+                    "Temporary network access must be cleaned up before "
+                    "deleting this draft"
+                )
+            session = self.sessions.load_session(
+                assessment_id, state.session_id
+            )
+            if session.status in {SessionStatus.OPEN, SessionStatus.PAUSED}:
+                self.sessions.set_session_status(
+                    assessment_id,
+                    state.session_id,
+                    SessionStatus.CLOSED,
+                )
+            self.sessions.close_assessment(assessment_id)
+            assessment_audit = self._audit(assessment_id)
+            assessment_audit.append(
+                "draft_assessment_deletion_requested",
+                {"assessmentId": assessment_id, "sessionId": state.session_id},
+            )
+            final_hash = assessment_audit.final_hash()
+            self._application_audit().append(
+                "draft_assessment_deletion_started",
+                {
+                    "assessmentId": assessment_id,
+                    "assessmentAuditFinalHash": final_hash,
+                },
+            )
+            shutil.rmtree(self.storage.assessment_path(assessment_id))
+            self._application_audit().append(
+                "draft_assessment_deleted",
+                {
+                    "assessmentId": assessment_id,
+                    "assessmentAuditFinalHash": final_hash,
+                },
+            )
 
     def load_state(self, assessment_id: str) -> LabAssessmentState:
         """Load one persisted Lab assessment state."""
