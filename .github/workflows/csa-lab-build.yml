@@ -27,15 +27,30 @@ jobs:
       - name: Verify build artifacts
         shell: pwsh
         run: |
-          Get-Item `
+          $artifacts = Get-Item `
             dist/CSA-Lab/CSA-Lab.exe, `
             build/collector/CSA-Collector.exe, `
-            dist/installer/CSA-Lab-Setup.exe |
-            Select-Object FullName, Length
+            dist/installer/CSA-Lab-Setup.exe
+          $artifacts | Select-Object FullName, Length
+          $checksums = $artifacts | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash
+            "$hash  $($_.Name)"
+          }
+          $checksums | Set-Content `
+            -LiteralPath dist/installer/SHA256SUMS.txt `
+            -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CSA-Lab-Setup
+          path: |
+            dist/installer/CSA-Lab-Setup.exe
+            dist/installer/SHA256SUMS.txt
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: CSA-Lab-Windows
           path: |
             dist/CSA-Lab/
             dist/installer/CSA-Lab-Setup.exe
+            dist/installer/SHA256SUMS.txt
             build/collector/CSA-Collector.exe
