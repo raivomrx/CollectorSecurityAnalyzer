@@ -40,6 +40,14 @@ saada.
 
 Veakoodid: `CSA-NET-002`, `CSA-NET-003`, `CSA-NET-004`.
 
+## Windows rejected the firewall rule
+
+Veendu, et kasutad uusima eduka **CSA Lab Build** workflow `CSA-Lab-Setup`
+artifacti. Varasem build võis anda tühikuid sisaldava installitee või reeglinime
+edastamisel vea `CSA-NET-003`. Ära lahenda seda käsitsi laia firewall rule'i
+loomisega. Uus helper säilitab tühikutega argumendid ning CSA kontrollib pärast
+nii reegli loomist kui ka eemaldamist Windowsi tegelikku lõppseisu.
+
 ## Brauser kuvab certificate warning'u
 
 Generated assessment certificate ei kuulu brauseri tavalisse trust store'i.

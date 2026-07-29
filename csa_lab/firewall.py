@@ -159,8 +159,12 @@ class WindowsFirewallManager:
                     "CSA-NET-002: firewall access was not approved"
                 )
             outcome = json.loads(result.read_text(encoding="utf-8-sig"))
-            if int(outcome.get("exitCode", -1)) != 0:
-                raise OSError("CSA-NET-003: Windows rejected the firewall rule")
+            exit_code = int(outcome.get("exitCode", -1))
+            if exit_code != 0:
+                raise OSError(
+                    "CSA-NET-003: Windows rejected the firewall rule "
+                    f"(netsh exit code {exit_code})"
+                )
 
 
 def validate_firewall_spec(spec: FirewallRuleSpec) -> None:

@@ -9,6 +9,10 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
+Import-Module (
+    Join-Path $PSScriptRoot "FirewallArguments.psm1"
+) -Force
+
 $request = Get-Content -Raw -LiteralPath $RequestPath | ConvertFrom-Json
 $allowed = @("advfirewall", "firewall")
 $arguments = @($request.arguments | ForEach-Object { [string]$_ })
@@ -25,9 +29,10 @@ if (
     throw "CSA firewall helper rejected an unscoped request."
 }
 
+$argumentLine = Join-CSAProcessArguments -Values $arguments
 $process = Start-Process `
     -FilePath ([string]$request.executable) `
-    -ArgumentList $arguments `
+    -ArgumentList $argumentLine `
     -Verb RunAs `
     -Wait `
     -PassThru `
