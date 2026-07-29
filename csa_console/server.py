@@ -217,6 +217,9 @@ def _handler_factory(
                     )
                     return
                 if len(parts) == 1:
+                    if not path.endswith("/"):
+                        self._redirect(f"{path}/")
+                        return
                     body = portal.render_page(
                         submission_service.sessions.load_session(
                             assessment_id, session_id
@@ -396,6 +399,16 @@ def _handler_factory(
                 value, ensure_ascii=False, separators=(",", ":"), sort_keys=True
             ).encode("utf-8")
             self._bytes(status, body, "application/json")
+
+        def _redirect(self, location: str) -> None:
+            """Redirect an authorized portal URL to its canonical path."""
+
+            self.send_response(HTTPStatus.PERMANENT_REDIRECT)
+            self.send_header("Location", location)
+            self.send_header("Content-Length", "0")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.end_headers()
 
         def _bytes(
             self,

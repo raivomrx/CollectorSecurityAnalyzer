@@ -11,6 +11,7 @@ import unittest
 import zipfile
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import urljoin
 
 import requests
 
@@ -219,6 +220,16 @@ class LabServiceTests(unittest.TestCase):
             state.assessment_id, state.session_id
         )
         url = self.service.portal_url(state.assessment_id)
+        self.assertTrue(url.endswith("/"))
+        noncanonical = requests.get(
+            url.rstrip("/"),
+            verify=session.tls_certificate_path,
+            timeout=5,
+            allow_redirects=False,
+        )
+        self.assertEqual(noncanonical.status_code, 308)
+        canonical_path = url[url.index("/", 8) :]
+        self.assertEqual(noncanonical.headers["Location"], canonical_path)
         response = requests.get(
             url,
             verify=session.tls_certificate_path,
@@ -226,7 +237,24 @@ class LabServiceTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn("Download CSA Collector", response.text)
+        self.assertIn('href="download"', response.text)
         self.assertNotIn("enrollmentToken", response.text)
+        download = requests.get(
+            urljoin(response.url, "download"),
+            verify=session.tls_certificate_path,
+            timeout=5,
+        )
+        self.assertEqual(download.status_code, 200)
+        expected_collector = Path(state.collector_path).read_bytes()
+        self.assertEqual(download.content, expected_collector)
+        self.assertIn(
+            'filename="CSA-Collector.exe"',
+            download.headers["Content-Disposition"],
+        )
+        self.assertEqual(
+            self.service.load_state(state.assessment_id).download_count,
+            1,
+        )
         admin = requests.get(
             f"https://127.0.0.1:{state.listener_port}/api/v1/assessments",
             verify=session.tls_certificate_path,

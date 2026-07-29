@@ -480,7 +480,7 @@ class LabApplicationService:
         state = self.load_state(assessment_id)
         return (
             f"https://{state.listener_address}:{state.listener_port}/join/"
-            f"{self.join_code(assessment_id)}"
+            f"{self.join_code(assessment_id)}/"
         )
 
     def dashboard(self, assessment_id: str) -> list[EndpointDashboardItem]:

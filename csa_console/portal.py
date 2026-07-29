@@ -127,7 +127,7 @@ class PortalBinding:
   </ul>
   <p>CSA does not collect passwords, browser credentials, private keys,
      recovery keys, or user document contents.</p>
-  <p><a class="button" href="./download">Download CSA Collector</a></p>
+  <p><a class="button" href="download">Download CSA Collector</a></p>
   <ol>
     <li>Open <strong>CSA-Collector.exe</strong>.</li>
     <li>Wait for <strong>Submission accepted</strong>.</li>
@@ -138,4 +138,3 @@ class PortalBinding:
 </body>
 </html>"""
         return document.encode("utf-8")
-
