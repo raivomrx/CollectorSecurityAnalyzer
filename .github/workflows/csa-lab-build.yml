@@ -31,6 +31,14 @@ jobs:
             dist/CSA-Lab/CSA-Lab.exe, `
             build/collector/CSA-Collector.exe, `
             dist/installer/CSA-Lab-Setup.exe
+          $requiredRuntimeFiles = @(
+            "dist/CSA-Lab/_internal/policies/windows_endpoint_default.json"
+          )
+          foreach ($requiredFile in $requiredRuntimeFiles) {
+            if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
+              throw "Required runtime file is missing: $requiredFile"
+            }
+          }
           $artifacts | Select-Object FullName, Length
           $checksums = $artifacts | ForEach-Object {
             $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash

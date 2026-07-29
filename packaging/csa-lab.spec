@@ -15,6 +15,7 @@ datas = [
     (str(ROOT / "collector_schema"), "collector_schema"),
     (str(ROOT / "frameworks"), "frameworks"),
     (str(ROOT / "knowledge"), "knowledge"),
+    (str(ROOT / "policies"), "policies"),
     (str(ROOT / "schemas"), "schemas"),
     (str(ROOT / "software"), "software"),
     (str(ROOT / "templates"), "templates"),

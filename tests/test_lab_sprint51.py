@@ -8,6 +8,7 @@ import socket
 import tempfile
 import threading
 import unittest
+from unittest import mock
 import zipfile
 from datetime import timedelta
 from pathlib import Path
@@ -33,6 +34,8 @@ from csa_lab.collector_executable import (
 from csa_lab.firewall import NullFirewallManager, validate_firewall_spec
 from csa_lab.models import (
     AssessmentWizardRequest,
+    EndpointDashboardItem,
+    EndpointUiStatus,
     FirewallRuleSpec,
     LabAssessmentState,
     LabAssessmentStatus,
@@ -64,6 +67,30 @@ class LabUiContractTests(unittest.TestCase):
         self.assertIn("const formElement = event.currentTarget;", script)
         self.assertIn("formElement.reset();", script)
         self.assertNotIn("event.currentTarget.reset()", script)
+
+    def test_report_requires_stopped_collection_and_completed_analysis(
+        self,
+    ) -> None:
+        script = (ROOT / "csa_lab" / "templates" / "lab.js").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('item.status === "COMPLETE"', script)
+        self.assertIn('"READY_FOR_REPORT", "COMPLETED"', script)
+
+    def test_packaged_lab_includes_default_policy_profile(self) -> None:
+        specification = (ROOT / "packaging" / "csa-lab.spec").read_text(
+            encoding="utf-8"
+        )
+        workflow = (
+            ROOT / ".github" / "workflows" / "csa-lab-build.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('(str(ROOT / "policies"), "policies")', specification)
+        self.assertIn(
+            "policies/windows_endpoint_default.json",
+            workflow,
+        )
 
 
 class LabServiceTests(unittest.TestCase):
@@ -188,6 +215,44 @@ class LabServiceTests(unittest.TestCase):
             "correct horse battery staple",
         )
         self.assertEqual(verified["assessmentId"], state.assessment_id)
+
+    def test_report_rejects_active_collection(self) -> None:
+        state = self.service.create_assessment(self.request())
+        self.service.start_collection(state.assessment_id)
+
+        with self.assertRaisesRegex(
+            ValueError, "Stop collection before generating"
+        ):
+            self.service.generate_unified_report(state.assessment_id)
+
+    def test_report_rejects_failed_endpoint_analysis(self) -> None:
+        state = self.service.create_assessment(self.request())
+        state.status = LabAssessmentStatus.READY_FOR_REPORT
+        self.service._write_state(state)
+        failed = EndpointDashboardItem(
+            device_id="DEVICE-ERROR",
+            submission_id="SUB-ERROR",
+            status=EndpointUiStatus.ERROR,
+            transport="HTTPS",
+            coverage_percent=None,
+            finding_count=None,
+            received_at=utc_text(),
+            collector_version="PENDING",
+            execution_mode="PENDING",
+            integrity_level="PENDING",
+            is_elevated=False,
+            local_administrator_member=None,
+            receipt_status="VERIFIED",
+            evidence_digest="a" * 64,
+        )
+
+        with mock.patch.object(
+            self.service, "dashboard", return_value=[failed]
+        ):
+            with self.assertRaisesRegex(
+                ValueError, "completed endpoint analysis"
+            ):
+                self.service.generate_unified_report(state.assessment_id)
 
     def test_diagnostic_bundle_is_sanitized_and_contains_no_evidence(self) -> None:
         state = self.service.create_assessment(self.request())
@@ -509,6 +574,33 @@ class UnifiedReportTests(Sprint5TestCase):
         self.assertIn("STANDARD USER", html)
         self.assertNotIn("enrollmentToken", html)
         self.assertNotIn("tokenHash", html)
+
+    def test_failed_first_analysis_can_be_retried_from_normalized_data(
+        self,
+    ) -> None:
+        submission_id = "SUB-RETRY-01"
+        self._accept_and_analyze(submission_id)
+        self.storage.path(
+            self.assessment.assessment_id,
+            "findings",
+            f"{submission_id}.json",
+        ).unlink()
+        SubmissionService(self.storage).update_processing_state(
+            self.assessment.assessment_id,
+            submission_id,
+            "ERROR",
+        )
+
+        analysis = ConsoleAnalysisPipeline(self.storage).retry_analysis(
+            self.assessment.assessment_id,
+            submission_id,
+        )
+
+        self.assertGreater(len(analysis.findings), 0)
+        index = SubmissionService(self.storage).list_submissions(
+            self.assessment.assessment_id
+        )
+        self.assertEqual(index[0]["processingState"], "COMPLETE")
 
     def test_thirteen_endpoint_synthetic_flow_generates_one_report(self) -> None:
         for index in range(13):

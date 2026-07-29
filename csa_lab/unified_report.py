@@ -76,6 +76,10 @@ class UnifiedReportGenerator:
         latest, all_endpoints, index = analyzer.load_latest_endpoint_data(
             assessment_id
         )
+        if not latest:
+            raise ValueError(
+                "At least one completed endpoint analysis is required"
+            )
         index_by_submission = {
             str(item.get("submissionId")): item
             for item in index

@@ -145,17 +145,32 @@ class ConsoleAnalysisPipeline:
         assessment_id: str,
         submission_id: str,
     ) -> EndpointAnalysis:
-        """Rerun analysis from already accepted and normalized evidence."""
+        """Rerun analysis from accepted evidence after any analysis failure."""
 
-        existing = self.load_analysis(assessment_id, submission_id)
+        finding_path = self.storage.path(
+            assessment_id, "findings", f"{submission_id}.json"
+        )
+        normalized_path = self.storage.path(
+            assessment_id, "normalized", f"{submission_id}.json"
+        )
         raw_path = self.storage.path(
             assessment_id,
             "submissions",
             "accepted",
             f"{submission_id}.evidence.json",
         )
-        if not raw_path.exists():
-            raise ValueError("Accepted endpoint evidence is unavailable")
+        if not raw_path.exists() or not normalized_path.exists():
+            raise ValueError(
+                "Accepted and normalized endpoint evidence is required"
+            )
+        existing = (
+            self.load_analysis(assessment_id, submission_id)
+            if finding_path.exists()
+            else {}
+        )
+        normalized = self.storage.read_json(
+            assessment_id, "normalized", f"{submission_id}.json"
+        )
         audit = ConsoleAuditLog(
             self.storage.path(assessment_id, "audit", "audit.jsonl")
         )
@@ -179,7 +194,9 @@ class ConsoleAnalysisPipeline:
                 str(item["finding"]["status"]),
             )
         )
-        coverage_data = existing["coverage"]
+        coverage_data = existing.get(
+            "coverage", normalized["collectionCoverage"]
+        )
         from csa_console.enums import CoverageDomain
         from csa_console.models import AssessmentCoverage, CoverageLimitation
 
@@ -202,14 +219,26 @@ class ConsoleAnalysisPipeline:
         )
         analysis = EndpointAnalysis(
             assessment_id=assessment_id,
-            session_id=str(existing["sessionId"]),
+            session_id=str(
+                existing.get("sessionId", normalized["sessionId"])
+            ),
             submission_id=submission_id,
-            device_id=str(existing["deviceId"]),
+            device_id=str(existing.get("deviceId", normalized["deviceId"])),
             score=score,
             coverage=coverage,
             findings=finding_values,
             report_path=str(report_path),
-            evidence_set_digest=str(existing["evidenceSetDigest"]),
+            evidence_set_digest=str(
+                existing.get("evidenceSetDigest")
+                or sha256_value(
+                    {
+                        "normalized": normalized,
+                        "packageDigest": self._package_digest(
+                            assessment_id, submission_id
+                        ),
+                    }
+                )
+            ),
             analysis_engine_version="CSA-5.0",
         )
         self.storage.write_json(
@@ -225,4 +254,24 @@ class ConsoleAnalysisPipeline:
                 "score": score,
             },
         )
+        from csa_console.submission import SubmissionService
+
+        submission_service = SubmissionService(self.storage)
+        submission_service.update_processing_state(
+            assessment_id, submission_id, "COMPLETE"
+        )
         return analysis
+
+    def _package_digest(
+        self, assessment_id: str, submission_id: str
+    ) -> str:
+        """Return the accepted package digest used by the evidence-set hash."""
+
+        from csa_console.submission import SubmissionService
+
+        for item in SubmissionService(self.storage).list_submissions(
+            assessment_id
+        ):
+            if item.get("submissionId") == submission_id:
+                return str(item.get("packageDigest", ""))
+        raise ValueError("Submission metadata is unavailable")

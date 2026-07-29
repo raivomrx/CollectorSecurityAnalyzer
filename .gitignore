@@ -6,6 +6,7 @@ logs/*
 !logs/.gitkeep
 cache/
 test-artifacts/
+testResults.xml
 *.sqlite3
 .env
 software/unknown_products.json

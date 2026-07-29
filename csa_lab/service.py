@@ -638,15 +638,27 @@ class LabApplicationService:
 
         from csa_lab.unified_report import UnifiedReportGenerator
 
-        if not self.dashboard(assessment_id):
-            raise ValueError("At least one analyzed endpoint is required")
+        state = self.load_state(assessment_id)
+        if state.status not in {
+            LabAssessmentStatus.READY_FOR_REPORT,
+            LabAssessmentStatus.COMPLETED,
+        }:
+            raise ValueError(
+                "Stop collection before generating the final report"
+            )
+        endpoints = self.dashboard(assessment_id)
+        if not any(
+            item.status == EndpointUiStatus.COMPLETE for item in endpoints
+        ):
+            raise ValueError(
+                "At least one completed endpoint analysis is required"
+            )
         output = UnifiedReportGenerator(self.storage).generate(
             assessment_id,
             include_technical_evidence=include_technical_evidence,
             include_audit=include_audit,
             include_endpoint_details=include_endpoint_details,
         )
-        state = self.load_state(assessment_id)
         state.report_path = str(output)
         state.report_generated_at = utc_text()
         state.status = LabAssessmentStatus.COMPLETED

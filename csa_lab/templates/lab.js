@@ -74,6 +74,8 @@
     const payload = state.current;
     const assessment = payload.assessment;
     const status = assessment.status;
+    const completeEndpoints = payload.endpoints.filter((item) => item.status === "COMPLETE");
+    const processingEndpoints = payload.endpoints.filter((item) => item.status !== "COMPLETE");
     $("assessment-name").textContent = assessment.name;
     $("assessment-reference").textContent = assessment.organization || assessment.referenceNumber || "CSA assessment";
     $("assessment-status").textContent = status.replaceAll("_", " ");
@@ -93,12 +95,19 @@
     $("resume-collection").disabled = !["PAUSED", "RECOVERY_REQUIRED"].includes(status);
     $("stop-collection").disabled = !["COLLECTING", "PAUSED", "RECOVERY_REQUIRED"].includes(status);
     $("delete-draft").classList.toggle("hidden", status !== "DRAFT");
-    $("generate-report").disabled = payload.endpoints.length === 0;
+    $("generate-report").disabled = !["READY_FOR_REPORT", "COMPLETED"].includes(status)
+      || completeEndpoints.length === 0;
     $("open-report").disabled = !assessment.reportPath;
     $("show-report").disabled = !assessment.reportPath;
-    $("report-preview").textContent = payload.endpoints.length
-      ? `Endpoints included: ${payload.endpoints.length}. Latest submissions selected: ${payload.endpoints.length}. Rejected submissions excluded: ${payload.rejectedSubmissionCount}. Coverage gaps present: ${payload.endpoints.some((item) => item.capabilityGaps.length) ? "Yes" : "No"}.`
-      : "A report can be generated after at least one endpoint is analyzed.";
+    if (status === "COLLECTING") {
+      $("report-preview").textContent = "Stop collection after endpoint analysis completes to enable the final report.";
+    } else if (!completeEndpoints.length && processingEndpoints.length) {
+      $("report-preview").textContent = "No completed endpoint analysis is available. Review endpoint processing status before generating a report.";
+    } else if (completeEndpoints.length) {
+      $("report-preview").textContent = `Endpoints included: ${completeEndpoints.length}. Processing or failed submissions excluded: ${processingEndpoints.length}. Rejected submissions excluded: ${payload.rejectedSubmissionCount}. Coverage gaps present: ${completeEndpoints.some((item) => item.capabilityGaps.length) ? "Yes" : "No"}.`;
+    } else {
+      $("report-preview").textContent = "A report can be generated after at least one endpoint is analyzed.";
+    }
     const recovery = status === "RECOVERY_REQUIRED";
     $("recovery-panel").classList.toggle("hidden", !recovery);
     $("recovery-details").textContent = (assessment.recoveryDetails || []).join(" ");
@@ -109,8 +118,9 @@
   function renderEndpoints(endpoints) {
     const body = $("endpoint-table");
     body.replaceChildren();
+    const completed = endpoints.filter((item) => item.status === "COMPLETE").length;
     $("endpoint-summary").textContent = endpoints.length
-      ? `${endpoints.length} unique analyzed endpoint${endpoints.length === 1 ? "" : "s"}.`
+      ? `${completed} completed analysis${completed === 1 ? "" : "es"}; ${endpoints.length - completed} processing or failed.`
       : "No analyzed endpoints received.";
     if (!endpoints.length) {
       const row = document.createElement("tr");
