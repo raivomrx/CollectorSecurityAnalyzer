@@ -3,6 +3,7 @@ BeforeAll {
     $moduleRoot = Join-Path $collectorRoot "modules"
     $manifestPath = Join-Path $collectorRoot "evidence-manifest.json"
     $collectorScript = Join-Path $collectorRoot "Collect-CSAWindowsEvidence.ps1"
+    $submissionScript = Join-Path $collectorRoot "Invoke-CSACollector.ps1"
 }
 
 Describe "CSA Windows Collector source contract" {
@@ -90,5 +91,48 @@ Describe "CSA Windows Collector source contract" {
             }
         }
         (ConvertFrom-CSAAuditSetting "Erfolg") | Should -Be $null
+    }
+
+    It "creates root-relative package entries from an alternate source path" {
+        $source = Get-Content -Raw -LiteralPath $submissionScript
+        $tokens = $null
+        $parseErrors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput(
+            $source,
+            [ref]$tokens,
+            [ref]$parseErrors
+        )
+        $definition = $ast.Find({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                $node.Name -eq "New-CSAArchive"
+        }, $true)
+        . ([scriptblock]::Create($definition.Extent.Text))
+        $payload = Join-Path $TestDrive "payload"
+        [System.IO.Directory]::CreateDirectory(
+            (Join-Path $payload "signatures")
+        ) | Out-Null
+        [System.IO.File]::WriteAllText(
+            (Join-Path $payload "evidence.json"), "{}"
+        )
+        [System.IO.File]::WriteAllText(
+            (Join-Path $payload "signatures\submission.sig"), "{}"
+        )
+        $archivePath = Join-Path $TestDrive "package.zip"
+        Push-Location $TestDrive
+        try {
+            New-CSAArchive ".\payload" $archivePath
+        } finally {
+            Pop-Location
+        }
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $archive = [System.IO.Compression.ZipFile]::OpenRead($archivePath)
+        try {
+            $names = @($archive.Entries | ForEach-Object { $_.FullName })
+        } finally {
+            $archive.Dispose()
+        }
+        ($names -join ",") |
+            Should -Be "evidence.json,signatures/submission.sig"
     }
 }

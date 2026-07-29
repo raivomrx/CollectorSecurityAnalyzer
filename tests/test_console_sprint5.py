@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import io
+import json
 import stat
 import tempfile
 import threading
@@ -31,6 +31,7 @@ from csa_console.offline import (
     OfflineImportError,
     OfflineImportService,
     encrypt_offline_submission,
+    normalize_legacy_payload_archive,
 )
 from csa_console.package import (
     EvidencePackageValidator,
@@ -597,6 +598,90 @@ class OfflineAndArchiveTests(Sprint5TestCase):
             service.import_file(
                 self.assessment.assessment_id, tampered, analyze=False
             )
+
+    def test_known_payload_prefix_defect_is_normalized_before_validation(
+        self,
+    ) -> None:
+        """The exact legacy Collector path defect should remain importable."""
+
+        submission_id = "SUB-OFFLINE-LEGACY"
+        nonce = "offline:legacy-paths"
+        canonical_archive = self.package(submission_id, nonce).read_bytes()
+        legacy_buffer = io.BytesIO()
+        with zipfile.ZipFile(
+            io.BytesIO(canonical_archive), "r"
+        ) as source:
+            with zipfile.ZipFile(
+                legacy_buffer, "w", compression=zipfile.ZIP_DEFLATED
+            ) as target:
+                for info in source.infolist():
+                    target.writestr(
+                        f"/payload/{info.filename}",
+                        source.read(info.filename),
+                    )
+        expected = EvidencePackageValidator().validate(
+            canonical_archive,
+            enrollment_token=self.token,
+            expected_assessment_id=self.assessment.assessment_id,
+            expected_session_id=self.session.session_id,
+            expected_submission_id=submission_id,
+            expected_nonce=nonce,
+            expected_profile_digest=self.session.collection_profile_digest,
+        )
+        associated = {
+            "assessmentId": self.assessment.assessment_id,
+            "packageDigest": expected.package_digest,
+            "sessionId": self.session.session_id,
+            "submissionId": submission_id,
+        }
+        envelope = encrypt_offline_submission(
+            Path(self.temporary.name) / "legacy-offline.csa",
+            archive_bytes=legacy_buffer.getvalue(),
+            enrollment_token=self.token,
+            nonce=nonce,
+            associated_data=associated,
+            public_key_xml_path=self.session.offline_public_key_path,
+        )
+
+        package = OfflineImportService(self.storage).import_file(
+            self.assessment.assessment_id, envelope, analyze=False
+        )
+
+        self.assertEqual(package.package_digest, expected.package_digest)
+        accepted = self.storage.path(
+            self.assessment.assessment_id,
+            "submissions",
+            "accepted",
+            f"{submission_id}.csa.zip",
+        )
+        with zipfile.ZipFile(accepted, "r") as archive:
+            self.assertFalse(
+                any(name.startswith("/") for name in archive.namelist())
+            )
+        audit = self.storage.path(
+            self.assessment.assessment_id, "audit", "audit.jsonl"
+        ).read_text(encoding="utf-8")
+        self.assertIn("offline_archive_paths_normalized", audit)
+
+    def test_legacy_archive_normalization_preserves_package_limits(self) -> None:
+        """Legacy path repair must not bypass decompression safety limits."""
+
+        legacy_buffer = io.BytesIO()
+        with zipfile.ZipFile(
+            legacy_buffer, "w", compression=zipfile.ZIP_STORED
+        ) as target:
+            for name in REQUIRED_FILES:
+                target.writestr(f"/payload/{name}", b"x" * 32)
+
+        with self.assertRaises(PackageValidationError) as raised:
+            normalize_legacy_payload_archive(
+                legacy_buffer.getvalue(),
+                maximum_package_size=1024 * 1024,
+                maximum_uncompressed_size=64,
+                maximum_files=8,
+            )
+
+        self.assertEqual(raised.exception.state, "REJECTED_PACKAGE_LIMIT")
 
     def test_assessment_archive_is_encrypted_and_verifiable(self) -> None:
         """Assessment exports should require the correct passphrase."""

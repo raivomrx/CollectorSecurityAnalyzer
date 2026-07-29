@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import base64
 import hmac
+import io
 import json
 import os
+import stat
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -21,7 +24,13 @@ from csa_console.canonical import canonical_bytes, canonical_json, path_lock
 from csa_console.enums import SubmissionState
 from csa_console.identifiers import random_id, utc_text
 from csa_console.models import SubmissionReceipt
-from csa_console.package import EvidencePackageValidator, ValidatedPackage
+from csa_console.package import (
+    REQUIRED_FILES,
+    ZIP_TIMESTAMP,
+    EvidencePackageValidator,
+    PackageValidationError,
+    ValidatedPackage,
+)
 from csa_console.pipeline import ConsoleAnalysisPipeline
 from csa_console.receipts import sign_receipt
 from csa_console.reporting import ConsoleReportGenerator
@@ -43,6 +52,79 @@ class DecryptedOfflineSubmission:
     enrollment_token: str
     nonce: str
     associated_data: dict[str, Any]
+
+
+def normalize_legacy_payload_archive(
+    archive_bytes: bytes,
+    *,
+    maximum_package_size: int,
+    maximum_uncompressed_size: int,
+    maximum_files: int,
+) -> tuple[bytes, bool]:
+    """Safely normalize only the known Collector `/payload/` path defect."""
+
+    if len(archive_bytes) > maximum_package_size:
+        raise PackageValidationError(
+            "REJECTED_PACKAGE_LIMIT",
+            "Package exceeds the compressed size limit",
+        )
+
+    try:
+        source = zipfile.ZipFile(io.BytesIO(archive_bytes), "r")
+    except (zipfile.BadZipFile, OSError):
+        return archive_bytes, False
+    legacy_names = {f"/payload/{name}" for name in REQUIRED_FILES}
+    with source:
+        infos = source.infolist()
+        if len(infos) > maximum_files:
+            raise PackageValidationError(
+                "REJECTED_PACKAGE_LIMIT", "Package contains too many files"
+            )
+        names = [item.filename for item in infos]
+        if len(names) != len(set(names)) or set(names) != legacy_names:
+            return archive_bytes, False
+        total = 0
+        for info in infos:
+            unix_mode = info.external_attr >> 16
+            if stat.S_ISLNK(unix_mode) or info.is_dir():
+                raise PackageValidationError(
+                    "REJECTED_ARCHIVE_SAFETY",
+                    "Package contains an unsafe path",
+                )
+            total += info.file_size
+            if total > maximum_uncompressed_size:
+                raise PackageValidationError(
+                    "REJECTED_PACKAGE_LIMIT",
+                    "Package exceeds the uncompressed size limit",
+                )
+            ratio = (
+                float("inf")
+                if info.compress_size == 0 and info.file_size > 0
+                else info.file_size / max(1, info.compress_size)
+            )
+            if ratio > 100:
+                raise PackageValidationError(
+                    "REJECTED_ARCHIVE_SAFETY",
+                    "Package compression ratio is unsafe",
+                )
+        output = io.BytesIO()
+        try:
+            with zipfile.ZipFile(
+                output,
+                "w",
+                compression=zipfile.ZIP_DEFLATED,
+            ) as target:
+                for name in REQUIRED_FILES:
+                    info = zipfile.ZipInfo(name, date_time=ZIP_TIMESTAMP)
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    info.create_system = 0
+                    target.writestr(info, source.read(f"/payload/{name}"))
+        except (zipfile.BadZipFile, OSError, RuntimeError) as error:
+            raise PackageValidationError(
+                "REJECTED_ARCHIVE_SAFETY",
+                "Package is not a valid ZIP archive",
+            ) from error
+    return output.getvalue(), True
 
 
 def encrypt_offline_submission(
@@ -203,12 +285,20 @@ class OfflineImportService:
         decrypted = decrypt_offline_submission(
             path, session.offline_private_key_path
         )
-        self.sessions.verify_token(session, decrypted.enrollment_token)
         validator = EvidencePackageValidator(
             maximum_package_size=session.maximum_package_size
         )
+        archive_bytes, legacy_paths_normalized = (
+            normalize_legacy_payload_archive(
+                decrypted.archive_bytes,
+                maximum_package_size=validator.maximum_package_size,
+                maximum_uncompressed_size=validator.maximum_uncompressed_size,
+                maximum_files=validator.maximum_files,
+            )
+        )
+        self.sessions.verify_token(session, decrypted.enrollment_token)
         package = validator.validate(
-            decrypted.archive_bytes,
+            archive_bytes,
             enrollment_token=decrypted.enrollment_token,
             expected_assessment_id=assessment_id,
             expected_session_id=session_id,
@@ -248,7 +338,7 @@ class OfflineImportService:
                 "accepted",
                 f"{submission_id}.csa.zip",
             )
-            accepted.write_bytes(decrypted.archive_bytes)
+            accepted.write_bytes(archive_bytes)
             accepted.chmod(0o600)
             existing.append(
                 {
@@ -300,9 +390,19 @@ class OfflineImportService:
             ("submissions", "accepted", f"{submission_id}.receipt.json"),
             model_to_dict(receipt),
         )
-        ConsoleAuditLog(
+        audit = ConsoleAuditLog(
             self.storage.path(assessment_id, "audit", "audit.jsonl")
-        ).append(
+        )
+        if legacy_paths_normalized:
+            audit.append(
+                "offline_archive_paths_normalized",
+                {
+                    "sessionId": session_id,
+                    "submissionId": submission_id,
+                    "normalization": "LEGACY_PAYLOAD_PREFIX_REMOVED",
+                },
+            )
+        audit.append(
             "offline_submission_imported",
             {
                 "sessionId": session_id,

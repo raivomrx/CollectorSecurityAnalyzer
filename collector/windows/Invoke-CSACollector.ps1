@@ -164,12 +164,29 @@ function New-CSAArchive {
     param([string]$SourceDirectory, [string]$OutputPath)
     Add-Type -AssemblyName System.IO.Compression
     Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $sourceItem = Get-Item -LiteralPath $SourceDirectory -ErrorAction Stop
+    if (-not $sourceItem.PSIsContainer) {
+        throw "Archive source must be a directory."
+    }
+    $sourceRoot = [System.IO.Path]::GetFullPath($sourceItem.FullName)
+    $sourcePrefix = $sourceRoot + [System.IO.Path]::DirectorySeparatorChar
     $stream = [System.IO.File]::Open($OutputPath, [System.IO.FileMode]::CreateNew)
     try {
         $archive = New-Object System.IO.Compression.ZipArchive($stream, [System.IO.Compression.ZipArchiveMode]::Create, $true)
         try {
-            foreach ($file in @(Get-ChildItem -LiteralPath $SourceDirectory -Recurse -File | Sort-Object FullName)) {
-                $name = $file.FullName.Substring($SourceDirectory.Length + 1).Replace("\", "/")
+            foreach ($file in @(Get-ChildItem -LiteralPath $sourceRoot -Recurse -File | Sort-Object FullName)) {
+                $fullPath = [System.IO.Path]::GetFullPath($file.FullName)
+                if (-not $fullPath.StartsWith($sourcePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+                    throw "Archive input escapes the source directory."
+                }
+                $name = $fullPath.Substring($sourcePrefix.Length).Replace("\", "/")
+                if (
+                    [string]::IsNullOrWhiteSpace($name) -or
+                    $name.StartsWith("/") -or
+                    $name -match '(^|/)\.\.(/|$)'
+                ) {
+                    throw "Archive entry path is unsafe."
+                }
                 $entry = $archive.CreateEntry($name, [System.IO.Compression.CompressionLevel]::Optimal)
                 $entry.LastWriteTime = [DateTimeOffset]::new(1980, 1, 1, 0, 0, 0, [TimeSpan]::Zero)
                 $input = [System.IO.File]::OpenRead($file.FullName)
