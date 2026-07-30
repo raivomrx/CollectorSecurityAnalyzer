@@ -101,6 +101,6 @@ class FirewallRule(BaseRule):
                     score=0 if enabled else 20,
                 )
             ]
-        except Exception:
+        except Exception as error:
             LOGGER.exception("FirewallRule failed")
-            return []
+            return self.error(str(error))

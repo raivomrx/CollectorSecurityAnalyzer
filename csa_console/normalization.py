@@ -70,6 +70,24 @@ def normalize_endpoint_package(
     hardware = _object(evidence.get("hardware"))
     return EndpointEvidenceRecord(
         schema_version="5.0",
+        collector_version=str(
+            evidence.get(
+                "collectorVersion",
+                manifest.get("collectorVersion", "UNKNOWN"),
+            )
+        ),
+        collector_build_digest=str(
+            evidence.get(
+                "collectorBuildDigest",
+                manifest.get("collectorBuildDigest", ""),
+            )
+        ),
+        collector_build_commit=str(
+            evidence.get(
+                "collectorBuildCommit",
+                manifest.get("collectorBuildCommit", ""),
+            )
+        ),
         assessment_id=str(manifest["assessmentId"]),
         session_id=str(manifest["sessionId"]),
         submission_id=str(manifest["submissionId"]),

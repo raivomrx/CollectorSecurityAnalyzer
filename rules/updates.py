@@ -104,6 +104,6 @@ class UpdatesRule(BaseRule):
                     score=10 if stale else 0,
                 )
             ]
-        except Exception:
+        except Exception as error:
             LOGGER.exception("UpdatesRule failed")
-            return []
+            return self.error(str(error))

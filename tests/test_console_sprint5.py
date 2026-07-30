@@ -21,9 +21,11 @@ from csa_console.archive import (
 )
 from csa_console.capabilities import CapabilityRegistry, CollectionProfile
 from csa_console.collector_package import (
+    COLLECTOR_VERSION,
     create_collector_package,
     verify_collector_package,
 )
+from csa_console.coverage import calculate_coverage
 from csa_console.cli import main as console_main
 from csa_console.enums import SessionStatus
 from csa_console.fleet import FleetAnalyzer
@@ -185,6 +187,13 @@ class CapabilityAndSessionTests(Sprint5TestCase):
         self.assertGreaterEqual(len(registry.get_all()), 16)
         self.assertEqual(len(profile.capability_ids), len(set(profile.capability_ids)))
         self.assertEqual(profile.collector_mode, "STANDARD_USER_COLLECTION")
+        coverage = calculate_coverage(self.capability_results())
+        self.assertEqual(coverage.core_passive_coverage_percent, 100.0)
+        self.assertEqual(coverage.overall_coverage_percent, 100.0)
+        self.assertIn(
+            "COL-AUDIT-POLICY-001",
+            [item.capability_id for item in coverage.limitations],
+        )
 
     def test_server_stores_only_token_hash(self) -> None:
         """Session persistence must never contain the enrollment token plaintext."""
@@ -205,6 +214,12 @@ class CapabilityAndSessionTests(Sprint5TestCase):
         create_collector_package(self.session, self.token, output)
         manifest = verify_collector_package(output)
         self.assertEqual(manifest["sessionId"], self.session.session_id)
+        self.assertEqual(manifest["collectorVersion"], COLLECTOR_VERSION)
+        self.assertEqual(COLLECTOR_VERSION, "5.1.1")
+        self.assertIn("collectorBuildCommit", manifest)
+        self.assertTrue(
+            str(manifest["collectorBuildDigest"]).startswith("sha256:")
+        )
         names = {item["path"] for item in manifest["files"]}
         self.assertNotIn("active_validation", " ".join(names).casefold())
         self.assertFalse(any("private" in item.casefold() for item in names))
@@ -341,6 +356,62 @@ class SubmissionSecurityTests(Sprint5TestCase):
                 source_address="127.0.0.1",
                 archive_bytes=bytes(raw),
             )
+
+    def test_511_collector_build_is_bound_to_evidence(self) -> None:
+        """Version 5.1.1 evidence must carry the trusted build digest."""
+
+        submission_id = "SUB-511-BUILD-BINDING"
+        nonce = "nonce-511-build"
+        evidence = self.evidence()
+        evidence["collectorVersion"] = "5.1.1"
+        evidence["collectorBuildDigest"] = "sha256:" + "b" * 64
+        output = Path(self.temporary.name) / "build-binding.zip"
+        build_evidence_package(
+            output,
+            manifest_fields={
+                "assessmentId": self.assessment.assessment_id,
+                "sessionId": self.session.session_id,
+                "submissionId": submission_id,
+                "collectorVersion": "5.1.1",
+                "collectorBuildDigest": self.build_digest,
+                "collectorBuildCommit": "e4959cf",
+                "collectionProfile": "windows-standard-v1",
+                "collectionProfileDigest": (
+                    self.session.collection_profile_digest
+                ),
+                "deviceId": "sha256:" + "d" * 64,
+                "startedAt": evidence["collectionStartedAt"],
+                "completedAt": evidence["collectionCompletedAt"],
+                "privilegeContext": "STANDARD_USER",
+            },
+            evidence=evidence,
+            capability_results=self.capability_results(),
+            collection_log={
+                "schemaVersion": "5.0",
+                "events": [],
+                "endpointChangesPerformed": [],
+                "activeValidationPerformed": False,
+            },
+            enrollment_token=self.token,
+            nonce=nonce,
+        )
+
+        with self.assertRaises(PackageValidationError) as raised:
+            EvidencePackageValidator().validate(
+                output.read_bytes(),
+                enrollment_token=self.token,
+                expected_assessment_id=self.assessment.assessment_id,
+                expected_session_id=self.session.session_id,
+                expected_submission_id=submission_id,
+                expected_nonce=nonce,
+                expected_profile_digest=(
+                    self.session.collection_profile_digest
+                ),
+            )
+
+        self.assertEqual(
+            raised.exception.state, "REJECTED_UNTRUSTED_COLLECTOR"
+        )
 
     def test_wrong_source_and_token_fail_closed(self) -> None:
         """Source scope and token failures should not issue a nonce."""
@@ -683,6 +754,42 @@ class OfflineAndArchiveTests(Sprint5TestCase):
 
         self.assertEqual(raised.exception.state, "REJECTED_PACKAGE_LIMIT")
 
+    def test_legacy_archive_normalization_is_version_bounded(self) -> None:
+        """The `/payload/` repair must reject unknown collector versions."""
+
+        submission_id = "SUB-OFFLINE-UNKNOWN-LEGACY"
+        canonical = self.package(
+            submission_id, "offline:unknown-version"
+        ).read_bytes()
+        legacy_buffer = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(canonical), "r") as source:
+            with zipfile.ZipFile(
+                legacy_buffer, "w", compression=zipfile.ZIP_DEFLATED
+            ) as target:
+                for info in source.infolist():
+                    value = source.read(info.filename)
+                    if info.filename == "manifest.json":
+                        manifest = json.loads(value)
+                        manifest["collectorVersion"] = "5.1.1"
+                        value = json.dumps(
+                            manifest,
+                            separators=(",", ":"),
+                            sort_keys=True,
+                        ).encode("utf-8")
+                    target.writestr(f"/payload/{info.filename}", value)
+
+        with self.assertRaises(PackageValidationError) as raised:
+            normalize_legacy_payload_archive(
+                legacy_buffer.getvalue(),
+                maximum_package_size=25 * 1024 * 1024,
+                maximum_uncompressed_size=100 * 1024 * 1024,
+                maximum_files=8,
+            )
+
+        self.assertEqual(
+            raised.exception.state, "REJECTED_ARCHIVE_SAFETY"
+        )
+
     def test_assessment_archive_is_encrypted_and_verifiable(self) -> None:
         """Assessment exports should require the correct passphrase."""
 
@@ -739,7 +846,7 @@ class FleetAndReportTests(Sprint5TestCase):
                 "findings": [finding],
                 "reportPath": None,
                 "evidenceSetDigest": f"sha256:{index + 100:064x}",
-                "analysisEngineVersion": "CSA-5.0",
+                "analysisEngineVersion": "CSA-5.1.1",
             }
             self.storage.write_json(
                 self.assessment.assessment_id,
@@ -860,7 +967,10 @@ class FleetAndReportTests(Sprint5TestCase):
         executive = reports.generate_executive(self.assessment.assessment_id)
         dashboard = reports.generate_dashboard(self.assessment.assessment_id)
         endpoint_html = endpoint.read_text(encoding="utf-8")
-        self.assertIn("Collection mode: STANDARD USER", endpoint_html)
+        self.assertIn(
+            "Collection mode: Standard Privileges Assessment",
+            endpoint_html,
+        )
         self.assertIn("Administrative rights used: NO", endpoint_html)
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", endpoint_html)
         self.assertTrue(

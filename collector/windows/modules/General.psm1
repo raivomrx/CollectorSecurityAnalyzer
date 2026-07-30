@@ -342,7 +342,20 @@ function Resolve-CSAExceptionStatus {
 
     $message = [string]$ErrorRecord.Exception.Message
     $category = [string]$ErrorRecord.CategoryInfo.Category
-    if ($message -match '(?i)access denied|requires elevation|unauthorized|privilege|0x80070005|0x80041003|0x00000522' -or $category -eq "PermissionDenied") {
+    $exception = $ErrorRecord.Exception
+    $accessDeniedType = $false
+    while ($null -ne $exception) {
+        if ($exception -is [System.UnauthorizedAccessException]) {
+            $accessDeniedType = $true
+            break
+        }
+        $exception = $exception.InnerException
+    }
+    if (
+        $accessDeniedType -or
+        $message -match '(?i)access denied|requires elevation|unauthorized|privilege|0x80070005|0x80041003|0x00000522' -or
+        $category -eq "PermissionDenied"
+    ) {
         return "ACCESS_DENIED"
     }
     if ($message -match '(?i)not supported|not implemented|is unavailable') {

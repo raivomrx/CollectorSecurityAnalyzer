@@ -153,7 +153,15 @@ class WindowsEvidenceRuleTests(unittest.TestCase):
         )
         self.assertEqual(
             Def002Rule().check({}, _context([_setting("DEFENDER_REALTIME_PROTECTION_ENABLED", "Defender", None, CollectionStatus.NOT_SUPPORTED)]))[0].status,
-            Status.NOT_APPLICABLE,
+            Status.NOT_EVALUATED,
+        )
+        self.assertEqual(
+            Def002Rule().check({}, _context([_setting("DEFENDER_REALTIME_PROTECTION_ENABLED", "Defender", None, CollectionStatus.PARTIAL)]))[0].status,
+            Status.PARTIAL,
+        )
+        self.assertEqual(
+            Def002Rule().check({}, _context([_setting("DEFENDER_REALTIME_PROTECTION_ENABLED", "Defender", None, CollectionStatus.FAILED)]))[0].status,
+            Status.ERROR,
         )
 
     def test_policy_threshold_and_approved_remote_access(self) -> None:

@@ -272,6 +272,7 @@ function New-CSAEvidencePackage {
         collectionProfile = [string]$Configuration.collectionProfile
         collectionProfileDigest = [string]$Configuration.collectionProfileDigest
         collectorBuildDigest = [string]$TrustedManifest.collectorBuildDigest
+        collectorBuildCommit = [string]$TrustedManifest.collectorBuildCommit
         collectorVersion = [string]$evidence.collectorVersion
         completedAt = [string]$evidence.collectionCompletedAt
         deviceId = $deviceId
@@ -485,7 +486,7 @@ try {
     }
     Write-Host "Assessment: $($configuration.assessmentName)"
     Write-Host "Organization reference: $($configuration.customerReference)"
-    Write-Host "Collector mode: STANDARD USER"
+    Write-Host "Assessment mode: Standard Privileges Assessment"
     Write-Host "Administrator rights required: NO"
     Write-Host "Active security testing: NO"
     Write-Host "Data destination: $($configuration.serverUrl)"
@@ -497,7 +498,9 @@ try {
         -PrivacyMode Strict `
         -CollectionMode STANDARD_USER_COLLECTION `
         -CapabilityRegistryPath (Resolve-CSAPackagePath "collector\collection-capabilities.json") `
-        -CollectionProfilePath (Resolve-CSAPackagePath "collector\profiles\windows-standard-v1.json")
+        -CollectionProfilePath (Resolve-CSAPackagePath "collector\profiles\windows-standard-v1.json") `
+        -CollectorBuildDigest ([string]$trustedManifest.collectorBuildDigest) `
+        -CollectorBuildCommit ([string]$trustedManifest.collectorBuildCommit)
     $evidence = Get-Content -Raw -LiteralPath $evidencePath | ConvertFrom-Json
     if ([bool]$evidence.privilegeContext.isElevated) {
         throw "Collected evidence unexpectedly reports an elevated context."

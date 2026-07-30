@@ -230,6 +230,28 @@ class EvidencePackageValidator:
             expected_submission_id,
             expected_profile_digest,
         )
+        if evidence.get("collectorVersion") != manifest.get(
+            "collectorVersion"
+        ):
+            raise PackageValidationError(
+                "REJECTED_UNTRUSTED_COLLECTOR",
+                "Collector version binding is invalid",
+            )
+        evidence_build = str(evidence.get("collectorBuildDigest", ""))
+        manifest_build = str(manifest.get("collectorBuildDigest", ""))
+        if evidence_build and evidence_build != manifest_build:
+            raise PackageValidationError(
+                "REJECTED_UNTRUSTED_COLLECTOR",
+                "Collector build binding is invalid",
+            )
+        if (
+            str(manifest.get("collectorVersion", "")) == "5.1.1"
+            and evidence_build != manifest_build
+        ):
+            raise PackageValidationError(
+                "REJECTED_UNTRUSTED_COLLECTOR",
+                "Collector build evidence is missing",
+            )
         try:
             from collector_schema.validation import validate_v2_document
 

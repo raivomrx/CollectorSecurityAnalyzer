@@ -44,6 +44,11 @@ class OfflineImportError(ValueError):
     """Report invalid or tampered offline submissions."""
 
 
+LEGACY_PAYLOAD_PATH_VERSIONS = {
+    "CSA-WINDOWS-COLLECTOR-5.0.0",
+}
+
+
 @dataclass(slots=True)
 class DecryptedOfflineSubmission:
     """Contain authenticated offline import material."""
@@ -107,6 +112,24 @@ def normalize_legacy_payload_archive(
                     "REJECTED_ARCHIVE_SAFETY",
                     "Package compression ratio is unsafe",
                 )
+        try:
+            manifest = json.loads(
+                source.read("/payload/manifest.json").decode("utf-8")
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise PackageValidationError(
+                "REJECTED_SCHEMA",
+                "Legacy package manifest is invalid",
+            ) from error
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("collectorVersion")
+            not in LEGACY_PAYLOAD_PATH_VERSIONS
+        ):
+            raise PackageValidationError(
+                "REJECTED_ARCHIVE_SAFETY",
+                "Legacy package path layout is not trusted for this collector version",
+            )
         output = io.BytesIO()
         try:
             with zipfile.ZipFile(

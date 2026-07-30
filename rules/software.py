@@ -61,6 +61,6 @@ class SoftwareInventoryRule(BaseRule):
                     score=10 if has_unknown else 0,
                 )
             ]
-        except Exception:
+        except Exception as error:
             LOGGER.exception("SoftwareInventoryRule failed")
-            return []
+            return self.error(str(error))

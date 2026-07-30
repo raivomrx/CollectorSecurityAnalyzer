@@ -50,6 +50,19 @@ class BaseRule(ABC):
             )
         ]
 
+    def error(self, message: str) -> list[Finding]:
+        """Return an explicit technical error without changing risk score."""
+
+        return [
+            Finding(
+                rule_id=self.id,
+                severity=Severity.INFO,
+                status=Status.ERROR,
+                evidence={"error": message},
+                score=0,
+            )
+        ]
+
     @abstractmethod
     def check(
         self,

@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 import gc
 import json
 import sqlite3
 import warnings
 
+from analysis_context import AnalysisContext
+from analyzer import _cve_analysis_metadata
 from cve.applicability import evaluate_applicability
 from cve.cache import NvdCache
 from cve.cpe_resolver import CpeResolver, build_cpe23, parse_cpe23_components
@@ -17,6 +20,7 @@ from cve.models import (
     ApplicabilityStatus,
     CpeCandidate,
     CpeMatchStatus,
+    CveAssessment,
     CveDataQuality,
     CveRecord,
     CveScanSummary,
@@ -602,12 +606,99 @@ class CveEngineTests(unittest.TestCase):
         self.assertFalse(summary.coverage_complete)
         self.assertFalse(summary.scan_complete)
 
+    def test_report_metrics_exclude_not_affected_cves_from_risk_counts(
+        self,
+    ) -> None:
+        """Risk counts should include only confirmed or possible CVEs."""
+
+        base = _cve_record([])
+        assessments = [
+            CveAssessment(
+                software=_software(),
+                cpe=_cpe(),
+                cve=replace(
+                    base,
+                    cve_id="CVE-2026-0001",
+                    severity="HIGH",
+                ),
+                applicability=ApplicabilityStatus.AFFECTED,
+                reason="affected",
+                confidence=100,
+            ),
+            CveAssessment(
+                software=_software(),
+                cpe=_cpe(),
+                cve=replace(
+                    base,
+                    cve_id="CVE-2026-0002",
+                    severity="MEDIUM",
+                ),
+                applicability=ApplicabilityStatus.POSSIBLY_AFFECTED,
+                reason="possible",
+                confidence=70,
+            ),
+            CveAssessment(
+                software=_software(),
+                cpe=_cpe(),
+                cve=replace(
+                    base,
+                    cve_id="CVE-2026-0003",
+                    severity="CRITICAL",
+                ),
+                applicability=ApplicabilityStatus.NOT_AFFECTED,
+                reason="not affected",
+                confidence=100,
+            ),
+        ]
+        summary = CveScanSummary(
+            scanned_products=1,
+            unique_products=1,
+            eligible_products=1,
+            evaluated_products=1,
+            coverage_percent=100.0,
+            coverage_complete=True,
+            products_with_cpe=1,
+            products_without_cpe=0,
+            ambiguous_cpe_matches=0,
+            confirmed_vulnerabilities=1,
+            possible_vulnerabilities=1,
+            not_evaluated=0,
+            api_errors=0,
+            assessments=assessments,
+            errors=[],
+            scan_complete=True,
+        )
+        context = AnalysisContext(
+            raw_data={},
+            software_inventory=SoftwareInventory(
+                products=[_software()],
+                product_count=1,
+            ),
+            cve_summary=summary,
+        )
+
+        metrics = _cve_analysis_metadata(context)
+
+        self.assertEqual(metrics["uniqueCves"], 2)
+        self.assertEqual(metrics["confirmedUniqueCves"], 1)
+        self.assertEqual(metrics["possibleUniqueCves"], 1)
+        self.assertEqual(metrics["criticalUniqueCves"], 0)
+        self.assertEqual(metrics["highUniqueCves"], 1)
+        self.assertEqual(metrics["providerCoverage"][0]["provider"], "NVD")
+        self.assertEqual(
+            metrics["providerCoverage"][0]["recordsLoaded"],
+            3,
+        )
+
     def test_cve_rule_states(self) -> None:
         """CVE rule should represent not-run, clean, and affected summaries."""
 
         rule = KnownVulnerabilitiesRule()
         not_run = rule.check({}, None)[0]
-        self.assertEqual(not_run.status.value, "INFO")
+        self.assertEqual(not_run.status.value, "NOT_EVALUATED")
+        self.assertEqual(
+            not_run.evidence["analysis_status"], "NOT_PERFORMED"
+        )
 
         clean = CveScanSummary(
             scanned_products=0,

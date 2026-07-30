@@ -10,7 +10,11 @@ param(
 
     [string]$CapabilityRegistryPath,
 
-    [string]$CollectionProfilePath
+    [string]$CollectionProfilePath,
+
+    [string]$CollectorBuildDigest = "",
+
+    [string]$CollectorBuildCommit = ""
 )
 
 Set-StrictMode -Version 2.0
@@ -25,7 +29,7 @@ $CollectionProfilePath = if ([string]::IsNullOrWhiteSpace($CollectionProfilePath
 } else {
     $CollectionProfilePath
 }
-$collectorVersion = "CSA-WINDOWS-COLLECTOR-5.0.0"
+$collectorVersion = "5.1.1"
 $started = (Get-Date).ToUniversalTime()
 $moduleRoot = Join-Path $PSScriptRoot "modules"
 $manifestPath = Join-Path $PSScriptRoot "evidence-manifest.json"
@@ -262,6 +266,8 @@ $pendingRebootSetting = @($updateSettings | Where-Object { $_.settingId -eq "WIN
 $document = [ordered]@{
     schemaVersion = "2.0"
     collectorVersion = $collectorVersion
+    collectorBuildDigest = $CollectorBuildDigest
+    collectorBuildCommit = $CollectorBuildCommit
     collectionMode = $CollectionMode
     collectionProfile = [string]$collectionProfile.profileId
     collectionProfileVersion = [string]$collectionProfile.version

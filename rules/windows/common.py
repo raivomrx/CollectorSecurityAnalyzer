@@ -145,13 +145,24 @@ def _status_finding(spec: SettingRuleSpec, setting: SecuritySettingEvidence) -> 
 
     if setting.collection_status == CollectionStatus.SUCCESS:
         return None
-    if setting.collection_status == CollectionStatus.NOT_SUPPORTED:
+    if setting.collection_status == CollectionStatus.PARTIAL:
         return Finding(
             rule_id=spec.rule_id,
             severity=Severity.INFO,
-            status=Status.NOT_APPLICABLE,
+            status=Status.PARTIAL,
             score=0,
-            evidence=_evidence(setting, "Setting is not supported on this device."),
+            evidence=_evidence(
+                setting,
+                "Setting was only partially collected and is not a failure.",
+            ),
+        )
+    if setting.collection_status == CollectionStatus.FAILED:
+        return Finding(
+            rule_id=spec.rule_id,
+            severity=Severity.INFO,
+            status=Status.ERROR,
+            score=0,
+            evidence=_evidence(setting, "Setting collection failed."),
         )
     return _not_evaluated(spec, "Setting could not be collected.", setting)
 

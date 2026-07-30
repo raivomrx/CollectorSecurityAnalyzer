@@ -94,9 +94,9 @@ class AdminRule(BaseRule):
                     score=10 if elevated else 0,
                 )
             ]
-        except Exception:
+        except Exception as error:
             LOGGER.exception("AdminRule failed")
-            return []
+            return self.error(str(error))
 
 
 def _count_admins(admins: Any) -> int:

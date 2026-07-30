@@ -28,6 +28,7 @@ from csa_console.fleet import FleetAnalyzer
 from csa_console.identifiers import utc_text
 from csa_console.offline import OfflineImportService
 from csa_console.portal import PortalBinding
+from csa_console.pipeline import ConsoleAnalysisPipeline
 from csa_console.serde import model_to_dict
 from csa_console.server import ConsoleHttpsServer
 from csa_console.sessions import AssessmentSessionService
@@ -556,8 +557,8 @@ class LabApplicationService:
                     device_id=str(endpoint.get("deviceId", "UNKNOWN")),
                     submission_id=submission_id,
                     status=EndpointUiStatus.COMPLETE,
-                    transport=str(item.get("transport", "UNKNOWN")).replace(
-                        "_ENCRYPTED", ""
+                    transport=_transport_label(
+                        str(item.get("transport", "UNKNOWN"))
                     ),
                     coverage_percent=float(
                         endpoint.get("coverage", {}).get(
@@ -585,6 +586,12 @@ class LabApplicationService:
                     capability_gaps=[
                         value for value in limitations if isinstance(value, dict)
                     ],
+                    cve_analysis_status=str(
+                        endpoint.get(
+                            "cveAnalysisStatus", "NOT_PERFORMED"
+                        )
+                    ),
+                    cve_summary=dict(endpoint.get("cveSummary", {})),
                 )
             )
         pending_states = {
@@ -608,8 +615,8 @@ class LabApplicationService:
                     status=pending_states.get(
                         processing, EndpointUiStatus.RECEIVED
                     ),
-                    transport=str(item.get("transport", "UNKNOWN")).replace(
-                        "_ENCRYPTED", ""
+                    transport=_transport_label(
+                        str(item.get("transport", "UNKNOWN"))
                     ),
                     coverage_percent=None,
                     finding_count=None,
@@ -621,6 +628,7 @@ class LabApplicationService:
                     local_administrator_member=None,
                     receipt_status="PENDING",
                     evidence_digest=str(item.get("packageDigest", "")),
+                    cve_analysis_status="PENDING",
                 )
             )
         latest_by_device: dict[str, EndpointDashboardItem] = {}
@@ -651,6 +659,61 @@ class LabApplicationService:
         )
         return item
 
+    def run_cve_analysis(
+        self, assessment_id: str
+    ) -> list[EndpointDashboardItem]:
+        """Run CVE analysis for every latest completed endpoint."""
+
+        state = self.load_state(assessment_id)
+        if state.status == LabAssessmentStatus.DRAFT:
+            raise ValueError(
+                "At least one completed endpoint analysis is required"
+            )
+        latest, _all, _index = FleetAnalyzer(
+            self.storage
+        ).load_latest_endpoint_data(assessment_id)
+        if not latest:
+            raise ValueError(
+                "At least one completed endpoint analysis is required"
+            )
+        audit = self._audit(assessment_id)
+        audit.append(
+            "assessment_cve_analysis_started",
+            {"endpointCount": len(latest)},
+        )
+        pipeline = ConsoleAnalysisPipeline(self.storage)
+        completed = 0
+        partial = 0
+        failed = 0
+        for endpoint in latest:
+            result = pipeline.retry_analysis(
+                assessment_id,
+                str(endpoint["submissionId"]),
+                run_cve=True,
+            )
+            if result.cve_analysis_status == "COMPLETE":
+                completed += 1
+            elif result.cve_analysis_status == "PARTIAL":
+                partial += 1
+            else:
+                failed += 1
+        audit.append(
+            "assessment_cve_analysis_completed",
+            {
+                "endpointCount": len(latest),
+                "complete": completed,
+                "partial": partial,
+                "failed": failed,
+            },
+        )
+        if state.report_path:
+            state.report_path = ""
+            state.report_generated_at = ""
+            if state.status == LabAssessmentStatus.COMPLETED:
+                state.status = LabAssessmentStatus.READY_FOR_REPORT
+            self._write_state(state)
+        return self.dashboard(assessment_id)
+
     def generate_unified_report(
         self,
         assessment_id: str,
@@ -658,6 +721,7 @@ class LabApplicationService:
         include_technical_evidence: bool = True,
         include_audit: bool = True,
         include_endpoint_details: bool = True,
+        allow_without_cve: bool = False,
     ) -> Path:
         """Generate the one primary self-contained assessment report."""
 
@@ -677,6 +741,27 @@ class LabApplicationService:
         ):
             raise ValueError(
                 "At least one completed endpoint analysis is required"
+            )
+        incomplete_cve = [
+            item
+            for item in endpoints
+            if item.status == EndpointUiStatus.COMPLETE
+            and item.cve_analysis_status != "COMPLETE"
+        ]
+        if incomplete_cve and not allow_without_cve:
+            raise ValueError("CVE analysis is not complete")
+        if incomplete_cve:
+            self._audit(assessment_id).append(
+                "report_without_complete_cve_acknowledged",
+                {
+                    "endpointCount": len(incomplete_cve),
+                    "statuses": sorted(
+                        {
+                            item.cve_analysis_status
+                            for item in incomplete_cve
+                        }
+                    ),
+                },
             )
         output = UnifiedReportGenerator(self.storage).generate(
             assessment_id,
@@ -958,6 +1043,16 @@ def default_data_root() -> Path:
     if local_app_data:
         return Path(local_app_data) / "CSA"
     return Path.home() / ".csa-lab"
+
+
+def _transport_label(value: str) -> str:
+    """Return a precise user-facing transport label."""
+
+    labels = {
+        "HTTPS": "HTTPS submission",
+        "OFFLINE_ENCRYPTED": "Encrypted offline import",
+    }
+    return labels.get(value, value.replace("_", " ").title())
 
 
 def _default_collector_bootstrap() -> Path:

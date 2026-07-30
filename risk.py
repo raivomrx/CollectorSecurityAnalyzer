@@ -27,6 +27,7 @@ class Status(str, Enum):
     WARNING = "WARNING"
     INFO = "INFO"
     NOT_EVALUATED = "NOT_EVALUATED"
+    PARTIAL = "PARTIAL"
     NOT_APPLICABLE = "NOT_APPLICABLE"
     ERROR = "ERROR"
 

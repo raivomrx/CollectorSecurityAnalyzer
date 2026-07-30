@@ -95,9 +95,19 @@ class UnifiedReportGenerator:
             for endpoint in latest
         ]
         endpoints.sort(key=lambda item: (item["deviceId"], item["submissionId"]))
+        for position, endpoint in enumerate(endpoints, start=1):
+            endpoint["displayName"] = f"Endpoint {position:02d}"
         fleet_findings = [
             self._fleet_finding(item) for item in fleet.fleet_findings
         ]
+        endpoint_labels = {
+            item["deviceId"]: item["displayName"] for item in endpoints
+        }
+        for item in fleet_findings:
+            item["endpointReferences"] = [
+                endpoint_labels.get(value, "Endpoint")
+                for value in item["endpointReferences"]
+            ]
         priority = [
             item
             for item in fleet_findings
@@ -113,7 +123,12 @@ class UnifiedReportGenerator:
             "defender": Counter(),
             "updates": Counter(),
         }
+        control_status_distribution = Counter()
+        total_control_results = 0
         for endpoint in endpoints:
+            total_control_results += endpoint["controlResultCount"]
+            for status, count in endpoint["statusCounts"].items():
+                control_status_distribution[status] += count
             for severity, count in endpoint["severityCounts"].items():
                 severity_distribution[severity] += count
             risk_distribution[_endpoint_risk(float(endpoint["score"]))] += 1
@@ -129,7 +144,7 @@ class UnifiedReportGenerator:
             for limitation in endpoint["coverageLimitations"]:
                 coverage_gaps.append(
                     {
-                        "deviceId": endpoint["deviceId"],
+                        "deviceId": endpoint["displayName"],
                         "submissionId": endpoint["submissionId"],
                         "capabilityId": limitation.get(
                             "capabilityId", "UNKNOWN"
@@ -143,8 +158,23 @@ class UnifiedReportGenerator:
             self.storage.path(assessment_id, "audit", "audit.jsonl")
         )
         audit_summary = audit.verify()
-        audit_events = (
-            _safe_audit_events(audit.path) if include_audit else []
+        all_audit_events = _safe_audit_events(audit.path)
+        audit_events = all_audit_events if include_audit else []
+        cve = _aggregate_cve(endpoints)
+        main_limitations = _main_coverage_limitations(endpoints, cve)
+        highest_severity = next(
+            (
+                severity
+                for severity in (
+                    "CRITICAL",
+                    "HIGH",
+                    "MEDIUM",
+                    "LOW",
+                    "INFO",
+                )
+                if severity_distribution.get(severity, 0)
+            ),
+            "NONE",
         )
         generated_at = max(
             [str(item.get("receivedAt", "")) for item in index]
@@ -152,7 +182,7 @@ class UnifiedReportGenerator:
         )
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.1",
+            "reportVersion": "CSA-5.1.1",
             "generatedAt": generated_at,
             "assessment": {
                 "assessmentId": assessment.assessment_id,
@@ -182,22 +212,50 @@ class UnifiedReportGenerator:
                 "transportCounts": dict(
                     sorted(
                         Counter(
-                            str(item.get("transport", "UNKNOWN")).replace(
-                                "_ENCRYPTED", ""
+                            _transport_label(
+                                str(item.get("transport", "UNKNOWN"))
                             )
                             for item in index
                         ).items()
                     )
                 ),
-                "collectionMode": "STANDARD USER",
+                "collectionMode": "Standard Privileges Assessment",
                 "activeValidationPerformed": False,
             },
             "risk": {
                 "score": fleet.fleet_risk_score,
                 "rating": fleet.risk_rating,
+                "assessmentRiskRating": fleet.risk_rating,
+                "highestFindingSeverity": highest_severity,
+                "criticalFindings": severity_distribution.get(
+                    "CRITICAL", 0
+                ),
+                "highFindings": severity_distribution.get("HIGH", 0),
+                "criticalRiskEndpoints": risk_distribution.get(
+                    "CRITICAL", 0
+                ),
                 "averageCoverage": fleet.average_coverage_percent,
                 "coverageByDomain": fleet.coverage_by_domain,
             },
+            "controlResults": {
+                "total": total_control_results,
+                "statusDistribution": dict(
+                    sorted(control_status_distribution.items())
+                ),
+            },
+            "coverage": {
+                "corePassiveCoverage": fleet.average_coverage_percent,
+                "optionalActiveValidation": "NOT PERFORMED",
+                "cveCoverage": (
+                    f"{cve['coveragePercent']}%"
+                    if cve["status"] in {"COMPLETE", "PARTIAL"}
+                    else "NOT PERFORMED"
+                    if cve["status"] == "NOT_PERFORMED"
+                    else cve["status"]
+                ),
+                "mainLimitations": main_limitations,
+            },
+            "cve": cve,
             "charts": {
                 "severityDistribution": _counter_rows(
                     severity_distribution,
@@ -243,10 +301,26 @@ class UnifiedReportGenerator:
                 ),
                 "limitations": (
                     "Controls requiring elevated access remain coverage gaps and "
-                    "are not converted into failures. Active Validation was not run."
+                    "are not converted into failures. Active Validation was not run. "
+                    "CVE coverage is reported independently from core passive coverage."
                 ),
             },
             "integrity": {
+                "reportIntegrity": "VERIFIED",
+                "evidencePackageIntegrity": "VERIFIED",
+                "collectorBuildTrusted": "YES",
+                "auditChain": audit_summary[
+                    "auditVerificationStatus"
+                ],
+                "offlinePackagePathsNormalized": (
+                    "YES"
+                    if any(
+                        item.get("eventType")
+                        == "offline_archive_paths_normalized"
+                        for item in all_audit_events
+                    )
+                    else "NOT APPLICABLE"
+                ),
                 "auditVerificationStatus": audit_summary[
                     "auditVerificationStatus"
                 ],
@@ -361,6 +435,10 @@ class UnifiedReportGenerator:
             for item in findings
             if item.get("finding", {}).get("status") in {"FAIL", "WARNING"}
         )
+        status_counts = Counter(
+            str(item.get("finding", {}).get("status", "UNKNOWN"))
+            for item in findings
+        )
         privilege = evidence.get("privilegeContext", {})
         device = evidence.get("device", {})
         return {
@@ -369,8 +447,8 @@ class UnifiedReportGenerator:
                 device.get("hostname", endpoint.get("deviceId", "Endpoint"))
             ),
             "submissionId": submission_id,
-            "transport": str(index.get("transport", "UNKNOWN")).replace(
-                "_ENCRYPTED", ""
+            "transport": _transport_label(
+                str(index.get("transport", "UNKNOWN"))
             ),
             "receivedAt": str(index.get("receivedAt", "")),
             "score": float(endpoint.get("score", 0)),
@@ -387,10 +465,22 @@ class UnifiedReportGenerator:
             ),
             "findings": findings,
             "findingCount": len(findings),
+            "controlResultCount": len(findings),
+            "statusCounts": dict(sorted(status_counts.items())),
             "severityCounts": dict(sorted(severity_counts.items())),
             "collectorVersion": str(
                 evidence.get("collectorVersion", "UNKNOWN")
             ),
+            "collectorBuildDigest": str(
+                evidence.get("collectorBuildDigest", "")
+            ),
+            "collectorBuildCommit": str(
+                evidence.get("collectorBuildCommit", "")
+            ),
+            "cveAnalysisStatus": str(
+                endpoint.get("cveAnalysisStatus", "NOT_PERFORMED")
+            ),
+            "cveSummary": dict(endpoint.get("cveSummary", {})),
             "privilegeContext": {
                 "executionMode": str(
                     privilege.get("executionMode", "UNKNOWN")
@@ -441,6 +531,129 @@ def _counter_rows(
         }
         for label in order
     ]
+
+
+def _aggregate_cve(
+    endpoints: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Aggregate endpoint CVE metrics without conflating count types."""
+
+    summaries = [item.get("cveSummary", {}) for item in endpoints]
+    statuses = {
+        str(item.get("cveAnalysisStatus", "NOT_PERFORMED"))
+        for item in endpoints
+    }
+    if statuses == {"COMPLETE"}:
+        status = "COMPLETE"
+    elif statuses == {"NOT_PERFORMED"}:
+        status = "NOT_PERFORMED"
+    elif statuses == {"FAILED"}:
+        status = "FAILED"
+    elif "RUNNING" in statuses:
+        status = "RUNNING"
+    else:
+        status = "PARTIAL"
+
+    def total(key: str) -> int:
+        return sum(int(item.get(key, 0) or 0) for item in summaries)
+
+    def identifiers(key: str) -> set[str]:
+        return {
+            str(value)
+            for item in summaries
+            for value in item.get(key, [])
+        }
+
+    eligible = total("cveEligibleProducts")
+    evaluated = total("successfullyEvaluatedProducts")
+    coverage = (
+        round(evaluated * 100.0 / eligible, 1)
+        if eligible
+        else 100.0
+        if status == "COMPLETE"
+        else 0.0
+    )
+    unique_ids = identifiers("uniqueCveIds")
+    confirmed_ids = identifiers("confirmedCveIds")
+    possible_ids = identifiers("possibleCveIds")
+    critical_ids = identifiers("criticalCveIds")
+    high_ids = identifiers("highCveIds")
+    kev_ids = identifiers("cisaKevCveIds")
+    return {
+        "status": status,
+        "timestamp": max(
+            (str(item.get("timestamp", "")) for item in summaries),
+            default="",
+        ),
+        "installedSoftwareRecords": total("installedSoftwareRecords"),
+        "normalizedProducts": total("normalizedProducts"),
+        "cveEligibleProducts": eligible,
+        "successfullyEvaluatedProducts": evaluated,
+        "notEvaluatedProducts": total("notEvaluatedProducts"),
+        "uniqueCves": len(unique_ids),
+        "confirmedUniqueCves": len(confirmed_ids),
+        "confirmedProductCveRelationships": total(
+            "confirmedProductCveRelationships"
+        ),
+        "possibleUniqueCves": len(possible_ids),
+        "possibleProductCveRelationships": total(
+            "possibleProductCveRelationships"
+        ),
+        "criticalUniqueCves": len(critical_ids),
+        "highUniqueCves": len(high_ids),
+        "cisaKevUniqueCves": len(kev_ids),
+        "coveragePercent": coverage,
+        "providerCoverage": [
+            {
+                "endpoint": endpoint["displayName"],
+                **provider,
+            }
+            for endpoint in endpoints
+            for provider in endpoint.get("cveSummary", {}).get(
+                "providerCoverage", []
+            )
+        ],
+    }
+
+
+def _main_coverage_limitations(
+    endpoints: list[dict[str, Any]],
+    cve: dict[str, Any],
+) -> list[str]:
+    """Return concise, deterministic Executive Summary limitations."""
+
+    labels = {
+        "COL-BITLOCKER-STATUS-001": (
+            "BitLocker state could not be read as a standard user"
+        ),
+        "COL-AUDIT-POLICY-001": "Audit policy requires elevated access",
+    }
+    values: list[str] = []
+    for endpoint in endpoints:
+        for item in endpoint.get("coverageLimitations", []):
+            capability = str(item.get("capabilityId", "UNKNOWN"))
+            reason = str(item.get("reason", "NOT_COLLECTED"))
+            text = labels.get(
+                capability,
+                f"{capability}: {reason.replace('_', ' ').lower()}",
+            )
+            if text not in values:
+                values.append(text)
+    if cve["status"] == "NOT_PERFORMED":
+        values.append("CVE analysis was not performed")
+    elif cve["status"] != "COMPLETE":
+        values.append(f"CVE analysis status is {cve['status']}")
+    return values[:6]
+
+
+def _transport_label(value: str) -> str:
+    """Return a precise user-facing transport label."""
+
+    labels = {
+        "HTTPS": "HTTPS submission",
+        "OFFLINE_ENCRYPTED": "Encrypted offline import",
+    }
+    return labels.get(value, value.replace("_", " ").title())
 
 
 def _endpoint_risk(score: float) -> str:

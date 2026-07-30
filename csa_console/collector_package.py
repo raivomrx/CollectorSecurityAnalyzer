@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from csa_console.models import AssessmentSession
 
 ROOT = Path(__file__).resolve().parents[1]
 COLLECTOR_SOURCE = ROOT / "collector" / "windows"
+COLLECTOR_VERSION = "5.1.1"
 
 
 class CollectorPackageError(ValueError):
@@ -101,7 +103,7 @@ def create_collector_package(
         "CSA Windows Endpoint Collector\n"
         f"Assessment: {session.assessment_name}\n"
         f"Organization reference: {session.customer_reference}\n"
-        "Collector mode: STANDARD USER\n"
+        "Assessment mode: Standard Privileges Assessment\n"
         "Administrator rights required: NO\n"
         "Active security testing: NO\n\n"
         "Run from a non-elevated PowerShell process:\n"
@@ -133,7 +135,13 @@ def create_collector_package(
         "sessionId": session.session_id,
         "collectionProfile": profile.profile_id,
         "collectionProfileDigest": profile.digest,
+        "collectorVersion": COLLECTOR_VERSION,
         "collectorBuildDigest": collector_build_digest,
+        "collectorBuildCommit": (
+            os.getenv("CSA_BUILD_COMMIT")
+            or os.getenv("GITHUB_SHA")
+            or ""
+        ),
         "serverCertificateFingerprint": session.tls_fingerprint,
         "expiration": session.expires_at,
         "createdAt": utc_text(),

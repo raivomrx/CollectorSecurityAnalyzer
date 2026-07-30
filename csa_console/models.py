@@ -246,6 +246,7 @@ class AssessmentCoverage:
     """Represent endpoint collection coverage by security domain."""
 
     overall_coverage_percent: float
+    core_passive_coverage_percent: float
     coverage_by_domain: dict[str, float]
     limitations: list[CoverageLimitation] = field(default_factory=list)
 
@@ -255,6 +256,9 @@ class EndpointEvidenceRecord:
     """Canonical endpoint evidence independent of the collector transport."""
 
     schema_version: str
+    collector_version: str
+    collector_build_digest: str
+    collector_build_commit: str
     assessment_id: str
     session_id: str
     submission_id: str
@@ -291,7 +295,9 @@ class EndpointAnalysis:
     findings: list[dict[str, Any]]
     report_path: str | None
     evidence_set_digest: str
-    analysis_engine_version: str = "CSA-5.0"
+    analysis_engine_version: str = "CSA-5.1.1"
+    cve_analysis_status: str = "NOT_PERFORMED"
+    cve_summary: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

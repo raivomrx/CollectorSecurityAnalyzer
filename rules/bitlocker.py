@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from analysis_context import AnalysisContext
+from collector_schema.enums import CollectionStatus
 from risk import Finding, Severity, Status
 from rules.base import BaseRule
 from rules.categories import RuleCategory
@@ -44,7 +45,26 @@ class BitLockerRule(BaseRule):
                 else None
             )
             if setting is not None:
-                if setting.collection_status.value != "SUCCESS":
+                if setting.collection_status == CollectionStatus.PARTIAL:
+                    return [
+                        Finding(
+                            rule_id=self.id,
+                            severity=Severity.INFO,
+                            status=Status.PARTIAL,
+                            evidence={
+                                "setting_id": setting.setting_id,
+                                "collection_status": setting.collection_status.value,
+                                "provider": setting.provider,
+                                "configured_value": setting.configured_value,
+                                "effective_value": setting.effective_value,
+                                "confidence": setting.confidence,
+                            },
+                            score=0,
+                        )
+                    ]
+                if setting.collection_status == CollectionStatus.FAILED:
+                    return self.error("BitLocker evidence collection failed")
+                if setting.collection_status != CollectionStatus.SUCCESS:
                     return [
                         Finding(
                             rule_id=self.id,
@@ -95,6 +115,6 @@ class BitLockerRule(BaseRule):
                     score=20,
                 )
             ]
-        except Exception:
+        except Exception as error:
             LOGGER.exception("BitLockerRule failed")
-            return []
+            return self.error(str(error))

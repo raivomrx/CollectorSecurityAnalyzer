@@ -176,3 +176,5 @@ class EndpointDashboardItem:
     evidence_digest: str
     severity_counts: dict[str, int] = field(default_factory=dict)
     capability_gaps: list[dict[str, Any]] = field(default_factory=list)
+    cve_analysis_status: str = "NOT_PERFORMED"
+    cve_summary: dict[str, Any] = field(default_factory=dict)

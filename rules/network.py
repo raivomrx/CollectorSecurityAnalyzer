@@ -87,6 +87,6 @@ class NetworkRule(BaseRule):
                     score=10 if is_public else 0,
                 )
             ]
-        except Exception:
+        except Exception as error:
             LOGGER.exception("NetworkRule failed")
-            return []
+            return self.error(str(error))

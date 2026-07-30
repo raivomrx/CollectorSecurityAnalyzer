@@ -83,6 +83,6 @@ class DefenderRule(BaseRule):
                     score=0 if enabled else 20,
                 )
             ]
-        except Exception:
+        except Exception as error:
             LOGGER.exception("DefenderRule failed")
-            return []
+            return self.error(str(error))

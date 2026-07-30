@@ -6,7 +6,7 @@ from collections import defaultdict
 from typing import Any
 
 from csa_console.capabilities import CapabilityRegistry, CollectionProfile
-from csa_console.enums import CapabilityStatus, CoverageDomain
+from csa_console.enums import CapabilityStatus, CoverageDomain, MinimumPrivilege
 from csa_console.models import AssessmentCoverage, CoverageLimitation
 
 
@@ -26,6 +26,18 @@ def calculate_coverage(
     limitations: list[CoverageLimitation] = []
     for capability_id in active_profile.capability_ids:
         definition = active_registry.get(capability_id)
+        if (
+            definition.minimum_privilege != MinimumPrivilege.STANDARD_USER
+            or definition.coverage_domain == CoverageDomain.ACTIVE_VALIDATION
+        ):
+            limitations.append(
+                CoverageLimitation(
+                    capability_id=capability_id,
+                    domain=definition.coverage_domain,
+                    reason="OPTIONAL_PRIVILEGE_REQUIRED",
+                )
+            )
+            continue
         result = by_id.get(capability_id)
         score = 0.0
         reason = "NOT_COLLECTED"
@@ -61,20 +73,21 @@ def calculate_coverage(
         coverage_by_domain[domain.value] = (
             round(sum(values) / len(values), 1) if values else 0.0
         )
-    collection_domains = [
+    core_passive_values = [
         value
         for domain, values in domain_values.items()
         if domain != CoverageDomain.ACTIVE_VALIDATION
         for value in values
     ]
-    overall = (
-        round(sum(collection_domains) / len(collection_domains), 1)
-        if collection_domains
+    core_passive = (
+        round(sum(core_passive_values) / len(core_passive_values), 1)
+        if core_passive_values
         else 0.0
     )
     limitations.sort(key=lambda item: (item.domain.value, item.capability_id))
     return AssessmentCoverage(
-        overall_coverage_percent=overall,
+        overall_coverage_percent=core_passive,
+        core_passive_coverage_percent=core_passive,
         coverage_by_domain=coverage_by_domain,
         limitations=limitations,
     )

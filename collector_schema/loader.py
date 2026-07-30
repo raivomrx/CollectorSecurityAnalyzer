@@ -47,6 +47,8 @@ def _parse_v2_document(data: dict[str, Any]) -> CollectorDocument:
     return CollectorDocument(
         schema_version=str(data.get("schemaVersion", "2.0")),
         collector_version=str(data.get("collectorVersion", "")),
+        collector_build_digest=str(data.get("collectorBuildDigest", "")),
+        collector_build_commit=str(data.get("collectorBuildCommit", "")),
         collection_id=str(data.get("collectionId", "")),
         collection_started_at=started,
         collection_completed_at=completed,

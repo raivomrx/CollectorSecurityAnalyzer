@@ -43,7 +43,7 @@ from csa_lab.models import (
 )
 from csa_lab.network import select_default_interface
 from csa_lab.service import LabApplicationService
-from csa_lab.unified_report import UnifiedReportGenerator
+from csa_lab.unified_report import UnifiedReportGenerator, _transport_label
 from csa_lab.web import LabAdminServer
 from tests.test_console_sprint5 import Sprint5TestCase
 
@@ -77,6 +77,17 @@ class LabUiContractTests(unittest.TestCase):
 
         self.assertIn('item.status === "COMPLETE"', script)
         self.assertIn('"READY_FOR_REPORT", "COMPLETED"', script)
+        self.assertIn("cveAnalysisStatus", script)
+        self.assertIn("Run CVE Analysis", (
+            ROOT / "csa_lab" / "templates" / "lab.html"
+        ).read_text(encoding="utf-8"))
+        self.assertIn("Generate without CVE data", (
+            ROOT / "csa_lab" / "templates" / "lab.html"
+        ).read_text(encoding="utf-8"))
+        self.assertEqual(
+            _transport_label("OFFLINE_ENCRYPTED"),
+            "Encrypted offline import",
+        )
 
     def test_terminal_assessments_are_explicitly_deletable(self) -> None:
         script = (ROOT / "csa_lab" / "templates" / "lab.js").read_text(
@@ -664,16 +675,127 @@ class UnifiedReportTests(Sprint5TestCase):
         self.assertNotIn("<script src=", html)
         self.assertNotIn("file://", html.casefold())
         for anchor in (
-            "executive", "scope", "risk", "fleet", "priority", "systemic",
+            "executive", "scope", "risk", "fleet", "cve", "priority", "systemic",
             "remediation", "comparison", "endpoints", "gaps", "frameworks",
             "evidence", "methodology", "integrity",
         ):
             self.assertIn(f'id="{anchor}"', html)
             self.assertIn(f'href="#{anchor}"', html)
         self.assertIn("<details", html)
-        self.assertIn("STANDARD USER", html)
+        self.assertIn("Standard Privileges Assessment", html)
+        self.assertIn("CVE analysis: NOT PERFORMED", html)
+        self.assertIn("control results", html)
+        self.assertEqual(first_model["endpoints"][0]["displayName"], "Endpoint 01")
+        self.assertEqual(
+            first_model["coverage"]["corePassiveCoverage"], 100.0
+        )
         self.assertNotIn("enrollmentToken", html)
         self.assertNotIn("tokenHash", html)
+
+    def test_report_requires_cve_completion_or_explicit_acknowledgement(
+        self,
+    ) -> None:
+        """Final report generation should gate incomplete CVE analysis."""
+
+        self._accept_and_analyze("SUB-CVE-GATE-01")
+        self._write_lab_state(1)
+        service = LabApplicationService(
+            self.storage.root,
+            firewall=NullFirewallManager(),
+            executable_path=Path(__file__).resolve(),
+        )
+        self.addCleanup(service.shutdown)
+
+        with self.assertRaisesRegex(
+            ValueError, "CVE analysis is not complete"
+        ):
+            service.generate_unified_report(
+                self.assessment.assessment_id
+            )
+
+        output = service.generate_unified_report(
+            self.assessment.assessment_id,
+            allow_without_cve=True,
+        )
+        self.assertTrue(output.is_file())
+        audit = self.storage.path(
+            self.assessment.assessment_id, "audit", "audit.jsonl"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "report_without_complete_cve_acknowledged", audit
+        )
+
+    def test_cve_retry_persists_lifecycle_and_distinct_metrics(
+        self,
+    ) -> None:
+        """CVE retry should persist a terminal status and typed counts."""
+
+        submission_id = "SUB-CVE-LIFECYCLE-01"
+        self._accept_and_analyze(submission_id)
+        existing_report = self.storage.path(
+            self.assessment.assessment_id,
+            "reports",
+            "endpoints",
+            f"{submission_id}.html",
+        )
+        existing_report.parent.mkdir(parents=True, exist_ok=True)
+        existing_report.write_text("report", encoding="utf-8")
+
+        def analyze_stub(*_args: object, **kwargs: object):
+            metadata = kwargs["analysis_metadata"]
+            metadata.update(
+                {
+                    "status": "COMPLETE",
+                    "timestamp": "2026-07-30T10:00:00Z",
+                    "installedSoftwareRecords": 4,
+                    "normalizedProducts": 3,
+                    "cveEligibleProducts": 2,
+                    "successfullyEvaluatedProducts": 2,
+                    "notEvaluatedProducts": 0,
+                    "uniqueCves": 1,
+                    "uniqueCveIds": ["CVE-2026-0001"],
+                    "confirmedUniqueCves": 1,
+                    "confirmedCveIds": ["CVE-2026-0001"],
+                    "confirmedProductCveRelationships": 2,
+                    "possibleUniqueCves": 0,
+                    "possibleCveIds": [],
+                    "possibleProductCveRelationships": 0,
+                    "criticalUniqueCves": 0,
+                    "criticalCveIds": [],
+                    "highUniqueCves": 1,
+                    "highCveIds": ["CVE-2026-0001"],
+                    "cisaKevUniqueCves": 0,
+                    "cisaKevCveIds": [],
+                    "coveragePercent": 100.0,
+                    "providerCoverage": [],
+                }
+            )
+            return [], 100, None, existing_report
+
+        with mock.patch(
+            "csa_console.pipeline.analyze_file",
+            side_effect=analyze_stub,
+        ) as analyze:
+            result = ConsoleAnalysisPipeline(
+                self.storage
+            ).retry_analysis(
+                self.assessment.assessment_id,
+                submission_id,
+                run_cve=True,
+            )
+
+        self.assertEqual(result.cve_analysis_status, "COMPLETE")
+        self.assertEqual(result.cve_summary["uniqueCves"], 1)
+        self.assertEqual(
+            result.cve_summary["confirmedProductCveRelationships"], 2
+        )
+        self.assertFalse(analyze.call_args.kwargs["skip_cve"])
+        stored = self.storage.read_json(
+            self.assessment.assessment_id,
+            "findings",
+            f"{submission_id}.json",
+        )
+        self.assertEqual(stored["cveAnalysisStatus"], "COMPLETE")
 
     def test_failed_first_analysis_can_be_retried_from_normalized_data(
         self,

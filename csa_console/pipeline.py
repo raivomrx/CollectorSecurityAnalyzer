@@ -74,6 +74,7 @@ class ConsoleAnalysisPipeline:
         output_dir = self.storage.path(
             assessment_id, "reports", "endpoints"
         )
+        cve_metadata: dict = {}
         findings, score, _inventory, report_path = analyze_file(
             raw_path,
             output_dir=output_dir,
@@ -81,6 +82,7 @@ class ConsoleAnalysisPipeline:
             skip_enrichment=skip_enrichment,
             validate_input=True,
             privacy_mode="strict",
+            analysis_metadata=cve_metadata,
         )
         finding_values = [item.to_dict() for item in findings]
         finding_values.sort(
@@ -104,6 +106,10 @@ class ConsoleAnalysisPipeline:
                     "packageDigest": package.package_digest,
                 }
             ),
+            cve_analysis_status=str(
+                cve_metadata.get("status", "NOT_PERFORMED")
+            ),
+            cve_summary=cve_metadata,
         )
         self.storage.write_json(
             assessment_id,
@@ -144,6 +150,8 @@ class ConsoleAnalysisPipeline:
         self,
         assessment_id: str,
         submission_id: str,
+        *,
+        run_cve: bool = False,
     ) -> EndpointAnalysis:
         """Rerun analysis from accepted evidence after any analysis failure."""
 
@@ -175,18 +183,59 @@ class ConsoleAnalysisPipeline:
             self.storage.path(assessment_id, "audit", "audit.jsonl")
         )
         audit.append(
-            "analysis_retry_started", {"submissionId": submission_id}
+            "analysis_retry_started",
+            {
+                "submissionId": submission_id,
+                "cveAnalysisRequested": run_cve,
+            },
         )
-        findings, score, _inventory, report_path = analyze_file(
-            raw_path,
-            output_dir=self.storage.path(
-                assessment_id, "reports", "endpoints"
-            ),
-            skip_cve=True,
-            skip_enrichment=True,
-            validate_input=True,
-            privacy_mode="strict",
-        )
+        if run_cve and existing:
+            running = dict(existing)
+            running["cveAnalysisStatus"] = "RUNNING"
+            running["cveSummary"] = {
+                **dict(existing.get("cveSummary", {})),
+                "status": "RUNNING",
+            }
+            self.storage.write_json(
+                assessment_id,
+                ("findings", f"{submission_id}.json"),
+                running,
+            )
+            audit.append(
+                "cve_analysis_started",
+                {"submissionId": submission_id},
+            )
+        cve_metadata: dict = {}
+        try:
+            findings, score, _inventory, report_path = analyze_file(
+                raw_path,
+                output_dir=self.storage.path(
+                    assessment_id, "reports", "endpoints"
+                ),
+                skip_cve=not run_cve,
+                skip_enrichment=not run_cve,
+                validate_input=True,
+                privacy_mode="strict",
+                analysis_metadata=cve_metadata,
+            )
+        except Exception:
+            if run_cve and existing:
+                failed = dict(existing)
+                failed["cveAnalysisStatus"] = "FAILED"
+                failed["cveSummary"] = {
+                    **dict(existing.get("cveSummary", {})),
+                    "status": "FAILED",
+                }
+                self.storage.write_json(
+                    assessment_id,
+                    ("findings", f"{submission_id}.json"),
+                    failed,
+                )
+                audit.append(
+                    "cve_analysis_failed",
+                    {"submissionId": submission_id},
+                )
+            raise
         finding_values = [item.to_dict() for item in findings]
         finding_values.sort(
             key=lambda item: (
@@ -203,6 +252,12 @@ class ConsoleAnalysisPipeline:
         coverage = AssessmentCoverage(
             overall_coverage_percent=float(
                 coverage_data["overallCoveragePercent"]
+            ),
+            core_passive_coverage_percent=float(
+                coverage_data.get(
+                    "corePassiveCoveragePercent",
+                    coverage_data["overallCoveragePercent"],
+                )
             ),
             coverage_by_domain={
                 str(key): float(value)
@@ -239,7 +294,11 @@ class ConsoleAnalysisPipeline:
                     }
                 )
             ),
-            analysis_engine_version="CSA-5.0",
+            analysis_engine_version="CSA-5.1.1",
+            cve_analysis_status=str(
+                cve_metadata.get("status", "NOT_PERFORMED")
+            ),
+            cve_summary=cve_metadata,
         )
         self.storage.write_json(
             assessment_id,
@@ -254,6 +313,17 @@ class ConsoleAnalysisPipeline:
                 "score": score,
             },
         )
+        if run_cve:
+            audit.append(
+                "cve_analysis_completed",
+                {
+                    "submissionId": submission_id,
+                    "status": analysis.cve_analysis_status,
+                    "coveragePercent": analysis.cve_summary.get(
+                        "coveragePercent", 0.0
+                    ),
+                },
+            )
         from csa_console.submission import SubmissionService
 
         submission_service = SubmissionService(self.storage)

@@ -118,21 +118,28 @@ Describe "CSA Windows Collector source contract" {
         [System.IO.File]::WriteAllText(
             (Join-Path $payload "signatures\submission.sig"), "{}"
         )
-        $archivePath = Join-Path $TestDrive "package.zip"
-        Push-Location $TestDrive
-        try {
-            New-CSAArchive ".\payload" $archivePath
-        } finally {
-            Pop-Location
-        }
         Add-Type -AssemblyName System.IO.Compression.FileSystem
-        $archive = [System.IO.Compression.ZipFile]::OpenRead($archivePath)
-        try {
-            $names = @($archive.Entries | ForEach-Object { $_.FullName })
-        } finally {
-            $archive.Dispose()
+        foreach ($flow in @("https", "offline-encrypted", "retry")) {
+            $archivePath = Join-Path $TestDrive "$flow-package.zip"
+            Push-Location $TestDrive
+            try {
+                New-CSAArchive ".\payload" $archivePath
+            } finally {
+                Pop-Location
+            }
+            $archive = [System.IO.Compression.ZipFile]::OpenRead($archivePath)
+            try {
+                $names = @(
+                    $archive.Entries | ForEach-Object { $_.FullName }
+                )
+            } finally {
+                $archive.Dispose()
+            }
+            ($names -join ",") |
+                Should -Be "evidence.json,signatures/submission.sig"
+            @($names | Where-Object {
+                $_.StartsWith("/") -or $_ -match '(^|/)\.\.(/|$)'
+            }).Count | Should -Be 0
         }
-        ($names -join ",") |
-            Should -Be "evidence.json,signatures/submission.sig"
     }
 }

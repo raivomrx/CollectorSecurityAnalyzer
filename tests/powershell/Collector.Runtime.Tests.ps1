@@ -109,20 +109,164 @@ Describe "CSA Windows Collector runtime evidence contracts" {
     }
 
     Context "Device Guard" {
-        It "collects all 12 declared settings" {
+        BeforeAll {
+            Get-Module DeviceGuard -All | Remove-Module -Force -ErrorAction SilentlyContinue
             Import-Module (Join-Path $moduleRoot "DeviceGuard.psm1") -Force
+        }
+
+        BeforeEach {
+            Mock Get-CimInstance {
+                if ($ClassName -eq "Win32_Tpm") {
+                    return [pscustomobject]@{ SpecVersion = "2.0" }
+                }
+                [pscustomobject]@{
+                    SecurityServicesConfigured = @(1,2,3)
+                    SecurityServicesRunning = @(1,2,3)
+                    VirtualizationBasedSecurityStatus = 2
+                }
+            } -ModuleName DeviceGuard
+        }
+
+        It "collects all 12 declared settings" {
             Mock Confirm-SecureBootUEFI { $true } -ModuleName DeviceGuard
             Mock Get-Tpm { [pscustomobject]@{ TpmPresent=$true; TpmReady=$true; TpmEnabled=$true; TpmActivated=$true } } -ModuleName DeviceGuard
-            Mock Get-CimInstance {
-                if ($ClassName -eq "Win32_Tpm") { return [pscustomobject]@{ SpecVersion = "2.0" } }
-                [pscustomobject]@{ SecurityServicesConfigured=@(1,2,3); SecurityServicesRunning=@(1,2,3); VirtualizationBasedSecurityStatus=2 }
-            } -ModuleName DeviceGuard
 
             $result = Resolve-TestModuleResult "DeviceGuard" (Get-CSADeviceGuardEvidence)
             $result.Status | Should -Be "SUCCESS"
             $result.Settings.Count | Should -Be 12
             $result.ExpectedEvidenceCount | Should -Be 12
             $result.CollectedMandatoryEvidenceCount | Should -Be 5
+        }
+
+        It "normalizes TPM present and ready as reliable success" {
+            $tpm = { [pscustomobject]@{
+                TpmPresent=$true; TpmReady=$true
+                TpmEnabled=$true; TpmActivated=$true
+            } }
+            $result = Get-CSADeviceGuardEvidence `
+                -SecureBootProvider { $true } `
+                -TpmProvider $tpm
+            $ready = @($result.Settings | Where-Object {
+                $_.settingId -eq "TPM_READY"
+            })[0]
+            $ready.collectionStatus | Should -Be "SUCCESS"
+            $ready.effectiveValue | Should -BeTrue
+        }
+
+        It "preserves TPM present but not ready as reliable false" {
+            $tpm = { [pscustomobject]@{
+                TpmPresent=$true; TpmReady=$false
+                TpmEnabled=$true; TpmActivated=$true
+            } }
+            $result = Get-CSADeviceGuardEvidence `
+                -SecureBootProvider { $true } `
+                -TpmProvider $tpm
+            $present = @($result.Settings | Where-Object {
+                $_.settingId -eq "TPM_PRESENT"
+            })[0]
+            $ready = @($result.Settings | Where-Object {
+                $_.settingId -eq "TPM_READY"
+            })[0]
+            $present.effectiveValue | Should -BeTrue
+            $ready.collectionStatus | Should -Be "SUCCESS"
+            $ready.effectiveValue | Should -BeFalse
+        }
+
+        It "preserves a reliable absent TPM result" {
+            $tpm = { [pscustomobject]@{
+                TpmPresent=$false; TpmReady=$false
+                TpmEnabled=$false; TpmActivated=$false
+            } }
+            $result = Get-CSADeviceGuardEvidence `
+                -SecureBootProvider { $true } `
+                -TpmProvider $tpm
+            $present = @($result.Settings | Where-Object {
+                $_.settingId -eq "TPM_PRESENT"
+            })[0]
+            $present.collectionStatus | Should -Be "SUCCESS"
+            $present.effectiveValue | Should -BeFalse
+        }
+
+        It "does not turn TPM provider access denied into false" {
+            $tpm = {
+                throw (New-Object System.UnauthorizedAccessException "denied")
+            }
+            $result = Get-CSADeviceGuardEvidence `
+                -SecureBootProvider { $true } `
+                -TpmProvider $tpm
+            $ready = @($result.Settings | Where-Object {
+                $_.settingId -eq "TPM_READY"
+            })[0]
+            $ready.collectionStatus | Should -Be "ACCESS_DENIED"
+            $null -eq $ready.effectiveValue | Should -BeTrue
+        }
+
+        It "marks incomplete TPM provider output as partial" {
+            $tpm = { [pscustomobject]@{
+                TpmPresent=$true; TpmReady=$true
+                TpmEnabled=$null; TpmActivated=$null
+            } }
+            $result = Get-CSADeviceGuardEvidence `
+                -SecureBootProvider { $true } `
+                -TpmProvider $tpm
+            @($result.Settings | Where-Object {
+                $_.settingId -eq "TPM_READY"
+            })[0].collectionStatus | Should -Be "SUCCESS"
+            @($result.Settings | Where-Object {
+                $_.settingId -eq "TPM_ENABLED"
+            })[0].collectionStatus | Should -Be "PARTIAL"
+        }
+
+        It "marks malformed TPM provider output as partial" {
+            $tpm = { [pscustomobject]@{
+                TpmPresent="maybe"; TpmReady="unknown"
+                TpmEnabled=2; TpmActivated=@()
+            } }
+            $result = Get-CSADeviceGuardEvidence `
+                -SecureBootProvider { $true } `
+                -TpmProvider $tpm
+            @($result.Settings | Where-Object {
+                $_.settingId -like "TPM_*" -and
+                $_.settingId -ne "TPM_SPEC_VERSION"
+            } | Where-Object {
+                $_.collectionStatus -eq "PARTIAL"
+            }).Count | Should -Be 4
+        }
+
+        It "uses tpmtool when medium-integrity Get-Tpm returns all false" {
+            $tpm = { [pscustomobject]@{
+                TpmPresent=$false; TpmReady=$false
+                TpmEnabled=$false; TpmActivated=$false
+            } }
+            $fallback = {
+                @("TPM Present: True", "TPM Ready for Storage: True")
+            }
+            $result = Get-CSADeviceGuardEvidence `
+                -SecureBootProvider { $true } `
+                -TpmProvider $tpm `
+                -TpmFallbackProvider $fallback
+            $ready = @($result.Settings | Where-Object {
+                $_.settingId -eq "TPM_READY"
+            })[0]
+            $ready.collectionStatus | Should -Be "SUCCESS"
+            $ready.effectiveValue | Should -BeTrue
+            $ready.provider | Should -Be "tpmtool.exe"
+        }
+
+        It "does not use registry to override unsupported Secure Boot" {
+            $secureBoot = { throw "Secure Boot is not supported" }
+            $result = Get-CSADeviceGuardEvidence `
+                -SecureBootProvider $secureBoot `
+                -SecureBootRegistryProvider { $true } `
+                -TpmProvider { [pscustomobject]@{
+                    TpmPresent=$true; TpmReady=$true
+                    TpmEnabled=$true; TpmActivated=$true
+                } }
+            $setting = @($result.Settings | Where-Object {
+                $_.settingId -eq "SECURE_BOOT_ENABLED"
+            })[0]
+            $setting.collectionStatus | Should -Be "NOT_SUPPORTED"
+            $null -eq $setting.effectiveValue | Should -BeTrue
         }
     }
 
@@ -183,6 +327,45 @@ Describe "CSA Windows Collector runtime evidence contracts" {
             $provider = { throw (New-Object System.UnauthorizedAccessException "denied") }
             $result = Resolve-TestModuleResult "BitLocker" (Get-CSABitLockerEvidence -VolumeProvider $provider -BitLockerSupported $true)
             $result.Status | Should -Be "ACCESS_DENIED"
+        }
+
+        It "uses WMI after the primary provider is denied" {
+            $primary = {
+                throw (New-Object System.UnauthorizedAccessException "denied")
+            }
+            $wmi = { @([pscustomobject]@{
+                MountPoint="C:"; VolumeType="OperatingSystem"
+                ProtectionStatus="On"; ProtectionEnabled=$true
+                EncryptionPercentage=100
+                EncryptionState="FULLY_ENCRYPTED"
+                EncryptionMethod="XtsAes256"; LockStatus="UNKNOWN"
+                AutoUnlockEnabled=$false; KeyProtector=@()
+            }) }
+            $result = Get-CSABitLockerEvidence `
+                -VolumeProvider $primary `
+                -BitLockerSupported $true `
+                -WmiProvider $wmi
+            $setting = @($result.Settings | Where-Object {
+                $_.settingId -eq "BITLOCKER_OS_PROTECTION"
+            })[0]
+            $result.Status | Should -Be "SUCCESS"
+            $setting.effectiveValue | Should -BeTrue
+            $setting.provider | Should -Be "WIN32_ENCRYPTABLE_VOLUME"
+            $setting.confidence | Should -Be 90
+        }
+
+        It "keeps a registry-only indicator partial" {
+            $result = Get-CSABitLockerEvidence `
+                -VolumeProvider { @() } `
+                -BitLockerSupported $true `
+                -RegistryProvider { $true }
+            $setting = @($result.Settings | Where-Object {
+                $_.settingId -eq "BITLOCKER_OS_PROTECTION"
+            })[0]
+            $result.Status | Should -Be "PARTIAL"
+            $setting.collectionStatus | Should -Be "PARTIAL"
+            $setting.configuredValue | Should -BeTrue
+            $null -eq $setting.effectiveValue | Should -BeTrue
         }
     }
 }

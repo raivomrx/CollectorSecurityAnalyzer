@@ -270,6 +270,16 @@ def _admin_handler_factory(application: LabAdminServer):
                     self._json(
                         HTTPStatus.OK, {"assessment": model_to_dict(state)}
                     )
+                elif action == "cve-analysis":
+                    endpoints = service.run_cve_analysis(assessment_id)
+                    self._json(
+                        HTTPStatus.OK,
+                        {
+                            "endpoints": [
+                                model_to_dict(item) for item in endpoints
+                            ]
+                        },
+                    )
                 elif action == "report":
                     data = self._read_json(MAX_JSON)
                     report = service.generate_unified_report(
@@ -280,6 +290,9 @@ def _admin_handler_factory(application: LabAdminServer):
                         include_audit=bool(data.get("includeAudit", True)),
                         include_endpoint_details=bool(
                             data.get("includeEndpointDetails", True)
+                        ),
+                        allow_without_cve=bool(
+                            data.get("allowWithoutCve", False)
                         ),
                     )
                     self._json(

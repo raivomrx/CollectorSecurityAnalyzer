@@ -70,7 +70,7 @@ class ConsoleReportGenerator:
                 "findingCount": len(findings),
                 "statusCounts": dict(sorted(status_counts.items())),
                 "severityCounts": dict(sorted(severity_counts.items())),
-                "collectionMode": "STANDARD USER",
+                "collectionMode": "Standard Privileges Assessment",
                 "administrativeRightsUsed": bool(
                     privilege.get("isElevated", False)
                 ),
@@ -276,7 +276,7 @@ class ConsoleReportGenerator:
             "assessmentId": assessment_id,
             "evidenceSetDigest": evidence_set_digest,
             "auditHashAtGeneration": audit_summary["finalAuditEntryHash"],
-            "analysisEngineVersion": "CSA-5.0",
+            "analysisEngineVersion": "CSA-5.1.1",
             "frameworkPackDigests": self._framework_pack_digests(
                 assessment_id
             ),

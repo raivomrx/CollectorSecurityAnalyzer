@@ -34,7 +34,7 @@
   <section>
     <h2>Collection Privilege</h2>
     <div class="notice">
-      <strong>Collection mode: STANDARD USER</strong><br>
+      <strong>Collection mode: {{ model.summary.collectionMode }}</strong><br>
       Administrative rights used: {{ "YES" if model.summary.administrativeRightsUsed else "NO" }}<br>
       Active validation performed: NO
     </div>

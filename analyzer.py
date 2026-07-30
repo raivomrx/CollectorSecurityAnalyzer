@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
+from typing import Any
 
 from active_validation.authorization import load_authorization
 from active_validation.engine import disabled_run, execute_active_validation
@@ -18,6 +19,7 @@ from compliance.engine import ComplianceEngine
 from compliance.profile_resolver import ComplianceProfileResolver
 from compliance.repository import FrameworkRepository
 from config import load_config
+from csa_console.identifiers import utc_text
 from cve.cache import NvdCache
 from cve.client import NvdClient
 from cve.cpe_resolver import CpeResolver
@@ -77,6 +79,7 @@ def analyze_file(
     active_validators: list[str] | None = None,
     active_profile: str | None = None,
     active_plan_digest: str | None = None,
+    analysis_metadata: dict[str, Any] | None = None,
 ) -> tuple[list[AuditFinding], int, SoftwareInventory, Path]:
     """Analyze a collector JSON file and generate an HTML report."""
 
@@ -111,6 +114,8 @@ def analyze_file(
         refresh_enrichment_cache=refresh_enrichment_cache,
         cvelist_path=cvelist_path,
     )
+    if analysis_metadata is not None:
+        analysis_metadata.update(_cve_analysis_metadata(context))
     findings: list[Finding] = []
 
     for rule in registry.get_enabled():
@@ -183,6 +188,156 @@ def analyze_file(
     LOGGER.info("HTML report generated: %s", report_path)
     LOGGER.info("Framework analysis generated: %s", analysis_path)
     return audit_findings, score, software_inventory, report_path
+
+
+def _cve_analysis_metadata(
+    context: AnalysisContext,
+) -> dict[str, Any]:
+    """Build a JSON-safe CVE lifecycle and metric summary."""
+
+    summary = context.cve_summary
+    installed_count = context.software_inventory.product_count
+    normalized_count = len(
+        {
+            (
+                item.normalized_vendor,
+                item.normalized_product,
+                item.normalized_version,
+                item.architecture,
+            )
+            for item in context.software_inventory.products
+        }
+    )
+    if summary is None:
+        return {
+            "status": "NOT_PERFORMED",
+            "timestamp": "",
+            "installedSoftwareRecords": installed_count,
+            "normalizedProducts": normalized_count,
+            "cveEligibleProducts": 0,
+            "successfullyEvaluatedProducts": 0,
+            "notEvaluatedProducts": 0,
+            "uniqueCves": 0,
+            "uniqueCveIds": [],
+            "confirmedUniqueCves": 0,
+            "confirmedCveIds": [],
+            "confirmedProductCveRelationships": 0,
+            "possibleUniqueCves": 0,
+            "possibleCveIds": [],
+            "possibleProductCveRelationships": 0,
+            "criticalUniqueCves": 0,
+            "criticalCveIds": [],
+            "highUniqueCves": 0,
+            "highCveIds": [],
+            "cisaKevUniqueCves": 0,
+            "cisaKevCveIds": [],
+            "coveragePercent": 0.0,
+            "providerCoverage": [],
+        }
+
+    assessments = summary.assessments
+    confirmed = [
+        item
+        for item in assessments
+        if item.applicability.value == "AFFECTED"
+    ]
+    possible = [
+        item
+        for item in assessments
+        if item.applicability.value == "POSSIBLY_AFFECTED"
+    ]
+    confirmed_ids = {item.cve.cve_id for item in confirmed}
+    possible_ids = {item.cve.cve_id for item in possible}
+    relevant = confirmed + possible
+    unique_ids = confirmed_ids | possible_ids
+    critical_ids = {
+        item.cve.cve_id
+        for item in relevant
+        if item.cve.severity.upper() == "CRITICAL"
+    }
+    high_ids = {
+        item.cve.cve_id
+        for item in relevant
+        if item.cve.severity.upper() == "HIGH"
+    }
+    enrichment = context.cve_enrichment
+    nvd_status = (
+        "COMPLETE"
+        if summary.scan_complete and summary.coverage_complete
+        else "PARTIAL"
+        if summary.scanned_products > 0 or summary.evaluated_products > 0
+        else "FAILED"
+    )
+    provider_coverage = [
+        {
+            "provider": "NVD",
+            "status": nvd_status,
+            "recordsLoaded": len({item.cve.cve_id for item in assessments}),
+            "usedStaleCache": False,
+        }
+    ]
+    if enrichment is not None:
+        provider_coverage.extend(
+            [
+                {
+                    "provider": item.provider,
+                    "status": (
+                        "COMPLETE"
+                        if item.succeeded and not item.partial
+                        else "PARTIAL"
+                        if item.succeeded or item.partial
+                        else "FAILED"
+                    ),
+                    "recordsLoaded": item.records_loaded,
+                    "usedStaleCache": item.used_stale_cache,
+                }
+                for item in enrichment.provider_statuses
+                if item.enabled
+            ]
+        )
+    kev_ids = (
+        {
+            item.base_assessment.cve.cve_id
+            for item in enrichment.assessments
+            if item.kev is not None
+            and item.base_assessment.applicability.value
+            in {"AFFECTED", "POSSIBLY_AFFECTED"}
+        }
+        if enrichment is not None
+        else set()
+    )
+    status = nvd_status
+    return {
+        "status": status,
+        "timestamp": utc_text(),
+        "installedSoftwareRecords": summary.scanned_products,
+        "normalizedProducts": summary.unique_products,
+        "cveEligibleProducts": summary.eligible_products,
+        "successfullyEvaluatedProducts": summary.evaluated_products,
+        "notEvaluatedProducts": max(
+            0, summary.eligible_products - summary.evaluated_products
+        ),
+        "uniqueCves": len(unique_ids),
+        "uniqueCveIds": sorted(unique_ids),
+        "confirmedUniqueCves": len(confirmed_ids),
+        "confirmedCveIds": sorted(confirmed_ids),
+        "confirmedProductCveRelationships": len(confirmed),
+        "possibleUniqueCves": len(possible_ids),
+        "possibleCveIds": sorted(possible_ids),
+        "possibleProductCveRelationships": len(possible),
+        "criticalUniqueCves": len(critical_ids),
+        "criticalCveIds": sorted(critical_ids),
+        "highUniqueCves": len(high_ids),
+        "highCveIds": sorted(high_ids),
+        "cisaKevUniqueCves": (
+            enrichment.unique_known_exploited_cves
+            if enrichment is not None
+            else 0
+        ),
+        "cisaKevCveIds": sorted(kev_ids),
+        "coveragePercent": summary.coverage_percent,
+        "providerCoverage": provider_coverage,
+    }
 
 
 def _run_active_validation(

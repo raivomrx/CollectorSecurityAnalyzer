@@ -101,6 +101,7 @@
       : "Delete Assessment";
     $("generate-report").disabled = !["READY_FOR_REPORT", "COMPLETED"].includes(status)
       || completeEndpoints.length === 0;
+    $("run-cve-analysis").disabled = completeEndpoints.length === 0;
     $("open-report").disabled = !assessment.reportPath;
     $("show-report").disabled = !assessment.reportPath;
     if (status === "COLLECTING") {
@@ -108,7 +109,8 @@
     } else if (!completeEndpoints.length && processingEndpoints.length) {
       $("report-preview").textContent = "No completed endpoint analysis is available. Review endpoint processing status before generating a report.";
     } else if (completeEndpoints.length) {
-      $("report-preview").textContent = `Endpoints included: ${completeEndpoints.length}. Processing or failed submissions excluded: ${processingEndpoints.length}. Rejected submissions excluded: ${payload.rejectedSubmissionCount}. Coverage gaps present: ${completeEndpoints.some((item) => item.capabilityGaps.length) ? "Yes" : "No"}.`;
+      const cveStates = [...new Set(completeEndpoints.map((item) => item.cveAnalysisStatus))].join(", ");
+      $("report-preview").textContent = `Endpoints included: ${completeEndpoints.length}. CVE analysis: ${cveStates}. Processing or failed submissions excluded: ${processingEndpoints.length}. Rejected submissions excluded: ${payload.rejectedSubmissionCount}. Coverage gaps present: ${completeEndpoints.some((item) => item.capabilityGaps.length) ? "Yes" : "No"}.`;
     } else {
       $("report-preview").textContent = "A report can be generated after at least one endpoint is analyzed.";
     }
@@ -129,7 +131,7 @@
     if (!endpoints.length) {
       const row = document.createElement("tr");
       const cell = document.createElement("td");
-      cell.colSpan = 7;
+      cell.colSpan = 8;
       cell.textContent = "No endpoints received.";
       row.append(cell);
       body.append(row);
@@ -144,6 +146,7 @@
         item.transport,
         item.coveragePercent === null ? "-" : `${item.coveragePercent}%`,
         item.findingCount === null ? "-" : String(item.findingCount),
+        item.cveAnalysisStatus,
         `${item.executionMode} / ${item.integrityLevel}`,
         item.receivedAt,
       ];
@@ -175,6 +178,10 @@
       "Receipt": item.receiptStatus,
       "Evidence digest": item.evidenceDigest,
       "Capability gaps": String(item.capabilityGaps.length),
+      "CVE analysis": item.cveAnalysisStatus,
+      "Unique CVEs": String(item.cveSummary?.uniqueCves ?? 0),
+      "Confirmed CVEs": String(item.cveSummary?.confirmedUniqueCves ?? 0),
+      "Possible CVEs": String(item.cveSummary?.possibleUniqueCves ?? 0),
       "Severity counts": Object.entries(item.severityCounts).map(([key, value]) => `${key}: ${value}`).join(", ") || "None",
     };
     Object.entries(values).forEach(([label, value]) => {
@@ -298,7 +305,29 @@
     }
   }
 
-  async function generateReport() {
+  async function runCveAnalysis() {
+    if (!state.currentId) return;
+    try {
+      showMessage("CVE analysis is running. This may take several minutes.");
+      await request(`/api/v1/assessments/${encodeURIComponent(state.currentId)}/cve-analysis`, {
+        method: "POST",
+      });
+      await openAssessment(state.currentId);
+      showMessage("CVE analysis completed. Review endpoint status before generating the report.");
+    } catch (error) {
+      await openAssessment(state.currentId);
+      showMessage(error.message, true);
+    }
+  }
+
+  async function generateReport(allowWithoutCve = false) {
+    const incomplete = state.current?.endpoints?.some(
+      (item) => item.status === "COMPLETE" && item.cveAnalysisStatus !== "COMPLETE",
+    );
+    if (incomplete && !allowWithoutCve) {
+      $("cve-report-dialog").showModal();
+      return;
+    }
     try {
       const data = await request(`/api/v1/assessments/${encodeURIComponent(state.currentId)}/report`, {
         method: "POST",
@@ -306,6 +335,7 @@
           includeTechnicalEvidence: $("include-evidence").checked,
           includeAudit: $("include-audit").checked,
           includeEndpointDetails: $("include-endpoints").checked,
+          allowWithoutCve,
         },
       });
       await loadAssessments();
@@ -401,7 +431,17 @@
     showMessage("Collector page address copied.");
   });
   $("open-portal").addEventListener("click", () => window.open(state.current.portalUrl, "_blank", "noopener"));
-  $("generate-report").addEventListener("click", generateReport);
+  $("run-cve-analysis").addEventListener("click", runCveAnalysis);
+  $("generate-report").addEventListener("click", () => generateReport());
+  $("cancel-cve-report").addEventListener("click", () => $("cve-report-dialog").close());
+  $("generate-without-cve").addEventListener("click", () => {
+    $("cve-report-dialog").close();
+    generateReport(true);
+  });
+  $("dialog-run-cve").addEventListener("click", () => {
+    $("cve-report-dialog").close();
+    runCveAnalysis();
+  });
   $("open-report").addEventListener("click", () => window.open(`/reports/${encodeURIComponent(state.currentId)}`, "_blank", "noopener"));
   $("show-report").addEventListener("click", () => action("show-report"));
   $("export-archive").addEventListener("click", exportArchive);

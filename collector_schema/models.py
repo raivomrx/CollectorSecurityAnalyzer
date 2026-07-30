@@ -104,6 +104,8 @@ class CollectorDocument:
 
     schema_version: str
     collector_version: str
+    collector_build_digest: str
+    collector_build_commit: str
     collection_id: str
     collection_started_at: datetime
     collection_completed_at: datetime

@@ -113,8 +113,8 @@
         </div>
         <div class="table-scroll">
           <table>
-            <thead><tr><th>Endpoint</th><th>Status</th><th>Transport</th><th>Coverage</th><th>Findings</th><th>Context</th><th>Last received</th></tr></thead>
-            <tbody id="endpoint-table"><tr><td colspan="7">No endpoints received.</td></tr></tbody>
+            <thead><tr><th>Endpoint</th><th>Status</th><th>Transport</th><th>Core coverage</th><th>Control results</th><th>CVE analysis</th><th>Context</th><th>Last received</th></tr></thead>
+            <tbody id="endpoint-table"><tr><td colspan="8">No endpoints received.</td></tr></tbody>
           </table>
         </div>
         <div id="endpoint-detail" class="endpoint-detail hidden"></div>
@@ -131,6 +131,7 @@
           </div>
         </div>
         <div class="report-actions">
+          <button id="run-cve-analysis" type="button">Run CVE Analysis</button>
           <button id="generate-report" type="button">Generate Assessment Report</button>
           <button id="open-report" type="button">Open Report</button>
           <button id="show-report" type="button">Show in Folder</button>
@@ -179,6 +180,20 @@
   </form>
 </dialog>
 
+<dialog id="cve-report-dialog">
+  <header>
+    <div><p class="eyebrow">Report readiness</p><h2>CVE analysis is not complete</h2></div>
+  </header>
+  <div class="dialog-body">
+    <p>Choose whether to run CVE analysis now or generate a report that explicitly records CVE coverage as not performed or incomplete.</p>
+  </div>
+  <footer>
+    <button id="cancel-cve-report" type="button">Cancel</button>
+    <button id="generate-without-cve" type="button">Generate without CVE data</button>
+    <button id="dialog-run-cve" type="button">Run CVE Analysis</button>
+  </footer>
+</dialog>
+
 <dialog id="settings-dialog">
   <form method="dialog">
     <header><div><p class="eyebrow">CSA Lab</p><h2>Settings</h2></div><button class="icon-button" value="cancel" aria-label="Close">&#10005;</button></header>
@@ -198,7 +213,7 @@
         <section data-panel="storage" class="hidden"><h3>Storage</h3><p>Assessment data is stored outside the installation directory with restricted access.</p></section>
         <section data-panel="network" class="hidden"><h3>Network</h3><p>CSA uses the interface and source subnet confirmed in each assessment.</p></section>
         <section data-panel="tls" class="hidden"><h3>TLS Certificate</h3><p>Generated assessment certificates are the current fallback. Collector identity validation is pinned and cannot be bypassed.</p></section>
-        <section data-panel="collector" class="hidden"><h3>Collector</h3><p>Collector 5.1, standard-user profile, offline fallback enabled by default.</p></section>
+        <section data-panel="collector" class="hidden"><h3>Collector</h3><p>Collector 5.1.1, Standard Privileges Assessment profile, offline fallback enabled by default.</p></section>
         <section data-panel="reporting" class="hidden"><h3>Reporting</h3><p>The unified self-contained HTML report is the primary output.</p></section>
         <section data-panel="privacy" class="hidden"><h3>Privacy</h3><p>Strict privacy validation is mandatory. Sensitive evidence is quarantined.</p></section>
         <section data-panel="advanced" class="hidden">

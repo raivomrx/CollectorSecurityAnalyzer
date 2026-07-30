@@ -52,6 +52,8 @@ class CollectorV1ToV2Adapter:
         return CollectorDocument(
             schema_version="2.0",
             collector_version=str(source.get("CollectorVersion", "legacy-v1-adapter")),
+            collector_build_digest="",
+            collector_build_commit="",
             collection_id=str(source.get("CollectionId", "legacy-v1")),
             collection_started_at=collected_at,
             collection_completed_at=collected_at,

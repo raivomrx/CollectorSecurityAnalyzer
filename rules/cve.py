@@ -44,8 +44,11 @@ class KnownVulnerabilitiesRule(BaseRule):
                 Finding(
                     rule_id=self.id,
                     severity=Severity.INFO,
-                    status=Status.INFO,
-                    evidence={"reason": "CVE scan was not executed"},
+                    status=Status.NOT_EVALUATED,
+                    evidence={
+                        "analysis_status": "NOT_PERFORMED",
+                        "reason": "CVE analysis was not performed",
+                    },
                     score=0,
                 )
             ]
