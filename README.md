@@ -64,6 +64,7 @@ offline and can be archived or printed to PDF.
 - [Unified raport](docs/unified-report-et.md)
 - [Tõrkeotsing](docs/troubleshooting-et.md)
 - [TLS ja sertifikaadid](docs/tls-and-certificates-et.md)
+- [Sprint 5.2 live acceptance](docs/sprint-5.2-acceptance.md)
 - [Security model](docs/security-model.md)
 - [Architecture](docs/architecture.md)
 

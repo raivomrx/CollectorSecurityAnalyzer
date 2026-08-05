@@ -116,6 +116,13 @@ class ConsoleAnalysisPipeline:
             ("findings", f"{submission_id}.json"),
             model_to_dict(analysis),
         )
+        _append_intelligence_audit(
+            audit,
+            submission_id,
+            normalized_data,
+            cve_metadata,
+            finding_values,
+        )
         audit.append(
             "analysis_completed",
             {
@@ -294,7 +301,7 @@ class ConsoleAnalysisPipeline:
                     }
                 )
             ),
-            analysis_engine_version="CSA-5.1.1",
+            analysis_engine_version="CSA-5.2.0",
             cve_analysis_status=str(
                 cve_metadata.get("status", "NOT_PERFORMED")
             ),
@@ -304,6 +311,13 @@ class ConsoleAnalysisPipeline:
             assessment_id,
             ("findings", f"{submission_id}.json"),
             model_to_dict(analysis),
+        )
+        _append_intelligence_audit(
+            audit,
+            submission_id,
+            normalized,
+            cve_metadata,
+            finding_values,
         )
         audit.append(
             "analysis_retry_completed",
@@ -316,13 +330,7 @@ class ConsoleAnalysisPipeline:
         if run_cve:
             audit.append(
                 "cve_analysis_completed",
-                {
-                    "submissionId": submission_id,
-                    "status": analysis.cve_analysis_status,
-                    "coveragePercent": analysis.cve_summary.get(
-                        "coveragePercent", 0.0
-                    ),
-                },
+                _cve_audit_details(submission_id, analysis.cve_summary),
             )
         from csa_console.submission import SubmissionService
 
@@ -345,3 +353,120 @@ class ConsoleAnalysisPipeline:
             if item.get("submissionId") == submission_id:
                 return str(item.get("packageDigest", ""))
         raise ValueError("Submission metadata is unavailable")
+
+
+def _append_intelligence_audit(
+    audit: ConsoleAuditLog,
+    submission_id: str,
+    normalized: dict,
+    cve_metadata: dict,
+    findings: list[dict],
+) -> None:
+    """Record metadata-only Sprint 5.2 intelligence decisions."""
+
+    identity = normalized.get("identity", {})
+    software = normalized.get("softwareCollection", {})
+    audit.append(
+        "software_inventory_normalized",
+        {
+            "submissionId": submission_id,
+            "records": int(software.get("recordsCollected", 0) or 0),
+            "status": str(software.get("status", "NOT_EVALUATED")),
+        },
+    )
+    audit.append(
+        "endpoint_identity_resolved",
+        {
+            "submissionId": submission_id,
+            "source": next(
+                (
+                    key
+                    for key in ("computerName", "hostName", "hostname", "fqdn")
+                    if identity.get(key)
+                ),
+                "FALLBACK",
+            ),
+        },
+    )
+    audit.append(
+        "lifecycle_analysis_completed",
+        {
+            "submissionId": submission_id,
+            "products": len(cve_metadata.get("softwareResults", [])),
+            "dataVersion": str(cve_metadata.get("lifecycleDataVersion", "")),
+        },
+    )
+    bitlocker = next(
+        (
+            item.get("finding", {})
+            for item in findings
+            if item.get("finding", {}).get("rule_id") == "BIT-001"
+        ),
+        {},
+    )
+    evidence = bitlocker.get("evidence", {})
+    audit.append(
+        "bitlocker_provider_selected",
+        {
+            "submissionId": submission_id,
+            "provider": str(evidence.get("provider", "NOT_AVAILABLE")),
+            "confidence": int(evidence.get("confidence", 0) or 0),
+            "status": str(bitlocker.get("status", "NOT_EVALUATED")),
+            "fallbackCount": len(evidence.get("fallbacks_attempted", [])),
+        },
+    )
+    audit.append(
+        "report_identity_mode_selected",
+        {"submissionId": submission_id, "mode": "REAL_ENDPOINT_IDENTITIES"},
+    )
+
+
+def _cve_audit_details(
+    submission_id: str,
+    metadata: dict,
+) -> dict:
+    """Return metadata-only CVE completion details for the audit trail."""
+
+    software_results = list(metadata.get("softwareResults", []))
+    confirmed = sum(
+        int(
+            item.get("confirmedCveCount", item.get("confirmedCves", 0)) or 0
+        )
+        for item in software_results
+    )
+    possible = sum(
+        int(
+            item.get("possibleCveCount", item.get("possibleCves", 0)) or 0
+        )
+        for item in software_results
+    )
+    return {
+        "submissionId": submission_id,
+        "status": str(metadata.get("status", "NOT_EVALUATED")),
+        "coveragePercent": float(metadata.get("coveragePercent", 0.0) or 0.0),
+        "eligibleProducts": int(
+            metadata.get("eligibleProducts", metadata.get("cveEligibleProducts", 0))
+            or 0
+        ),
+        "evaluatedProducts": int(
+            metadata.get(
+                "evaluatedProducts",
+                metadata.get("successfullyEvaluatedProducts", 0),
+            )
+            or 0
+        ),
+        "confirmedMatches": confirmed,
+        "possibleMatches": possible,
+        "cisaKevMatches": int(
+            metadata.get(
+                "cisaKevMatches",
+                metadata.get("cisaKevUniqueCves", 0),
+            )
+            or 0
+        ),
+        "sourceVersions": {
+            "lifecycle": str(metadata.get("lifecycleDataVersion", "")),
+            "nvd": str(metadata.get("nvdDataVersion", "")),
+            "cisaKev": str(metadata.get("kevDataVersion", "")),
+        },
+    }

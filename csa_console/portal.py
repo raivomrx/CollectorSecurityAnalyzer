@@ -127,13 +127,16 @@ class PortalBinding:
   </ul>
   <p>CSA does not collect passwords, browser credentials, private keys,
      recovery keys, or user document contents.</p>
+  <p><strong>If Windows blocks the Collector, record the exact Windows Security message.</strong>
+     Do not disable Smart App Control as the default remediation. Use a trusted,
+     signed CSA Collector build or contact the assessment administrator.</p>
   <p><a class="button" href="download">Download CSA Collector</a></p>
   <ol>
     <li>Open <strong>CSA-Collector.exe</strong>.</li>
     <li>Wait for <strong>Submission accepted</strong>.</li>
     <li>Close the collector.</li>
   </ol>
-  <p class="meta">Collector version: 5.1.x<br>Package expires: {safe_expiry}</p>
+  <p class="meta">Collector version: 5.2.x<br>Package expires: {safe_expiry}</p>
 </main>
 </body>
 </html>"""

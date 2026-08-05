@@ -14,6 +14,9 @@ SPECS = [
     SettingRuleSpec("ACC-005", "Stale enabled local account", RuleCategory.ACCOUNTS, "STALE_ENABLED_LOCAL_ACCOUNT_COUNT", severity=Severity.MEDIUM, maximum_value=0),
     SettingRuleSpec("ACC-006", "Weak local password policy", RuleCategory.ACCOUNTS, "PASSWORD_POLICY_MIN_LENGTH", severity=Severity.MEDIUM, minimum_value=12),
     SettingRuleSpec("ACC-007", "Weak account lockout policy", RuleCategory.ACCOUNTS, "ACCOUNT_LOCKOUT_THRESHOLD", severity=Severity.MEDIUM, minimum_value=1),
+    SettingRuleSpec("ACC-008", "Multiple active local administrator accounts", RuleCategory.ACCOUNTS, "ACTIVE_LOCAL_ADMINISTRATOR_ACCOUNT_COUNT", severity=Severity.MEDIUM, maximum_value=1),
+    SettingRuleSpec("ACC-009", "Local account does not require a password", RuleCategory.ACCOUNTS, "LOCAL_PASSWORD_NOT_REQUIRED_COUNT", severity=Severity.HIGH, maximum_value=0),
+    SettingRuleSpec("ACC-010", "Unresolved principal in local Administrators", RuleCategory.ACCOUNTS, "UNRESOLVED_LOCAL_ADMINISTRATOR_COUNT", severity=Severity.MEDIUM, maximum_value=0),
 ]
 
 for spec in SPECS:

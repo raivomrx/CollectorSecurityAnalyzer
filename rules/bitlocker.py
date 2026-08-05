@@ -45,20 +45,26 @@ class BitLockerRule(BaseRule):
                 else None
             )
             if setting is not None:
+                detail = {
+                    "setting_id": setting.setting_id,
+                    "collection_status": setting.collection_status.value,
+                    "provider": setting.provider,
+                    "configured_value": setting.configured_value,
+                    "effective_value": setting.effective_value,
+                    "confidence": setting.confidence,
+                    "mount_point": setting.metadata.get("mountPoint"),
+                    "encryption_state": setting.metadata.get("encryptionState"),
+                    "encryption_percentage": setting.metadata.get("encryptionPercentage"),
+                    "fallbacks_attempted": setting.metadata.get("fallbacksAttempted", []),
+                    "raw_evidence": setting.metadata.get("rawEvidence"),
+                }
                 if setting.collection_status == CollectionStatus.PARTIAL:
                     return [
                         Finding(
                             rule_id=self.id,
                             severity=Severity.INFO,
                             status=Status.PARTIAL,
-                            evidence={
-                                "setting_id": setting.setting_id,
-                                "collection_status": setting.collection_status.value,
-                                "provider": setting.provider,
-                                "configured_value": setting.configured_value,
-                                "effective_value": setting.effective_value,
-                                "confidence": setting.confidence,
-                            },
+                            evidence=detail,
                             score=0,
                         )
                     ]
@@ -70,10 +76,7 @@ class BitLockerRule(BaseRule):
                             rule_id=self.id,
                             severity=Severity.INFO,
                             status=Status.NOT_EVALUATED,
-                            evidence={
-                                "setting_id": setting.setting_id,
-                                "collection_status": setting.collection_status.value,
-                            },
+                            evidence=detail,
                             score=0,
                         )
                     ]
@@ -83,10 +86,7 @@ class BitLockerRule(BaseRule):
                         rule_id=self.id,
                         severity=Severity.LOW if enabled else Severity.HIGH,
                         status=Status.PASS if enabled else Status.FAIL,
-                        evidence={
-                            "setting_id": setting.setting_id,
-                            "effective_value": setting.effective_value,
-                        },
+                        evidence=detail,
                         affected_asset="system_drive",
                         score=0 if enabled else 20,
                     )

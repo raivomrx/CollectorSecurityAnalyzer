@@ -5,5 +5,15 @@
   "Java 8": "Java 8",
   "Java 8 Update 471 (64-bit)": "Java 8",
   "Microsoft Visual C++ 2022 X64 Additional Runtime": "Microsoft Visual C++ 2022 Redistributable",
-  "Microsoft Visual C++ 2022 X64 Minimum Runtime": "Microsoft Visual C++ 2022 Redistributable"
+  "Microsoft Visual C++ 2022 X64 Minimum Runtime": "Microsoft Visual C++ 2022 Redistributable",
+  "Microsoft Edge": "Microsoft Edge",
+  "Mozilla Firefox": "Mozilla Firefox",
+  "7-Zip": "7-Zip",
+  "TeamViewer": "TeamViewer",
+  "AnyDesk": "AnyDesk",
+  "FortiClient": "FortiClient",
+  "Microsoft .NET Runtime - 6": ".NET",
+  "Microsoft .NET Runtime - 7": ".NET",
+  "Microsoft .NET Runtime - 8": ".NET",
+  "Microsoft 365 Apps for enterprise": "Microsoft Office"
 }

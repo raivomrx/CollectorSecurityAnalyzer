@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
+from enum import Enum
 from functools import total_ordering
 
 
@@ -51,6 +52,11 @@ class SoftwareProduct:
     install_date: datetime | None = None
     cpe: str | None = None
     confidence: int = 0
+    install_location: str | None = None
+    scope: str = "UNKNOWN"
+    source: str = "UNKNOWN"
+    uninstall_key: str | None = None
+    normalization_status: str = "NOT_EVALUATED"
 
 
 @dataclass(slots=True)
@@ -63,6 +69,34 @@ class SoftwareInventory:
     duplicate_entries: list[SoftwareProduct] = field(default_factory=list)
     outdated_versions: list[SoftwareProduct] = field(default_factory=list)
     unknown_products: list[SoftwareProduct] = field(default_factory=list)
+    collection_status: str = "SUCCESS"
+    collection_errors: list[str] = field(default_factory=list)
+    raw_record_count: int = 0
+
+
+class LifecycleStatus(str, Enum):
+    """Supported software lifecycle assessment states."""
+
+    SUPPORTED = "SUPPORTED"
+    OUT_OF_SUPPORT = "OUT_OF_SUPPORT"
+    NEARING_END_OF_SUPPORT = "NEARING_END_OF_SUPPORT"
+    NOT_EVALUATED = "NOT_EVALUATED"
+    UNKNOWN_VERSION = "UNKNOWN_VERSION"
+
+
+@dataclass(slots=True, frozen=True)
+class LifecycleResult:
+    """Represent a source-backed lifecycle decision for one product."""
+
+    vendor: str
+    product: str
+    installed_version: str
+    status: LifecycleStatus
+    end_of_support_date: date | None
+    source: str | None
+    data_version: str
+    confidence: int
+    rationale: str
 
 
 @dataclass(frozen=True, slots=True)

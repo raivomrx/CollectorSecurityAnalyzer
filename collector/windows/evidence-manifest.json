@@ -99,6 +99,12 @@
       "optionalEvidence": [
         {"id": "LOCAL_USERS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "LOCAL_USERS", "canonical": true},
         {"id": "LOCAL_ADMINISTRATORS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "LOCAL_ADMINISTRATORS", "canonical": true},
+        {"id": "CURRENT_EXECUTION_USER", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "CURRENT_EXECUTION_USER", "canonical": true},
+        {"id": "LOGGED_ON_USERS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "LOGGED_ON_USERS", "canonical": true},
+        {"id": "USER_PROFILES", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "USER_PROFILES", "canonical": true},
+        {"id": "ACTIVE_LOCAL_ADMINISTRATOR_ACCOUNT_COUNT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "ACTIVE_LOCAL_ADMINISTRATOR_ACCOUNT_COUNT", "canonical": true},
+        {"id": "LOCAL_PASSWORD_NOT_REQUIRED_COUNT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "LOCAL_PASSWORD_NOT_REQUIRED_COUNT", "canonical": true},
+        {"id": "UNRESOLVED_LOCAL_ADMINISTRATOR_COUNT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "UNRESOLVED_LOCAL_ADMINISTRATOR_COUNT", "canonical": true},
         {"id": "PASSWORD_POLICY_MAXIMUM_AGE_DAYS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "PASSWORD_POLICY_MAXIMUM_AGE_DAYS", "canonical": true},
         {"id": "PASSWORD_POLICY_HISTORY", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "PASSWORD_POLICY_HISTORY", "canonical": true},
         {"id": "ACCOUNT_LOCKOUT_DURATION_MINUTES", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "ACCOUNT_LOCKOUT_DURATION_MINUTES", "canonical": true}

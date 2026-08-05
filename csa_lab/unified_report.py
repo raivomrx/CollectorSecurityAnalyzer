@@ -94,9 +94,10 @@ class UnifiedReportGenerator:
             )
             for endpoint in latest
         ]
-        endpoints.sort(key=lambda item: (item["deviceId"], item["submissionId"]))
+        endpoints.sort(key=lambda item: (item["displayName"], item["submissionId"]))
         for position, endpoint in enumerate(endpoints, start=1):
-            endpoint["displayName"] = f"Endpoint {position:02d}"
+            if not endpoint["displayName"] or endpoint["displayName"].startswith("id-"):
+                endpoint["displayName"] = f"Endpoint {position:02d}"
         fleet_findings = [
             self._fleet_finding(item) for item in fleet.fleet_findings
         ]
@@ -161,6 +162,8 @@ class UnifiedReportGenerator:
         all_audit_events = _safe_audit_events(audit.path)
         audit_events = all_audit_events if include_audit else []
         cve = _aggregate_cve(endpoints)
+        software = _aggregate_software(endpoints)
+        priority_actions = _priority_actions(endpoints, fleet_findings)
         main_limitations = _main_coverage_limitations(endpoints, cve)
         highest_severity = next(
             (
@@ -182,8 +185,19 @@ class UnifiedReportGenerator:
         )
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.1.1",
+            "reportVersion": "CSA-5.2.0",
             "generatedAt": generated_at,
+            "dataClassification": "Confidential - Security Assessment Data",
+            "containsPersonalData": True,
+            "metadata": {
+                "generatedAt": generated_at,
+                "assessmentId": assessment.assessment_id,
+                "assessmentName": assessment.name,
+                "dataClassification": (
+                    "Confidential - Security Assessment Data"
+                ),
+                "containsPersonalData": True,
+            },
             "assessment": {
                 "assessmentId": assessment.assessment_id,
                 "name": assessment.name,
@@ -221,6 +235,7 @@ class UnifiedReportGenerator:
                 ),
                 "collectionMode": "Standard Privileges Assessment",
                 "activeValidationPerformed": False,
+                "identityMode": "REAL_ENDPOINT_IDENTITIES",
             },
             "risk": {
                 "score": fleet.fleet_risk_score,
@@ -256,6 +271,8 @@ class UnifiedReportGenerator:
                 "mainLimitations": main_limitations,
             },
             "cve": cve,
+            "software": software,
+            "priorityActions": priority_actions,
             "charts": {
                 "severityDistribution": _counter_rows(
                     severity_distribution,
@@ -440,12 +457,37 @@ class UnifiedReportGenerator:
             for item in findings
         )
         privilege = evidence.get("privilegeContext", {})
-        device = evidence.get("device", {})
+        device = evidence.get("identity", evidence.get("device", {}))
+        display_name = _endpoint_display_name(device)
+        users = _endpoint_users(evidence, device)
+        bitlocker = _bitlocker_detail(evidence)
+        software_results = list(
+            endpoint.get("cveSummary", {}).get("softwareResults", [])
+        )
+        unsupported_count = sum(
+            1
+            for item in software_results
+            if item.get("lifecycleStatus") == "OUT_OF_SUPPORT"
+        )
         return {
             "deviceId": str(endpoint.get("deviceId", "UNKNOWN")),
-            "displayName": str(
-                device.get("hostname", endpoint.get("deviceId", "Endpoint"))
-            ),
+            "displayName": display_name,
+            "identity": {
+                "computerName": device.get("computerName") or device.get("hostname"),
+                "hostName": device.get("hostName") or device.get("hostname"),
+                "fqdn": device.get("fqdn"),
+                "domainOrWorkgroup": (
+                    device.get("domainOrWorkgroup")
+                    or device.get("domain")
+                    or device.get("workgroup")
+                ),
+                "entraJoined": device.get("entraJoined"),
+                "entraTenantId": device.get("entraTenantId"),
+                "entraDeviceId": device.get("deviceId"),
+                "operatingSystem": evidence.get("operatingSystem", {}),
+            },
+            "users": users,
+            "primaryUser": users["currentUser"].get("name", "Unknown"),
             "submissionId": submission_id,
             "transport": _transport_label(
                 str(index.get("transport", "UNKNOWN"))
@@ -481,6 +523,10 @@ class UnifiedReportGenerator:
                 endpoint.get("cveAnalysisStatus", "NOT_PERFORMED")
             ),
             "cveSummary": dict(endpoint.get("cveSummary", {})),
+            "softwareCollection": evidence.get("softwareCollection", {}),
+            "softwareResults": software_results,
+            "unsupportedSoftwareCount": unsupported_count,
+            "bitLocker": bitlocker,
             "privilegeContext": {
                 "executionMode": str(
                     privilege.get("executionMode", "UNKNOWN")
@@ -545,6 +591,10 @@ def _aggregate_cve(
     }
     if statuses == {"COMPLETE"}:
         status = "COMPLETE"
+    elif statuses == {"NOT_EVALUATED"}:
+        status = "NOT_EVALUATED"
+    elif statuses == {"SKIPPED"}:
+        status = "SKIPPED"
     elif statuses == {"NOT_PERFORMED"}:
         status = "NOT_PERFORMED"
     elif statuses == {"FAILED"}:
@@ -602,6 +652,14 @@ def _aggregate_cve(
         "criticalUniqueCves": len(critical_ids),
         "highUniqueCves": len(high_ids),
         "cisaKevUniqueCves": len(kev_ids),
+        "softwareCveMatches": total("confirmedProductCveRelationships")
+        + total("possibleProductCveRelationships"),
+        "affectedEndpoints": sum(
+            1
+            for item in summaries
+            if int(item.get("confirmedUniqueCves", 0) or 0) > 0
+            or int(item.get("possibleUniqueCves", 0) or 0) > 0
+        ),
         "coveragePercent": coverage,
         "providerCoverage": [
             {
@@ -613,6 +671,210 @@ def _aggregate_cve(
                 "providerCoverage", []
             )
         ],
+    }
+
+
+def _endpoint_display_name(device: dict[str, Any]) -> str:
+    """Resolve a real endpoint name without promoting a technical hash."""
+
+    for key in ("computerName", "hostName", "hostname", "fqdn"):
+        value = str(device.get(key, "")).strip()
+        if value and not value.startswith("id-"):
+            return value
+    return ""
+
+
+def _setting_value(
+    evidence: dict[str, Any], setting_id: str
+) -> tuple[Any, dict[str, Any]]:
+    """Return one normalized setting value and its record."""
+
+    for section in (
+        "securityPolicies",
+        "diskEncryption",
+        "endpointProtection",
+        "networkConfiguration",
+    ):
+        for setting in evidence.get(section, {}).get("settings", []):
+            if setting.get("settingId") == setting_id:
+                return setting.get("effectiveValue"), setting
+    return None, {}
+
+
+def _endpoint_users(
+    evidence: dict[str, Any], device: dict[str, Any]
+) -> dict[str, Any]:
+    """Build deduplicated user inventories from account evidence."""
+
+    current, _ = _setting_value(evidence, "CURRENT_EXECUTION_USER")
+    local_users, _ = _setting_value(evidence, "LOCAL_USERS")
+    administrators, _ = _setting_value(evidence, "LOCAL_ADMINISTRATORS")
+    logged_on, _ = _setting_value(evidence, "LOGGED_ON_USERS")
+    profiles, _ = _setting_value(evidence, "USER_PROFILES")
+    current_value = current if isinstance(current, dict) else {
+        "Name": device.get("currentUser", "Unknown"),
+        "Sid": device.get("currentUserSid"),
+    }
+    return {
+        "currentUser": _user_row(current_value),
+        "loggedOnUsers": _dedupe_rows(logged_on),
+        "localUsers": _dedupe_rows(local_users),
+        "localAdministrators": _dedupe_rows(administrators),
+        "userProfiles": _dedupe_rows(
+            profiles, name_keys=("ProfileName", "profileName")
+        ),
+    }
+
+
+def _user_row(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        str(key[:1].lower() + key[1:]): item
+        for key, item in value.items()
+    }
+
+
+def _dedupe_rows(
+    value: Any,
+    name_keys: tuple[str, ...] = ("Name", "name"),
+) -> list[dict[str, Any]]:
+    rows = value if isinstance(value, list) else []
+    seen: set[str] = set()
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        fallback_name = next(
+            (row.get(name) for name in name_keys if row.get(name)), ""
+        )
+        key = str(row.get("Sid") or row.get("sid") or fallback_name).casefold()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(_user_row(row))
+    return result
+
+
+def _bitlocker_detail(evidence: dict[str, Any]) -> dict[str, Any]:
+    value, setting = _setting_value(evidence, "BITLOCKER_OS_PROTECTION")
+    metadata = setting.get("metadata", {}) if setting else {}
+    collection_status = str(
+        setting.get("collectionStatus", "NOT_AVAILABLE")
+    ) if setting else "NOT_AVAILABLE"
+    status = "NOT_EVALUATED"
+    if collection_status == "PARTIAL":
+        status = "PARTIAL"
+    elif collection_status == "FAILED":
+        status = "ERROR"
+    elif collection_status == "SUCCESS":
+        status = "PASS" if value is True else "FAIL" if value is False else "NOT_EVALUATED"
+    volumes = []
+    seen: set[str] = set()
+    for item in evidence.get("diskEncryption", {}).get("settings", []):
+        item_metadata = item.get("metadata", {})
+        mount = str(item_metadata.get("mountPoint", ""))
+        if not mount or mount in seen:
+            continue
+        seen.add(mount)
+        volumes.append({
+            "mountPoint": mount,
+            "volumeType": item_metadata.get("volumeType", "UNKNOWN"),
+            "protectionEnabled": item_metadata.get("protectionEnabled"),
+            "encryptionState": item_metadata.get("encryptionState", "UNKNOWN"),
+            "encryptionPercentage": item_metadata.get("encryptionPercentage"),
+            "provider": item_metadata.get("provider", item.get("provider", "UNKNOWN")),
+        })
+    return {
+        "status": status,
+        "mountPoint": metadata.get("mountPoint", "Unknown"),
+        "provider": metadata.get("provider", setting.get("provider", "Unknown") if setting else "Unknown"),
+        "confidence": setting.get("confidence", 0) if setting else 0,
+        "configured": metadata.get("configured"),
+        "protectionEnabled": metadata.get("protectionEnabled", value),
+        "encryptionState": metadata.get("encryptionState", "UNKNOWN"),
+        "encryptionPercentage": metadata.get("encryptionPercentage"),
+        "fallbacksAttempted": metadata.get("fallbacksAttempted", []),
+        "volumes": volumes,
+    }
+
+
+def _aggregate_software(endpoints: list[dict[str, Any]]) -> dict[str, Any]:
+    rows = [
+        row
+        for endpoint in endpoints
+        for row in endpoint.get("softwareResults", [])
+    ]
+    return {
+        "installedRecords": len(rows),
+        "unsupportedCount": sum(
+            1 for row in rows
+            if row.get("lifecycleStatus") == "OUT_OF_SUPPORT"
+        ),
+        "nearingEndOfSupportCount": sum(
+            1 for row in rows
+            if row.get("lifecycleStatus") == "NEARING_END_OF_SUPPORT"
+        ),
+        "notEvaluatedCount": sum(
+            1 for row in rows
+            if row.get("cveEvaluationStatus") == "NOT_EVALUATED"
+        ),
+    }
+
+
+def _priority_actions(
+    endpoints: list[dict[str, Any]], findings: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Rank and deduplicate up to five concrete remediation actions."""
+
+    candidates: list[tuple[int, str, dict[str, Any]]] = []
+    kev = [
+        item["displayName"] for item in endpoints
+        if int(item.get("cveSummary", {}).get("cisaKevUniqueCves", 0) or 0)
+    ]
+    if kev:
+        candidates.append((100, "kev", _action("Remediate CISA KEV vulnerabilities", "Known-exploited vulnerabilities were matched to installed software.", kev, "High", "Immediate", ["CVE"], "Update or remove each affected product, then rerun CVE analysis.")))
+    critical = [
+        item["displayName"] for item in endpoints
+        if int(item.get("cveSummary", {}).get("criticalUniqueCves", 0) or 0)
+    ]
+    if critical:
+        candidates.append((90, "critical", _action("Remediate confirmed critical vulnerabilities", "Critical CVEs require urgent product-specific remediation.", critical, "High", "Medium", ["CVE"], "Confirm each installed version is outside the affected range.")))
+    unsupported = [item["displayName"] for item in endpoints if item.get("unsupportedSoftwareCount", 0)]
+    if unsupported:
+        candidates.append((80, "unsupported", _action("Upgrade or remove unsupported software", "Vendor support has ended for installed software.", unsupported, "High", "Medium", ["LIFECYCLE"], "Verify the replacement release is supported by the vendor.")))
+    for finding in findings:
+        if finding["ruleId"] == "BIT-001" and finding["severity"] in {"CRITICAL", "HIGH"}:
+            candidates.append((70, "bitlocker", _action("Enable BitLocker protection", finding["title"], finding["endpointReferences"], "High", "Medium", ["BIT-001"], "Confirm protection is on and encryption is complete.")))
+        if finding["ruleId"].startswith("DEF-") and finding["severity"] in {"CRITICAL", "HIGH", "MEDIUM"}:
+            candidates.append((60, "defender", _action("Harden Microsoft Defender configuration", finding["title"], finding["endpointReferences"], "Medium", "Low", [finding["ruleId"]], "Rerun collection and confirm the related Defender controls pass.")))
+    deduped: dict[str, tuple[int, dict[str, Any]]] = {}
+    for score, key, action in candidates:
+        if key not in deduped or score > deduped[key][0]:
+            deduped[key] = (score, action)
+    return [
+        item[1]
+        for item in sorted(
+            deduped.values(), key=lambda value: (-value[0], value[1]["action"])
+        )[:5]
+    ]
+
+
+def _action(
+    action: str,
+    reason: str,
+    endpoints: list[str],
+    risk: str,
+    effort: str,
+    findings: list[str],
+    verify: str,
+) -> dict[str, Any]:
+    return {
+        "action": action,
+        "reason": reason,
+        "affectedEndpoints": sorted(set(endpoints)),
+        "riskReduction": risk,
+        "estimatedEffort": effort,
+        "relatedFindings": sorted(set(findings)),
+        "verificationGuidance": verify,
     }
 
 

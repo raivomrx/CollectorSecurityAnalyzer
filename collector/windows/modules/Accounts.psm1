@@ -32,8 +32,13 @@ function Get-CSAAccountsEvidence {
             $classification = ConvertTo-CSAUserClassification $user.PrincipalSource $user.Name
             $userEvidence += [ordered]@{
                 Name = Protect-CSAIdentifier $user.Name $PrivacyMode
+                Sid = Protect-CSAIdentifier ([string]$user.SID) $PrivacyMode
                 Enabled = [bool]$user.Enabled
+                LocalAccount = $true
                 Classification = $classification
+                AccountType = "USER"
+                PasswordRequired = if ($null -ne $user.PasswordRequired) { [bool]$user.PasswordRequired } else { $null }
+                PasswordExpires = if ($null -ne $user.PasswordExpires) { ([datetime]$user.PasswordExpires).ToUniversalTime().ToString("o") } else { $null }
                 PasswordNeverExpires = [bool]$user.PasswordNeverExpires
                 LastLogon = if ($null -ne $user.LastLogon) { ([datetime]$user.LastLogon).ToUniversalTime().ToString("o") } else { $null }
                 SidSuffix = if ($null -ne $user.SID) { ([string]$user.SID).Split('-')[-1] } else { $null }
@@ -45,12 +50,21 @@ function Get-CSAAccountsEvidence {
         $adminEvidence = @($adminMembers | ForEach-Object {
             [ordered]@{
                 Name = Protect-CSAIdentifier $_.Name $PrivacyMode
+                Sid = Protect-CSAIdentifier ([string]$_.SID) $PrivacyMode
                 Classification = ConvertTo-CSAUserClassification $_.PrincipalSource $_.Name
                 ObjectClass = [string]$_.ObjectClass
+                Resolved = -not [string]::IsNullOrWhiteSpace([string]$_.Name)
             }
         })
         $settings += New-CSASetting "LOCAL_ADMINISTRATORS" "Accounts" $adminEvidence "RUNTIME_STATE" "SUCCESS" 90 "Get-LocalGroupMember" "S-1-5-32-544"
         $settings += New-CSASetting "LOCAL_ADMINISTRATOR_COUNT" "Accounts" $adminEvidence.Count "RUNTIME_STATE" "SUCCESS" 95 "Get-LocalGroupMember" "S-1-5-32-544.Count"
+        $unresolvedAdminCount = @($adminEvidence | Where-Object { -not $_.Resolved -or $_.Classification -eq "UNKNOWN" }).Count
+        $settings += New-CSASetting "UNRESOLVED_LOCAL_ADMINISTRATOR_COUNT" "Accounts" $unresolvedAdminCount "RUNTIME_STATE" "SUCCESS" 85 "Get-LocalGroupMember" "S-1-5-32-544.Unresolved"
+        $adminNames = @($adminMembers | ForEach-Object { ([string]$_.Name).Split('\')[-1] })
+        $activeLocalAdminCount = @($users | Where-Object { $_.Enabled -and $adminNames -contains $_.Name }).Count
+        $settings += New-CSASetting "ACTIVE_LOCAL_ADMINISTRATOR_ACCOUNT_COUNT" "Accounts" $activeLocalAdminCount "RUNTIME_STATE" "SUCCESS" 85 "Get-LocalGroupMember/Get-LocalUser" "S-1-5-32-544.ActiveLocalUsers"
+        $passwordNotRequiredCount = @($users | Where-Object { $_.Enabled -and $_.PasswordRequired -eq $false }).Count
+        $settings += New-CSASetting "LOCAL_PASSWORD_NOT_REQUIRED_COUNT" "Accounts" $passwordNotRequiredCount "RUNTIME_STATE" "SUCCESS" 85 "Get-LocalUser" "PasswordRequired"
 
         $guest = @($users | Where-Object { [string]$_.SID -match '-501$' } | Select-Object -First 1)
         $administrator = @($users | Where-Object { [string]$_.SID -match '-500$' } | Select-Object -First 1)
@@ -60,6 +74,32 @@ function Get-CSAAccountsEvidence {
         $staleCount = @($users | Where-Object { $_.Enabled -and $null -ne $_.LastLogon -and ($now - [datetime]$_.LastLogon).TotalDays -gt 90 }).Count
         $settings += New-CSASetting "PASSWORD_NEVER_EXPIRES_INTERACTIVE_COUNT" "Accounts" $passwordNeverExpiresCount "RUNTIME_STATE" "SUCCESS" 85 "Get-LocalUser" "PasswordNeverExpires"
         $settings += New-CSASetting "STALE_ENABLED_LOCAL_ACCOUNT_COUNT" "Accounts" $staleCount "RUNTIME_STATE" "SUCCESS" 75 "Get-LocalUser" "LastLogon" -Metadata @{ thresholdDays = 90 }
+
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $currentUser = [ordered]@{
+            Name = Protect-CSAIdentifier $identity.Name $PrivacyMode
+            Sid = Protect-CSAIdentifier ([string]$identity.User.Value) $PrivacyMode
+            Classification = ConvertTo-CSAUserClassification $null $identity.Name
+        }
+        $settings += New-CSASetting "CURRENT_EXECUTION_USER" "Accounts" $currentUser "RUNTIME_STATE" "SUCCESS" 100 "WindowsIdentity" "Current"
+        $settings += New-CSASetting "LOGGED_ON_USERS" "Accounts" @($currentUser) "RUNTIME_STATE" "SUCCESS" 70 "WindowsIdentity" "CurrentInteractiveContext"
+
+        try {
+            $profiles = @(Get-CimInstance Win32_UserProfile -ErrorAction Stop | ForEach-Object {
+                [ordered]@{
+                    ProfileName = Protect-CSAIdentifier (Split-Path -Leaf ([string]$_.LocalPath)) $PrivacyMode
+                    ProfilePath = Protect-CSAPath $_.LocalPath $PrivacyMode
+                    Sid = Protect-CSAIdentifier ([string]$_.SID) $PrivacyMode
+                    SpecialProfile = [bool]$_.Special
+                    Loaded = [bool]$_.Loaded
+                    LastUseTime = if ($null -ne $_.LastUseTime) { ([datetime]$_.LastUseTime).ToUniversalTime().ToString("o") } else { $null }
+                }
+            })
+            $settings += New-CSASetting "USER_PROFILES" "Accounts" $profiles "RUNTIME_STATE" "SUCCESS" 85 "Win32_UserProfile" "LocalProfiles"
+        } catch {
+            $warnings += "User profile inventory was unavailable."
+            $settings += New-CSASetting "USER_PROFILES" "Accounts" @() "RUNTIME_STATE" "NOT_AVAILABLE" 0 "Win32_UserProfile" "LocalProfiles" -ErrorCode "CSA-USER-PROFILES-NOT-AVAILABLE"
+        }
 
         $netAccounts = @(& net.exe accounts 2>$null)
         $numericValues = @($netAccounts | ForEach-Object {

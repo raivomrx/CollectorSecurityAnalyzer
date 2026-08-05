@@ -367,5 +367,82 @@ Describe "CSA Windows Collector runtime evidence contracts" {
             $setting.configuredValue | Should -BeTrue
             $null -eq $setting.effectiveValue | Should -BeTrue
         }
+
+        It "maps the Shell BitLocker property conservatively" {
+            (ConvertFrom-CSAShellBitLockerValue -RawValue 1).ProtectionEnabled | Should -BeTrue
+            (ConvertFrom-CSAShellBitLockerValue -RawValue 2).ProtectionEnabled | Should -BeFalse
+            (ConvertFrom-CSAShellBitLockerValue -RawValue 3).CollectionStatus | Should -Be "PARTIAL"
+            (ConvertFrom-CSAShellBitLockerValue -RawValue 5).EncryptionState | Should -Be "SUSPENDED"
+            $null -eq (ConvertFrom-CSAShellBitLockerValue -RawValue 99) | Should -BeTrue
+        }
+
+        It "uses Shell property after manage-bde returns no evidence" {
+            $shell = { @(ConvertFrom-CSAShellBitLockerValue -RawValue 1) }
+            $result = Get-CSABitLockerEvidence `
+                -VolumeProvider { @() } `
+                -BitLockerSupported $true `
+                -WmiProvider { @() } `
+                -ManageBdeProvider { @() } `
+                -ShellProvider $shell
+            $setting = @($result.Settings | Where-Object {
+                $_.settingId -eq "BITLOCKER_OS_PROTECTION"
+            })[0]
+            $setting.provider | Should -Be "SHELL_VOLUME_BITLOCKER_PROPERTY"
+            $setting.confidence | Should -Be 75
+            $setting.effectiveValue | Should -BeTrue
+        }
+
+        It "parses localized manage-bde percentage without localized labels" {
+            $result = @(ConvertFrom-CSAManageBdeOutput `
+                -Lines @("Verschlüsselt (Prozent): 100%") `
+                -ProtectionExitCode 0)[0]
+            $result.ProtectionEnabled | Should -BeTrue
+            $result.EncryptionPercentage | Should -Be 100
+        }
+    }
+
+    Context "Software inventory" {
+        BeforeAll {
+            Get-Module General -All | Remove-Module -Force -ErrorAction SilentlyContinue
+            Import-Module (Join-Path $moduleRoot "General.psm1") -Force
+        }
+
+        It "merges machine 64-bit, machine 32-bit and current-user roots" {
+            $reader = {
+                param($Path)
+                @([pscustomobject]@{
+                    DisplayName = "App $Path"
+                    DisplayVersion = "1.0"
+                    Publisher = "Vendor"
+                    InstallDate = "20260801"
+                    InstallLocation = "C:\\Program Files\\App"
+                    PSPath = $Path
+                })
+            }
+            $items = @(Get-CSAInstalledSoftware -RegistryReader $reader)
+            $items.Count | Should -Be 3
+            @($items.source) | Should -Contain "HKLM_UNINSTALL"
+            @($items.source) | Should -Contain "HKLM_WOW6432_UNINSTALL"
+            @($items.source) | Should -Contain "HKCU_UNINSTALL"
+        }
+
+        It "skips uninstall keys that do not expose DisplayName" {
+            $reader = {
+                param($Path)
+                @(
+                    [pscustomobject]@{ SystemComponent = 1; PSPath = $Path },
+                    [pscustomobject]@{
+                        DisplayName = "Visible App"
+                        DisplayVersion = "1.0"
+                        PSPath = $Path
+                    }
+                )
+            }
+            $items = @(Get-CSAInstalledSoftware -RegistryReader $reader)
+            $items.Count | Should -Be 3
+            $names = @($items.displayName | Select-Object -Unique)
+            $names | Should -HaveCount 1
+            $names[0] | Should -Be "Visible App"
+        }
     }
 }

@@ -269,6 +269,7 @@ class EndpointEvidenceRecord:
     privilege_context: dict[str, Any]
     collection_coverage: AssessmentCoverage
     software: list[dict[str, Any]]
+    software_collection: dict[str, Any]
     updates: dict[str, Any]
     endpoint_protection: dict[str, Any]
     disk_encryption: dict[str, Any]
@@ -295,7 +296,7 @@ class EndpointAnalysis:
     findings: list[dict[str, Any]]
     report_path: str | None
     evidence_set_digest: str
-    analysis_engine_version: str = "CSA-5.1.1"
+    analysis_engine_version: str = "CSA-5.2.0"
     cve_analysis_status: str = "NOT_PERFORMED"
     cve_summary: dict[str, Any] = field(default_factory=dict)
 

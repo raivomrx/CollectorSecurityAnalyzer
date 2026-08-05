@@ -85,10 +85,26 @@ class SoftwareIntelligenceTests(unittest.TestCase):
                 unknown_products_path=Path(temp_dir) / "unknown_products.json",
             )
 
-        self.assertEqual(inventory.product_count, 3)
+        self.assertEqual(inventory.product_count, 2)
+        self.assertEqual(inventory.raw_record_count, 3)
         self.assertEqual(inventory.vendor_count, 2)
         self.assertEqual(len(inventory.duplicate_entries), 2)
         self.assertEqual(len(inventory.unknown_products), 1)
+
+    def test_registry_display_name_product_patterns(self) -> None:
+        """Known registry display-name variants map conservatively."""
+
+        cases = {
+            "Microsoft .NET Runtime - 8.0.19 (x64)": ".NET",
+            "Mozilla Firefox (x64 en-US)": "Mozilla Firefox",
+            "7-Zip 24.09 (x64 edition)": "7-Zip",
+            "FortiClient VPN": "FortiClient",
+        }
+        for raw_name, expected in cases.items():
+            with self.subTest(raw_name=raw_name):
+                result = normalize_product(raw_name)
+                self.assertEqual(result.value, expected)
+                self.assertEqual(result.confidence, 95)
 
 
 if __name__ == "__main__":

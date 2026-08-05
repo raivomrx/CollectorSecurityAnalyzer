@@ -20,6 +20,14 @@ class DeviceIdentity:
     tenant_id: str | None = None
     current_user: str | None = None
     elevated: bool = False
+    computer_name: str | None = None
+    fqdn: str | None = None
+    domain_or_workgroup: str | None = None
+    entra_joined: bool | None = None
+    entra_tenant_id: str | None = None
+    entra_device_id: str | None = None
+    current_user_sid: str | None = None
+    execution_integrity_level: str | None = None
 
 
 @dataclass(slots=True)
@@ -45,6 +53,9 @@ class SoftwareInventoryEvidence:
     """Represent software inventory evidence."""
 
     items: list[dict[str, Any]] = field(default_factory=list)
+    collection_status: str = "NOT_EVALUATED"
+    records_collected: int = 0
+    errors: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)

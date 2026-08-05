@@ -29,7 +29,7 @@ $CollectionProfilePath = if ([string]::IsNullOrWhiteSpace($CollectionProfilePath
 } else {
     $CollectionProfilePath
 }
-$collectorVersion = "5.1.1"
+$collectorVersion = "5.2.0"
 $started = (Get-Date).ToUniversalTime()
 $moduleRoot = Join-Path $PSScriptRoot "modules"
 $manifestPath = Join-Path $PSScriptRoot "evidence-manifest.json"
@@ -247,6 +247,7 @@ $deviceDomain = if ($null -ne $computer) { $computer.Domain } else { $env:USERDO
 $deviceWorkgroup = if ($null -ne $computer -and -not $computer.PartOfDomain) { $computer.Workgroup } else { $null }
 $domainJoined = if ($null -ne $computer) { [bool]$computer.PartOfDomain } else { $null }
 $entraJoined = $null
+$dsregOutput = ""
 try {
     $dsregOutput = (& "$env:SystemRoot\System32\dsregcmd.exe" /status 2>$null) -join "`n"
     if ($dsregOutput -match '(?im)^\s*AzureAdJoined\s*:\s*(YES|NO)\s*$') {
@@ -259,8 +260,25 @@ if ($PrivacyMode -eq "Strict") {
     $deviceDomain = Protect-CSAIdentifier $deviceDomain $PrivacyMode
     $deviceWorkgroup = Protect-CSAIdentifier $deviceWorkgroup $PrivacyMode
 }
-$hostname = if ($PrivacyMode -eq "Strict") { Protect-CSAIdentifier $env:COMPUTERNAME $PrivacyMode } else { $env:COMPUTERNAME }
+$computerName = if ($PrivacyMode -eq "Strict") { Protect-CSAIdentifier $env:COMPUTERNAME $PrivacyMode } else { $env:COMPUTERNAME }
+$hostname = $computerName
 $currentUser = if ($PrivacyMode -eq "Strict") { Protect-CSAIdentifier "$env:USERDOMAIN\$env:USERNAME" $PrivacyMode } else { "$env:USERDOMAIN\$env:USERNAME" }
+$currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$fqdn = try { [System.Net.Dns]::GetHostEntry($env:COMPUTERNAME).HostName } catch { $env:COMPUTERNAME }
+$entraTenantId = $null
+$entraDeviceId = $null
+if (-not [string]::IsNullOrWhiteSpace([string]$dsregOutput)) {
+    if ($dsregOutput -match '(?im)^\s*TenantId\s*:\s*([0-9a-f-]{36})\s*$') { $entraTenantId = $Matches[1] }
+    if ($dsregOutput -match '(?im)^\s*DeviceId\s*:\s*([0-9a-f-]{36})\s*$') { $entraDeviceId = $Matches[1] }
+}
+if ($PrivacyMode -eq "Strict") {
+    $fqdn = Protect-CSAIdentifier $fqdn $PrivacyMode
+    $entraTenantId = Protect-CSAIdentifier $entraTenantId $PrivacyMode
+    $entraDeviceId = Protect-CSAIdentifier $entraDeviceId $PrivacyMode
+}
+$generalResult = @($moduleResults | Where-Object { $_.Module -eq "General" } | Select-Object -First 1)
+$softwareErrors = @($errors | Where-Object { $_.errorCode -eq "CSA-COLLECT-SOFTWARE" })
+$softwareStatus = if ($softwareErrors.Count -gt 0) { "ERROR" } elseif ($generalResult.Count -eq 0) { "NOT_EVALUATED" } else { "SUCCESS" }
 $pendingRebootSetting = @($updateSettings | Where-Object { $_.settingId -eq "WINDOWS_UPDATE_PENDING_REBOOT" } | Select-Object -First 1)
 
 $document = [ordered]@{
@@ -275,13 +293,20 @@ $document = [ordered]@{
     collectionStartedAt = $started.ToString("o")
     collectionCompletedAt = $completed.ToString("o")
     device = [ordered]@{
-        hostname = $hostname
+        computerName = $computerName
+        hostName = $hostname
+        fqdn = $fqdn
         domain = $deviceDomain
         workgroup = $deviceWorkgroup
+        domainOrWorkgroup = if ($domainJoined) { $deviceDomain } else { $deviceWorkgroup }
         currentUser = $currentUser
+        currentUserSid = Protect-CSAIdentifier ([string]$currentIdentity.User.Value) $PrivacyMode
         elevated = $elevated
+        executionIntegrityLevel = [string]$privilegeContext.integrityLevel
         domainJoined = $domainJoined
         entraJoined = $entraJoined
+        entraTenantId = $entraTenantId
+        deviceId = $entraDeviceId
     }
     operatingSystem = [ordered]@{
         name = $osName
@@ -310,7 +335,12 @@ $document = [ordered]@{
     privilegeContext = $privilegeContext
     capabilityResults = $capabilityResults.ToArray()
     security = [ordered]@{ settings = $securitySettings.ToArray() }
-    software = [ordered]@{ items = $softwareItems.ToArray() }
+    software = [ordered]@{
+        collectionStatus = $softwareStatus
+        recordsCollected = $softwareItems.Count
+        errors = @($softwareErrors | ForEach-Object { [ordered]@{ code = $_.errorCode; status = $_.status } })
+        items = $softwareItems.ToArray()
+    }
     updates = [ordered]@{ settings = $updateSettings.ToArray() }
     services = [ordered]@{
         services = $services.ToArray()

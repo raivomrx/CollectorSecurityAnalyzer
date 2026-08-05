@@ -10,6 +10,7 @@ import os
 import re
 import secrets
 import shutil
+import subprocess
 import sys
 import threading
 import zipfile
@@ -826,13 +827,24 @@ class LabApplicationService:
                 }
             )
         summary = {
-            "schemaVersion": "5.1",
+            "schemaVersion": "5.2",
             "generatedAt": utc_text(),
-            "applicationVersion": "5.1",
+            "applicationVersion": "5.2",
             "assessmentCount": len(assessments),
             "assessments": assessments,
             "containsEvidence": False,
             "containsCredentials": False,
+            "applicationControlGuidance": (
+                "Do not disable Windows application control as the default "
+                "remediation. Use a trusted signed CSA build."
+            ),
+            "applicationControl": _application_control_metadata(),
+            "artifactSignatures": [
+                _authenticode_metadata(Path(sys.executable), "CSA Lab"),
+                _authenticode_metadata(
+                    _default_collector_bootstrap(), "CSA Collector"
+                ),
+            ],
         }
         with zipfile.ZipFile(
             output,
@@ -1089,3 +1101,67 @@ def _sanitize_diagnostic_log(value: str) -> str:
         "[REDACTED_PATH]",
         sanitized,
     )
+
+
+def _authenticode_metadata(path: Path, label: str) -> dict[str, Any]:
+    """Return safe Authenticode status without exposing local paths."""
+
+    if not path.exists():
+        return {"artifact": label, "status": "NOT_AVAILABLE", "publisher": None}
+    script = (
+        "$s=Get-AuthenticodeSignature -LiteralPath $args[0];"
+        "[ordered]@{status=[string]$s.Status;publisher="
+        "$(if($s.SignerCertificate){$s.SignerCertificate.Subject}else{$null})}"
+        "|ConvertTo-Json -Compress"
+    )
+    try:
+        completed = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command", script, str(path)],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        value = json.loads(completed.stdout)
+        return {
+            "artifact": label,
+            "status": str(value.get("status", "UNKNOWN")),
+            "publisher": value.get("publisher"),
+        }
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+        return {"artifact": label, "status": "UNKNOWN", "publisher": None}
+
+
+def _application_control_metadata() -> dict[str, Any]:
+    """Return safe Windows application-control state for diagnostics."""
+
+    if os.name != "nt":
+        return {"detectionStatus": "NOT_SUPPORTED"}
+    script = (
+        "$ErrorActionPreference='SilentlyContinue';"
+        "$ci=Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\CI\\Policy';"
+        "$explorer=Get-ItemProperty "
+        "'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer';"
+        "$appId=Get-Service -Name AppIDSvc;"
+        "$deviceGuard=Get-CimInstance -Namespace "
+        "'root\\Microsoft\\Windows\\DeviceGuard' -ClassName Win32_DeviceGuard;"
+        "[ordered]@{detectionStatus='COMPLETE';"
+        "smartAppControl=$ci.VerifiedAndReputablePolicyState;"
+        "smartScreen=$explorer.SmartScreenEnabled;"
+        "appLockerService=$(if($appId){[string]$appId.Status}else{$null});"
+        "wdacSecurityServicesConfigured=$deviceGuard.SecurityServicesConfigured;"
+        "wdacSecurityServicesRunning=$deviceGuard.SecurityServicesRunning}"
+        "|ConvertTo-Json -Compress"
+    )
+    try:
+        completed = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command", script],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        value = json.loads(completed.stdout)
+        return value if isinstance(value, dict) else {"detectionStatus": "UNKNOWN"}
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
+        return {"detectionStatus": "UNKNOWN"}

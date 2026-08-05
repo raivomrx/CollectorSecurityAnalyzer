@@ -14,6 +14,7 @@
     <p class="product-name">CSA Security Assessment</p>
     <h1>{{ model.assessment.name }}</h1>
     <p>{{ model.assessment.organization or model.assessment.referenceNumber }}</p>
+    <p class="classification">{{ model.dataClassification }}</p>
   </div>
   <div class="header-actions no-print">
     <label class="search-label">
@@ -62,6 +63,15 @@
       <div class="metric"><span>Critical-risk endpoints</span><strong>{{ model.risk.criticalRiskEndpoints }}</strong></div>
     </div>
     <p class="lead">{{ model.assessment.description or "This report summarizes the Windows endpoint security assessment." }}</p>
+    <p class="notice">This report may contain personal data and security-sensitive system information. Handle and distribute it according to the assessment agreement.</p>
+    {% if model.priorityActions %}
+    <h3>Top Recommended Actions</h3>
+    <div class="action-grid">
+      {% for item in model.priorityActions %}
+      <article class="action-item"><h4>{{ loop.index }}. {{ item.action }}</h4><p>{{ item.reason }}</p><p><strong>Affected:</strong> {{ item.affectedEndpoints|join(", ") }}</p><p><strong>Risk reduction / effort:</strong> {{ item.riskReduction }} / {{ item.estimatedEffort }}</p><p><strong>Verify:</strong> {{ item.verificationGuidance }}</p></article>
+      {% endfor %}
+    </div>
+    {% endif %}
     {% if model.systemicFindings %}
     <h3>Top systemic risks</h3>
     <ul class="plain-list">
@@ -164,6 +174,9 @@
       <div class="metric"><span>Critical unique CVEs</span><strong>{{ model.cve.criticalUniqueCves }}</strong></div>
       <div class="metric"><span>High unique CVEs</span><strong>{{ model.cve.highUniqueCves }}</strong></div>
       <div class="metric"><span>CISA KEV unique CVEs</span><strong>{{ model.cve.cisaKevUniqueCves }}</strong></div>
+      <div class="metric"><span>Software/CVE matches</span><strong>{{ model.cve.softwareCveMatches }}</strong></div>
+      <div class="metric"><span>Affected endpoints</span><strong>{{ model.cve.affectedEndpoints }}</strong></div>
+      <div class="metric"><span>Unsupported software</span><strong>{{ model.software.unsupportedCount }}</strong></div>
       <div class="metric"><span>CVE coverage</span><strong>{{ "%.1f"|format(model.cve.coveragePercent) }}%</strong></div>
     </div>
     <p>CVE analysis timestamp: {{ model.cve.timestamp or "Not performed" }}</p>
@@ -221,9 +234,9 @@
     <div class="section-heading"><p>09</p><h2>Endpoint Comparison</h2></div>
     <div class="table-scroll">
     <table>
-      <thead><tr><th>Endpoint</th><th>Transport</th><th>Security score</th><th>Coverage</th><th>Critical</th><th>High</th><th>Medium</th><th>Context</th></tr></thead>
+      <thead><tr><th>Endpoint</th><th>User</th><th>OS</th><th>Risk</th><th>Coverage</th><th>BitLocker</th><th>Confirmed CVEs</th><th>Unsupported software</th></tr></thead>
       <tbody>{% for item in model.endpoints %}
-        <tr class="searchable" data-kind="endpoint"><td>{{ item.displayName }}</td><td>{{ item.transport }}</td><td>{{ item.score }}</td><td>{{ item.coverage }}%</td><td>{{ item.severityCounts.get("CRITICAL", 0) }}</td><td>{{ item.severityCounts.get("HIGH", 0) }}</td><td>{{ item.severityCounts.get("MEDIUM", 0) }}</td><td>{{ item.privilegeContext.executionMode }}</td></tr>
+        <tr class="searchable" data-kind="endpoint"><td>{{ item.displayName }}</td><td>{{ item.primaryUser }}</td><td>{{ item.identity.operatingSystem.get("name", "Unknown") }}</td><td>{{ item.score }}</td><td>{{ item.coverage }}%</td><td>{{ item.bitLocker.status }}</td><td>{{ item.cveSummary.get("confirmedUniqueCves", 0) }}</td><td>{{ item.unsupportedSoftwareCount }}</td></tr>
       {% endfor %}</tbody>
     </table>
     </div>
@@ -237,8 +250,12 @@
     <details class="endpoint searchable" data-kind="endpoint">
       <summary><span>{{ endpoint.displayName }}</span><span>{{ endpoint.coverage }}% core coverage</span><span>{{ endpoint.controlResultCount }} control results</span></summary>
       <div class="endpoint-body">
+        <h3>Endpoint Identity</h3>
         <dl class="details-grid">
-          <div><dt>Endpoint reference</dt><dd>{{ endpoint.displayName }}</dd></div>
+          <div><dt>Computer name</dt><dd>{{ endpoint.displayName }}</dd></div>
+          <div><dt>FQDN</dt><dd>{{ endpoint.identity.fqdn or "Not available" }}</dd></div>
+          <div><dt>Domain / workgroup</dt><dd>{{ endpoint.identity.domainOrWorkgroup or "Not available" }}</dd></div>
+          <div><dt>Operating system</dt><dd>{{ endpoint.identity.operatingSystem.get("name", "Unknown") }} {{ endpoint.identity.operatingSystem.get("version", "") }}</dd></div>
           <div><dt>Submission</dt><dd>{{ endpoint.submissionId }}</dd></div>
           <div><dt>Transport</dt><dd>{{ endpoint.transport }}</dd></div>
           <div><dt>Received</dt><dd>{{ endpoint.receivedAt }}</dd></div>
@@ -250,6 +267,40 @@
           <div><dt>Integrity level</dt><dd>{{ endpoint.privilegeContext.integrityLevel }}</dd></div>
           <div><dt>Elevated</dt><dd>{{ "YES" if endpoint.privilegeContext.isElevated else "NO" }}</dd></div>
         </dl>
+        <h3>Users and Access</h3>
+        <p class="notice">User names may contain personal data and are included for the authorized professional assessment.</p>
+        <dl class="details-grid"><div><dt>Current execution user</dt><dd>{{ endpoint.users.currentUser.get("name", "Unknown") }}</dd></div><div><dt>Execution integrity</dt><dd>{{ endpoint.privilegeContext.integrityLevel }}</dd></div></dl>
+        <h4>Local administrators</h4>
+        <table><thead><tr><th>Name</th><th>Type</th><th>Object</th><th>Resolved</th></tr></thead><tbody>{% for user in endpoint.users.localAdministrators %}<tr><td>{{ user.get("name", "Unknown") }}</td><td>{{ user.get("classification", "UNKNOWN") }}</td><td>{{ user.get("objectClass", "UNKNOWN") }}</td><td>{{ user.get("resolved", "UNKNOWN") }}</td></tr>{% else %}<tr><td colspan="4">Local administrator evidence was not available.</td></tr>{% endfor %}</tbody></table>
+        <h4>Local user accounts</h4>
+        <table><thead><tr><th>Name</th><th>Enabled</th><th>Password required</th><th>Last logon</th></tr></thead><tbody>{% for user in endpoint.users.localUsers %}<tr><td>{{ user.get("name", "Unknown") }}</td><td>{{ user.get("enabled", "UNKNOWN") }}</td><td>{{ user.get("passwordRequired", "UNKNOWN") }}</td><td>{{ user.get("lastLogon") or "Not available" }}</td></tr>{% else %}<tr><td colspan="4">Local user evidence was not available.</td></tr>{% endfor %}</tbody></table>
+        <h4>User profiles</h4>
+        <p>{% for profile in endpoint.users.userProfiles %}{{ profile.get("profileName", "Unknown") }}{% if not loop.last %}, {% endif %}{% else %}User profile evidence was not available.{% endfor %}</p>
+
+        <h3>Security Posture</h3>
+        <p>Security score: <strong>{{ endpoint.score }}</strong>. Core passive coverage: <strong>{{ endpoint.coverage }}%</strong>.</p>
+        <h3>Priority Findings</h3>
+        {% for audit_finding in endpoint.findings if audit_finding.finding.status in ["FAIL", "WARNING", "PARTIAL", "ERROR"] %}<p><strong>{{ audit_finding.finding.rule_id }}:</strong> {{ audit_finding.knowledge.title }} ({{ audit_finding.finding.status }})</p>{% else %}<p>No endpoint priority finding was recorded.</p>{% endfor %}
+
+        <h3>BitLocker and Device Security</h3>
+        <dl class="details-grid"><div><dt>BitLocker status</dt><dd>{{ endpoint.bitLocker.status }}</dd></div><div><dt>OS volume</dt><dd>{{ endpoint.bitLocker.mountPoint }}</dd></div><div><dt>Provider</dt><dd>{{ endpoint.bitLocker.provider }}</dd></div><div><dt>Confidence</dt><dd>{{ endpoint.bitLocker.confidence }}%</dd></div><div><dt>Protection enabled</dt><dd>{{ endpoint.bitLocker.protectionEnabled if endpoint.bitLocker.protectionEnabled is not none else "Not verified" }}</dd></div><div><dt>Encryption state</dt><dd>{{ endpoint.bitLocker.encryptionState }}</dd></div><div><dt>Encryption percentage</dt><dd>{{ endpoint.bitLocker.encryptionPercentage if endpoint.bitLocker.encryptionPercentage is not none else "Not available" }}</dd></div></dl>
+        {% if endpoint.bitLocker.volumes %}<table><thead><tr><th>Volume</th><th>Type</th><th>Protection</th><th>State</th><th>Provider</th></tr></thead><tbody>{% for volume in endpoint.bitLocker.volumes %}<tr><td>{{ volume.mountPoint }}</td><td>{{ volume.volumeType }}</td><td>{{ volume.protectionEnabled if volume.protectionEnabled is not none else "Unknown" }}</td><td>{{ volume.encryptionState }}</td><td>{{ volume.provider }}</td></tr>{% endfor %}</tbody></table>{% endif %}
+
+        <h3>Installed Software</h3>
+        <p><strong>Collection status:</strong> {{ endpoint.softwareCollection.get("status", endpoint.cveSummary.get("softwareCollectionStatus", "NOT_EVALUATED")) }}. Installed records: {{ endpoint.softwareResults|length }}.</p>
+        {% if endpoint.softwareResults %}
+        <div class="inventory-controls">
+          <label>Search software<input type="search" data-inventory-search placeholder="Name, vendor, version or CVE"></label>
+          <label>Security status<select data-inventory-status><option value="">All statuses</option>{% for status in endpoint.softwareResults|map(attribute="securityStatus")|unique|sort %}<option value="{{ status }}">{{ status }}</option>{% endfor %}</select></label>
+        </div>
+        <div class="table-scroll"><table class="sortable inventory-table"><thead><tr><th>Software</th><th>Version</th><th>Publisher</th><th>Architecture</th><th>Scope</th><th>Security status</th><th>Lifecycle</th></tr></thead><tbody>{% for software in endpoint.softwareResults %}<tr data-inventory-row data-security-status="{{ software.securityStatus }}"><td><details><summary>{{ software.displayName }}</summary><p>Normalized: {{ software.normalizedVendor }} / {{ software.normalizedProduct }} / {{ software.normalizedVersion }}</p><p>Confidence: {{ software.normalizationConfidence }}%. Source: {{ software.source }}.</p><p>Lifecycle source: {{ software.lifecycleSource or "Not available" }} ({{ software.lifecycleDataVersion }}).</p>{% if software.cveDetails %}<table><thead><tr><th>CVE</th><th>Severity</th><th>CVSS</th><th>Match</th><th>KEV</th></tr></thead><tbody>{% for cve in software.cveDetails %}<tr><td>{{ cve.cveId }}</td><td>{{ cve.severity }}</td><td>{{ cve.cvssScore if cve.cvssScore is not none else "N/A" }}</td><td>{{ cve.matchStatus }} - {{ cve.matchRationale }}</td><td>{{ "YES" if cve.cisaKev else "NO" }}</td></tr>{% endfor %}</tbody></table>{% endif %}</details></td><td>{{ software.displayVersion or "Unknown" }}</td><td>{{ software.publisher or "Unknown" }}</td><td>{{ software.architecture }}</td><td>{{ software.scope }}</td><td>{{ software.securityStatus }}</td><td>{{ software.lifecycleStatus }}</td></tr>{% endfor %}</tbody></table></div>
+        {% elif endpoint.softwareCollection.get("status") == "SUCCESS" %}<p>No installed software detected.</p>{% else %}<p class="notice warning">Software inventory collection failed or was not evaluated.</p>{% endif %}
+
+        <h3>Known Vulnerabilities</h3>
+        <p>Confirmed: {{ endpoint.cveSummary.get("confirmedUniqueCves", 0) }}. Possible: {{ endpoint.cveSummary.get("possibleUniqueCves", 0) }}. CISA KEV: {{ endpoint.cveSummary.get("cisaKevUniqueCves", 0) }}. A missing match is not proof that software is secure.</p>
+        <h3>Software Lifecycle</h3>
+        <p>Unsupported software: {{ endpoint.unsupportedSoftwareCount }}. OS lifecycle: {{ endpoint.cveSummary.get("operatingSystemLifecycle", {}).get("status", "NOT_EVALUATED") }}.</p>
+
         <h3>Control Results</h3>
         {% for audit_finding in endpoint.findings %}
         {% set finding = audit_finding.finding %}{% set knowledge = audit_finding.knowledge %}
@@ -261,6 +312,8 @@
           <details><summary>Show technical evidence</summary><pre>{{ finding.evidence|json_pretty }}</pre></details>
         </article>
         {% endfor %}
+        <h3>Coverage Limitations</h3>
+        {% for item in endpoint.coverageLimitations %}<p>{{ item.capabilityId }}: {{ item.reason }}</p>{% else %}<p>No capability limitation was recorded.</p>{% endfor %}
       </div>
     </details>
     {% endfor %}

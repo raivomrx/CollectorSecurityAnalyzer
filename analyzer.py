@@ -24,7 +24,11 @@ from cve.cache import NvdCache
 from cve.client import NvdClient
 from cve.cpe_resolver import CpeResolver
 from cve.enrichment_service import VulnerabilityEnrichmentService
-from cve.providers.cisa_kev import CisaKevProvider, DEFAULT_KEV_CACHE_PATH, DEFAULT_KEV_FEED_URL
+from cve.providers.cisa_kev import (
+    CisaKevProvider,
+    DEFAULT_KEV_CACHE_PATH,
+    DEFAULT_KEV_FEED_URL,
+)
 from cve.providers.cve_program import CveProgramCache, CveProgramProvider, DEFAULT_CVE_PROGRAM_CACHE_PATH
 from cve.rate_limiter import SlidingWindowRateLimiter
 from cve.service import CveService, empty_summary
@@ -45,7 +49,8 @@ from rules.loader import load_registry
 from rules.registry import RuleRegistry
 from scoring import calculate_score
 from software.inventory import build_inventory
-from software.models import SoftwareInventory
+from software.lifecycle import LifecycleRepository
+from software.models import LifecycleStatus, SoftwareInventory, SoftwareProduct
 
 LOGGER = logging.getLogger(__name__)
 
@@ -94,7 +99,12 @@ def analyze_file(
     registry = load_registry()
     software_items = collector_document.software.items or data.get("Software", [])
     software_inventory = build_inventory(
-        software_items if isinstance(software_items, list) else []
+        software_items if isinstance(software_items, list) else [],
+        collection_status=collector_document.software.collection_status,
+        collection_errors=[
+            str(item.get("code", "SOFTWARE_COLLECTION_ERROR"))
+            for item in collector_document.software.errors
+        ],
     )
     context = AnalysisContext(
         raw_data=data,
@@ -208,9 +218,27 @@ def _cve_analysis_metadata(
             for item in context.software_inventory.products
         }
     )
+    lifecycle_repository = LifecycleRepository()
+    lifecycle_results = lifecycle_repository.assess_inventory(
+        context.software_inventory.products
+    )
+    base_metadata = {
+        "softwareCollectionStatus": context.software_inventory.collection_status,
+        "softwareCollectionErrors": context.software_inventory.collection_errors,
+        "lifecycleDataVersion": lifecycle_repository.data_version,
+        "operatingSystemLifecycle": _operating_system_lifecycle(
+            context, lifecycle_repository
+        ),
+    }
     if summary is None:
+        initial_status = (
+            "NOT_EVALUATED"
+            if context.software_inventory.collection_status != "SUCCESS"
+            else "NOT_PERFORMED"
+        )
         return {
-            "status": "NOT_PERFORMED",
+            **base_metadata,
+            "status": initial_status,
             "timestamp": "",
             "installedSoftwareRecords": installed_count,
             "normalizedProducts": normalized_count,
@@ -233,6 +261,13 @@ def _cve_analysis_metadata(
             "cisaKevCveIds": [],
             "coveragePercent": 0.0,
             "providerCoverage": [],
+            "softwareResults": _software_results(
+                context.software_inventory,
+                [],
+                lifecycle_results,
+                scan_status=initial_status,
+                kev_ids=set(),
+            ),
         }
 
     assessments = summary.assessments
@@ -306,8 +341,13 @@ def _cve_analysis_metadata(
         if enrichment is not None
         else set()
     )
-    status = nvd_status
+    status = (
+        "NOT_EVALUATED"
+        if context.software_inventory.collection_status != "SUCCESS"
+        else nvd_status
+    )
     return {
+        **base_metadata,
         "status": status,
         "timestamp": utc_text(),
         "installedSoftwareRecords": summary.scanned_products,
@@ -337,7 +377,205 @@ def _cve_analysis_metadata(
         "cisaKevCveIds": sorted(kev_ids),
         "coveragePercent": summary.coverage_percent,
         "providerCoverage": provider_coverage,
+        "softwareResults": _software_results(
+            context.software_inventory,
+            assessments,
+            lifecycle_results,
+            scan_status=status,
+            kev_ids=kev_ids,
+        ),
     }
+
+
+def _software_results(
+    inventory: SoftwareInventory,
+    assessments: list[Any],
+    lifecycle_results: list[Any],
+    *,
+    scan_status: str,
+    kev_ids: set[str],
+) -> list[dict[str, Any]]:
+    """Build report-safe software/CVE/lifecycle relationships."""
+
+    rows: list[dict[str, Any]] = []
+    for product, lifecycle in zip(inventory.products, lifecycle_results):
+        related = [
+            item for item in assessments
+            if _software_key(item.software) == _software_key(product)
+        ]
+        confirmed = [item for item in related if item.applicability.value == "AFFECTED"]
+        possible = [item for item in related if item.applicability.value == "POSSIBLY_AFFECTED"]
+        not_evaluated = [item for item in related if item.applicability.value == "NOT_EVALUATED"]
+        if product.confidence < 60:
+            evaluation_status = "NOT_EVALUATED"
+        elif confirmed:
+            evaluation_status = "CONFIRMED"
+        elif possible:
+            evaluation_status = "POSSIBLE"
+        elif scan_status == "COMPLETE" and not not_evaluated:
+            evaluation_status = "NO_KNOWN_VULNERABILITIES"
+        else:
+            evaluation_status = "NOT_EVALUATED"
+        relevant = confirmed + possible + not_evaluated
+        details = [
+            {
+                "cveId": item.cve.cve_id,
+                "severity": item.cve.severity,
+                "cvssScore": item.cve.cvss_score,
+                "matchStatus": item.applicability.value,
+                "matchRationale": item.reason,
+                "affectedVersionRange": ", ".join(item.matched_criteria),
+                "cisaKev": item.cve.cve_id in kev_ids,
+                "publishedDate": (
+                    item.cve.published.isoformat()
+                    if item.cve.published
+                    else None
+                ),
+                "lastModifiedDate": (
+                    item.cve.last_modified.isoformat()
+                    if item.cve.last_modified
+                    else None
+                ),
+                "source": "NVD",
+            }
+            for item in sorted(relevant, key=lambda value: value.cve.cve_id)
+        ]
+        lifecycle_status = lifecycle.status.value
+        if lifecycle.status == LifecycleStatus.OUT_OF_SUPPORT and confirmed:
+            security_status = "Both vulnerable and out of support"
+        elif lifecycle.status == LifecycleStatus.OUT_OF_SUPPORT:
+            security_status = "Out of support"
+        elif confirmed:
+            security_status = "Known vulnerabilities"
+        elif possible:
+            security_status = "Possible vulnerabilities"
+        elif product.confidence < 60:
+            security_status = "Normalization failed"
+        elif evaluation_status == "NO_KNOWN_VULNERABILITIES":
+            security_status = "No known issue"
+        else:
+            security_status = "Not evaluated"
+        rows.append(
+            {
+                "productKey": "|".join(_software_key(product)),
+                "displayName": product.product,
+                "displayVersion": product.version,
+                "publisher": product.vendor,
+                "architecture": product.architecture or "UNKNOWN",
+                "scope": product.scope,
+                "source": product.source,
+                "installDate": (
+                    product.install_date.isoformat()
+                    if product.install_date
+                    else None
+                ),
+                "installLocation": product.install_location,
+                "normalizedVendor": product.normalized_vendor,
+                "normalizedProduct": product.normalized_product,
+                "normalizedVersion": product.normalized_version,
+                "normalizationConfidence": product.confidence,
+                "normalizationStatus": product.normalization_status,
+                "cpe": product.cpe,
+                "securityStatus": security_status,
+                "cveEvaluationStatus": evaluation_status,
+                "confirmedCves": len(
+                    {item.cve.cve_id for item in confirmed}
+                ),
+                "possibleCves": len(
+                    {item.cve.cve_id for item in possible}
+                ),
+                "cisaKevCves": len(
+                    {
+                        item.cve.cve_id
+                        for item in relevant
+                        if item.cve.cve_id in kev_ids
+                    }
+                ),
+                "highestSeverity": _highest_cve_severity(relevant),
+                "cveDetails": details,
+                "lifecycleStatus": lifecycle_status,
+                "endOfSupportDate": (
+                    lifecycle.end_of_support_date.isoformat()
+                    if lifecycle.end_of_support_date
+                    else None
+                ),
+                "lifecycleSource": lifecycle.source,
+                "lifecycleDataVersion": lifecycle.data_version,
+                "lifecycleConfidence": lifecycle.confidence,
+                "lifecycleRationale": lifecycle.rationale,
+            }
+        )
+    return rows
+
+
+def _operating_system_lifecycle(
+    context: AnalysisContext,
+    repository: LifecycleRepository,
+) -> dict[str, Any]:
+    """Assess the endpoint operating system using the same content pack."""
+
+    operating_system = (
+        context.collector_document.operating_system
+        if context.collector_document
+        else None
+    )
+    name = str(operating_system.name or "") if operating_system else ""
+    if "Windows 11" in name:
+        product_name = "Windows 11"
+    elif "Windows 10" in name:
+        product_name = "Windows 10"
+    elif "Windows Server" in name:
+        product_name = "Windows Server"
+    else:
+        product_name = name
+    version = (
+        str(operating_system.version or operating_system.build or "")
+        if operating_system
+        else ""
+    )
+    product = SoftwareProduct(
+        vendor="Microsoft",
+        product=product_name,
+        version=version,
+        normalized_vendor="Microsoft",
+        normalized_product=product_name,
+        normalized_version=version,
+        confidence=100 if product_name else 0,
+    )
+    result = repository.assess(product)
+    return {
+        "product": product_name,
+        "version": product.version,
+        "status": result.status.value,
+        "endOfSupportDate": (
+            result.end_of_support_date.isoformat()
+            if result.end_of_support_date
+            else None
+        ),
+        "source": result.source,
+        "dataVersion": result.data_version,
+        "confidence": result.confidence,
+        "rationale": result.rationale,
+    }
+
+
+def _software_key(product: SoftwareProduct) -> tuple[str, str, str, str, str]:
+    return (
+        product.normalized_vendor,
+        product.normalized_product,
+        product.normalized_version,
+        product.architecture or "",
+        product.scope,
+    )
+
+
+def _highest_cve_severity(values: list[Any]) -> str:
+    order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "UNKNOWN": 4}
+    return min(
+        (str(item.cve.severity).upper() for item in values),
+        key=lambda value: order.get(value, 9),
+        default="NONE",
+    )
 
 
 def _run_active_validation(

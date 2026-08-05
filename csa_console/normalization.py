@@ -102,6 +102,14 @@ def normalize_endpoint_package(
             for item in _object(evidence.get("software")).get("items", [])
             if isinstance(item, dict)
         ],
+        software_collection={
+            "status": str(_object(evidence.get("software")).get("collectionStatus", "NOT_EVALUATED")),
+            "recordsCollected": int(_object(evidence.get("software")).get("recordsCollected", 0) or 0),
+            "errors": [
+                item for item in _object(evidence.get("software")).get("errors", [])
+                if isinstance(item, dict)
+            ],
+        },
         updates={"settings": update_settings},
         endpoint_protection=endpoint_protection,
         disk_encryption=disk_encryption,

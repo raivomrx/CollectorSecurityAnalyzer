@@ -683,7 +683,7 @@ class UnifiedReportTests(Sprint5TestCase):
             self.assertIn(f'href="#{anchor}"', html)
         self.assertIn("<details", html)
         self.assertIn("Standard Privileges Assessment", html)
-        self.assertIn("CVE analysis: NOT PERFORMED", html)
+        self.assertIn("CVE analysis: NOT EVALUATED", html)
         self.assertIn("control results", html)
         self.assertEqual(first_model["endpoints"][0]["displayName"], "Endpoint 01")
         self.assertEqual(
@@ -691,6 +691,152 @@ class UnifiedReportTests(Sprint5TestCase):
         )
         self.assertNotIn("enrollmentToken", html)
         self.assertNotIn("tokenHash", html)
+
+    def test_sprint52_report_preserves_endpoint_intelligence(self) -> None:
+        """Real identities and version-bound intelligence reach the report."""
+
+        submission_id = "SUB-SPRINT52-REPORT"
+        self._accept_and_analyze(submission_id)
+        self._write_lab_state(1)
+        normalized = self.storage.read_json(
+            self.assessment.assessment_id,
+            "normalized",
+            f"{submission_id}.json",
+        )
+        normalized["identity"] = {
+            "computerName": "DELL-MINI",
+            "hostName": "DELL-MINI",
+            "fqdn": "dell-mini.lab",
+            "domainOrWorkgroup": "WORKGROUP",
+            "currentUser": "LAB\\alice",
+        }
+        normalized["securityPolicies"] = {
+            "settings": [
+                {
+                    "settingId": "CURRENT_EXECUTION_USER",
+                    "effectiveValue": {
+                        "Name": "LAB\\alice",
+                        "Sid": "S-1-5-21-1001",
+                    },
+                },
+                {
+                    "settingId": "LOCAL_USERS",
+                    "effectiveValue": [
+                        {"Name": "alice", "Sid": "S-1-5-21-1001"}
+                    ],
+                },
+                {
+                    "settingId": "LOCAL_ADMINISTRATORS",
+                    "effectiveValue": [
+                        {
+                            "Name": "AzureAD\\security-admin",
+                            "Sid": "S-1-12-1-100",
+                            "Classification": "ENTRA",
+                        }
+                    ],
+                },
+            ]
+        }
+        normalized["diskEncryption"] = {
+            "settings": [
+                {
+                    "settingId": "BITLOCKER_OS_PROTECTION",
+                    "effectiveValue": True,
+                    "collectionStatus": "SUCCESS",
+                    "confidence": 95,
+                    "provider": "Get-BitLockerVolume",
+                    "metadata": {
+                        "mountPoint": "C:",
+                        "provider": "Get-BitLockerVolume",
+                        "protectionEnabled": True,
+                        "encryptionState": "FULLY_ENCRYPTED",
+                        "encryptionPercentage": 100,
+                    },
+                }
+            ]
+        }
+        normalized["softwareCollection"] = {
+            "status": "SUCCESS",
+            "recordsCollected": 1,
+            "errors": [],
+        }
+        self.storage.write_json(
+            self.assessment.assessment_id,
+            ("normalized", f"{submission_id}.json"),
+            normalized,
+        )
+        analysis = self.storage.read_json(
+            self.assessment.assessment_id,
+            "findings",
+            f"{submission_id}.json",
+        )
+        analysis["cveAnalysisStatus"] = "COMPLETE"
+        analysis["cveSummary"] = {
+            "status": "COMPLETE",
+            "coveragePercent": 100.0,
+            "cisaKevMatches": 1,
+            "criticalUniqueCves": 1,
+            "operatingSystemLifecycle": {"status": "SUPPORTED"},
+            "softwareResults": [
+                {
+                    "displayName": ".NET 6 Runtime",
+                    "displayVersion": "6.0.36",
+                    "publisher": "Microsoft Corporation",
+                    "normalizedVendor": "Microsoft",
+                    "normalizedProduct": ".NET",
+                    "normalizedVersion": "6.0.36",
+                    "architecture": "x64",
+                    "scope": "MACHINE",
+                    "source": "HKLM_UNINSTALL",
+                    "normalizationConfidence": 100,
+                    "cveEvaluationStatus": "CONFIRMED",
+                    "confirmedCveCount": 1,
+                    "possibleCveCount": 0,
+                    "securityStatus": (
+                        "Both vulnerable and out of support"
+                    ),
+                    "lifecycleStatus": "OUT_OF_SUPPORT",
+                    "lifecycleSource": "Microsoft lifecycle policy",
+                    "lifecycleDataVersion": "CSA-LIFECYCLE-2026.08",
+                    "cveDetails": [
+                        {
+                            "cveId": "CVE-2026-0001",
+                            "severity": "CRITICAL",
+                            "cvssScore": 9.8,
+                            "matchStatus": "CONFIRMED",
+                            "matchRationale": (
+                                "Installed version is in affected range"
+                            ),
+                            "cisaKev": True,
+                        }
+                    ],
+                }
+            ],
+        }
+        self.storage.write_json(
+            self.assessment.assessment_id,
+            ("findings", f"{submission_id}.json"),
+            analysis,
+        )
+
+        generator = UnifiedReportGenerator(self.storage)
+        model = generator.build_model(self.assessment.assessment_id)
+        output = generator.generate(self.assessment.assessment_id)
+        html = output.read_text(encoding="utf-8")
+
+        self.assertEqual(model["endpoints"][0]["displayName"], "DELL-MINI")
+        self.assertTrue(model["metadata"]["containsPersonalData"])
+        for expected in (
+            "DELL-MINI",
+            "LAB\\alice",
+            ".NET 6 Runtime",
+            "CVE-2026-0001",
+            "OUT_OF_SUPPORT",
+            "Get-BitLockerVolume",
+            "95%",
+            "Confidential - Security Assessment Data",
+        ):
+            self.assertIn(expected, html)
 
     def test_report_requires_cve_completion_or_explicit_acknowledgement(
         self,

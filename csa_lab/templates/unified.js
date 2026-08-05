@@ -52,6 +52,49 @@
   });
   document.getElementById("print-report").addEventListener("click", () => window.print());
 
+  document.querySelectorAll("table.sortable").forEach((table) => {
+    table.querySelectorAll(":scope > thead th").forEach((heading, column) => {
+      heading.tabIndex = 0;
+      heading.title = "Sort table by this column";
+      const sort = () => {
+        const body = table.querySelector(":scope > tbody");
+        if (!body) return;
+        const ascending = heading.dataset.direction !== "asc";
+        const rows = Array.from(body.rows);
+        rows.sort((left, right) => {
+          const a = (left.cells[column]?.textContent || "").trim();
+          const b = (right.cells[column]?.textContent || "").trim();
+          return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }) * (ascending ? 1 : -1);
+        });
+        rows.forEach((row) => body.append(row));
+        heading.dataset.direction = ascending ? "asc" : "desc";
+      };
+      heading.addEventListener("click", sort);
+      heading.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") sort();
+      });
+    });
+  });
+
+  document.querySelectorAll(".inventory-controls").forEach((controls) => {
+    const searchInput = controls.querySelector("[data-inventory-search]");
+    const statusSelect = controls.querySelector("[data-inventory-status]");
+    const table = controls.nextElementSibling?.querySelector(".inventory-table");
+    if (!searchInput || !statusSelect || !table) return;
+    const rows = Array.from(table.querySelectorAll("[data-inventory-row]"));
+    const filterInventory = () => {
+      const query = searchInput.value.trim().toLocaleLowerCase();
+      const status = statusSelect.value;
+      rows.forEach((row) => {
+        const textMatch = !query || row.textContent.toLocaleLowerCase().includes(query);
+        const statusMatch = !status || row.dataset.securityStatus === status;
+        row.classList.toggle("hidden", !(textMatch && statusMatch));
+      });
+    };
+    searchInput.addEventListener("input", filterInventory);
+    statusSelect.addEventListener("change", filterInventory);
+  });
+
   const navigation = Array.from(document.querySelectorAll(".report-nav a"));
   const sections = navigation
     .map((link) => document.querySelector(link.getAttribute("href")))

@@ -495,7 +495,7 @@ try {
     $evidencePath = Join-Path $temporaryDirectory "collector-evidence.json"
     & (Resolve-CSAPackagePath "collector\Collect-CSAWindowsEvidence.ps1") `
         -OutputPath $evidencePath `
-        -PrivacyMode Strict `
+        -PrivacyMode Standard `
         -CollectionMode STANDARD_USER_COLLECTION `
         -CapabilityRegistryPath (Resolve-CSAPackagePath "collector\collection-capabilities.json") `
         -CollectionProfilePath (Resolve-CSAPackagePath "collector\profiles\windows-standard-v1.json") `

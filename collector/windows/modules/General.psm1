@@ -395,6 +395,40 @@ function Protect-CSAPath {
     return $text
 }
 
+function Get-CSAInstalledSoftware {
+    param([scriptblock]$RegistryReader = $null)
+
+    $roots = @(
+        @{ Path = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'; Architecture = 'x64'; Scope = 'MACHINE'; Source = 'HKLM_UNINSTALL' },
+        @{ Path = 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'; Architecture = 'x86'; Scope = 'MACHINE'; Source = 'HKLM_WOW6432_UNINSTALL' },
+        @{ Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'; Architecture = $env:PROCESSOR_ARCHITECTURE; Scope = 'USER'; Source = 'HKCU_UNINSTALL' }
+    )
+    $values = @()
+    foreach ($root in $roots) {
+        $items = if ($null -ne $RegistryReader) {
+            @(& $RegistryReader $root.Path)
+        } else {
+            @(Get-ItemProperty -Path $root.Path -ErrorAction SilentlyContinue)
+        }
+        foreach ($item in $items) {
+            if ($item.PSObject.Properties.Name -notcontains 'DisplayName') { continue }
+            if ([string]::IsNullOrWhiteSpace([string]$item.DisplayName)) { continue }
+            $values += [ordered]@{
+                displayName = [string]$item.DisplayName
+                displayVersion = if ($item.PSObject.Properties.Name -contains 'DisplayVersion') { [string]$item.DisplayVersion } else { '' }
+                publisher = if ($item.PSObject.Properties.Name -contains 'Publisher') { [string]$item.Publisher } else { '' }
+                installDate = if ($item.PSObject.Properties.Name -contains 'InstallDate') { [string]$item.InstallDate } else { $null }
+                installLocation = if ($item.PSObject.Properties.Name -contains 'InstallLocation') { Protect-CSAPath $item.InstallLocation 'Standard' } else { $null }
+                architecture = [string]$root.Architecture
+                scope = [string]$root.Scope
+                source = [string]$root.Source
+                uninstallKey = if ($item.PSObject.Properties.Name -contains 'PSPath') { [string]$item.PSPath } else { [string]$root.Path }
+            }
+        }
+    }
+    return $values
+}
+
 function Get-CSAGeneralEvidence {
     param([string]$PrivacyMode = "Standard")
 
@@ -406,22 +440,7 @@ function Get-CSAGeneralEvidence {
     $warnings = @()
 
     try {
-        $uninstallRoots = @(
-            @{ Path = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'; Architecture = 'x64' },
-            @{ Path = 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'; Architecture = 'x86' }
-        )
-        foreach ($root in $uninstallRoots) {
-            foreach ($item in @(Get-ItemProperty -Path $root.Path -ErrorAction SilentlyContinue)) {
-                if ([string]::IsNullOrWhiteSpace([string]$item.DisplayName)) { continue }
-                $softwareItems += [ordered]@{
-                    Vendor = if ($item.PSObject.Properties.Name -contains "Publisher") { [string]$item.Publisher } else { "" }
-                    Product = [string]$item.DisplayName
-                    Version = if ($item.PSObject.Properties.Name -contains "DisplayVersion") { [string]$item.DisplayVersion } else { "" }
-                    Architecture = $root.Architecture
-                    InstallDate = if ($item.PSObject.Properties.Name -contains "InstallDate") { [string]$item.InstallDate } else { $null }
-                }
-            }
-        }
+        $softwareItems = @(Get-CSAInstalledSoftware)
     } catch {
         $errors += New-CSACollectionError "General" (Resolve-CSAExceptionStatus $_) "CSA-COLLECT-SOFTWARE" $_.Exception.Message
     }
@@ -469,4 +488,4 @@ function Get-CSAGeneralEvidence {
     New-CSAModuleResult -Module "General" -Errors $errors -Warnings $warnings -StartedAt $startedAt -Status $status -SoftwareItems $softwareItems -Services $services -ScheduledTasks $scheduledTasks
 }
 
-Export-ModuleMember -Function New-CSASetting, New-CSACollectionError, New-CSAModuleResult, Test-CSASettingMatchesManifestEntry, Resolve-CSAModuleEvidence, Test-CSAEvidenceManifest, Get-CSARegistryValue, Resolve-CSAExceptionStatus, Protect-CSAIdentifier, Protect-CSAPath, Get-CSAGeneralEvidence
+Export-ModuleMember -Function New-CSASetting, New-CSACollectionError, New-CSAModuleResult, Test-CSASettingMatchesManifestEntry, Resolve-CSAModuleEvidence, Test-CSAEvidenceManifest, Get-CSARegistryValue, Resolve-CSAExceptionStatus, Protect-CSAIdentifier, Protect-CSAPath, Get-CSAInstalledSoftware, Get-CSAGeneralEvidence

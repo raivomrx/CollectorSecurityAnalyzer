@@ -19,6 +19,17 @@ DEFAULT_VENDOR_ALIASES_PATH = SOFTWARE_DIR / "vendor_aliases.json"
 DEFAULT_PRODUCT_ALIASES_PATH = SOFTWARE_DIR / "product_aliases.json"
 DEFAULT_UNKNOWN_PRODUCTS_PATH = SOFTWARE_DIR / "unknown_products.json"
 FUZZY_THRESHOLD = 0.88
+PRODUCT_PATTERNS = (
+    (r"^microsoft \.net (?:runtime|sdk|host|desktop runtime)\b", ".NET"),
+    (r"^mozilla firefox\b", "Mozilla Firefox"),
+    (r"^7-zip\b", "7-Zip"),
+    (r"^teamviewer\b", "TeamViewer"),
+    (r"^anydesk\b", "AnyDesk"),
+    (r"^forticlient\b", "FortiClient"),
+    (r"^java 8(?: update)?\b", "Java 8"),
+    (r"^microsoft edge\b", "Microsoft Edge"),
+    (r"^google chrome\b", "Google Chrome"),
+)
 
 
 def normalize_vendor(
@@ -43,6 +54,12 @@ def normalize_product(
 
     text = _clean_text(product)
     aliases = _load_aliases(aliases_path)
+    exact_result = _match_exact_alias(text, aliases)
+    if exact_result is not None:
+        return exact_result
+    pattern_result = _match_product_pattern(text)
+    if pattern_result is not None:
+        return pattern_result
     result = _match_alias(text, aliases)
     if result is not None:
         return result
@@ -67,6 +84,10 @@ def normalize_software(
     version: Any,
     architecture: str | None = None,
     install_date: Any = None,
+    install_location: str | None = None,
+    scope: str = "UNKNOWN",
+    source: str = "UNKNOWN",
+    uninstall_key: str | None = None,
     unknown_products_path: str | Path = DEFAULT_UNKNOWN_PRODUCTS_PATH,
 ) -> SoftwareProduct:
     """Build a normalized SoftwareProduct from raw inventory values."""
@@ -85,6 +106,15 @@ def normalize_software(
         install_date=parse_date(install_date),
         cpe=None,
         confidence=confidence,
+        install_location=install_location,
+        scope=scope,
+        source=source,
+        uninstall_key=uninstall_key,
+        normalization_status=(
+            "NORMALIZED" if confidence >= 95 else
+            "PARTIAL" if confidence >= 60 else
+            "FAILED"
+        ),
     )
 
     if product_result.confidence == 0:
@@ -180,6 +210,38 @@ def _remove_architecture_suffix(value: str) -> str:
     """Remove common architecture suffixes from product names."""
 
     return re.sub(r"\s*\((?:32|64)-bit\)\s*$", "", value, flags=re.IGNORECASE).strip()
+
+
+def _match_product_pattern(value: str) -> NormalizationResult | None:
+    """Match explicit product-family patterns used by registry display names."""
+
+    for pattern, canonical in PRODUCT_PATTERNS:
+        if re.search(pattern, value, flags=re.IGNORECASE):
+            return NormalizationResult(
+                value=canonical,
+                confidence=95,
+                reason="pattern",
+            )
+    return None
+
+
+def _match_exact_alias(
+    text: str,
+    aliases: dict[str, str],
+) -> NormalizationResult | None:
+    """Match an exact product alias without invoking fuzzy comparison."""
+
+    keyed_aliases = {
+        _key(alias): canonical for alias, canonical in aliases.items()
+    }
+    canonical = keyed_aliases.get(_key(text))
+    if canonical is None:
+        return None
+    return NormalizationResult(
+        value=canonical,
+        confidence=100,
+        reason="exact",
+    )
 
 
 def _clean_text(value: Any) -> str:
