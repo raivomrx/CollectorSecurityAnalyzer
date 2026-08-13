@@ -33,15 +33,6 @@ FORBIDDEN_TEXT = (
         "BITLOCKER_RECOVERY_KEY",
     ),
 )
-IDENTIFIER_KEYS = {
-    "currentuser",
-    "domain",
-    "hostname",
-    "principal",
-    "serviceaccount",
-    "username",
-    "workgroup",
-}
 SAFE_KEY_FRAGMENTS = {
     "passwordPolicy",
     "recoveryPasswordPresent",
@@ -51,7 +42,12 @@ SAFE_KEY_FRAGMENTS = {
 
 
 class SensitiveDataScanner:
-    """Detect prohibited credential and private-content material."""
+    """Detect prohibited credential and private-content material.
+
+    Endpoint and account identifiers are permitted assessment evidence. They
+    are classified as confidential personal data at the report boundary, not
+    treated as credential material at package ingestion.
+    """
 
     def scan(self, value: Any) -> list[PrivacyViolation]:
         """Return all policy violations in a structured value."""
@@ -91,17 +87,6 @@ class SensitiveDataScanner:
                     violations.append(
                         PrivacyViolation("FORBIDDEN_FIELD", f"{path}.{name}")
                     )
-                if (
-                    compact.casefold() in IDENTIFIER_KEYS
-                    and isinstance(item, str)
-                    and item
-                    and not _is_protected_identifier(item)
-                ):
-                    violations.append(
-                        PrivacyViolation(
-                            "PLAINTEXT_IDENTIFIER", f"{path}.{name}"
-                        )
-                    )
                 self._scan(item, f"{path}.{name}", violations)
         elif isinstance(value, list):
             for index, item in enumerate(value):
@@ -110,13 +95,3 @@ class SensitiveDataScanner:
             for pattern, code in FORBIDDEN_TEXT:
                 if pattern.search(value):
                     violations.append(PrivacyViolation(code, path))
-
-
-def _is_protected_identifier(value: str) -> bool:
-    """Return whether an endpoint identifier uses a supported protected form."""
-
-    return bool(
-        re.fullmatch(r"id-[0-9a-f]{12}", value)
-        or re.fullmatch(r"sha256:[0-9a-f]{64}", value)
-        or value in {"<REDACTED>", "<USER>"}
-    )

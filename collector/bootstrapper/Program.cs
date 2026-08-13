@@ -278,8 +278,12 @@ namespace CSA.Collector
                 }
                 Console.WriteLine();
                 Console.WriteLine("CSA Lab could not accept the endpoint collection.");
-                Console.WriteLine("Check that collection is running and both computers");
-                Console.WriteLine("are on the same network.");
+                Console.WriteLine("Review the specific error shown above.");
+                Console.WriteLine("A CONSOLE_REJECTED error is a package validation");
+                Console.WriteLine("failure, not a network failure. Creating an offline");
+                Console.WriteLine("package will not bypass the same validation error.");
+                Console.WriteLine("For connection errors, check that collection is");
+                Console.WriteLine("running and both computers are on the same network.");
                 Console.WriteLine();
                 Console.Write("[R]etry, create [O]ffline package, or [C]ancel: ");
                 string action = (Console.ReadLine() ?? "").Trim().ToUpperInvariant();

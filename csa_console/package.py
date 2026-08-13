@@ -340,10 +340,16 @@ class EvidencePackageValidator:
         self._validate_capability_results(capability_results)
         scanner = SensitiveDataScanner()
         for value in (evidence, capability_results, collection_log):
-            if scanner.scan(value):
+            violations = scanner.scan(value)
+            if violations:
+                summary = ", ".join(
+                    f"{item.code}@{item.path}"
+                    for item in violations[:3]
+                )
                 raise PackageValidationError(
                     "REJECTED_SENSITIVE_DATA",
-                    "Package contains prohibited sensitive material",
+                    "Package contains prohibited sensitive material: "
+                    f"{summary}",
                 )
         return ValidatedPackage(
             manifest=manifest,

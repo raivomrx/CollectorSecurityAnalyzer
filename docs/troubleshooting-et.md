@@ -65,6 +65,13 @@ elevated/SYSTEM kontekstis fail-closed.
 Kontrolli collection'i olekut, session expiry't ja võrku. Proovi Collectoris
 Retry. Kui ühendus ei ole võimalik, loo encrypted offline package.
 
+Kui Collector kuvab `CONSOLE_REJECTED`, jõudis pakett CSA Labi ning tegu ei ole
+võrguveaga. Vaata veakoodist package validation'i põhjust. Sama sisuga offline
+package läbib identse kontrolli ega lahenda valideerimisviga. `REJECTED_SENSITIVE_DATA`
+tähendab, et pakett sisaldab CSA poliitikaga keelatud credential- või private-content
+materjali; veateates kuvatakse ainult turvaline kood ja JSON-välja asukoht, mitte
+tundlik väärtus.
+
 ## Endpoint on ERROR
 
 Vali endpoint ja vaata processing state'i. Hoia evidence alles. Logid asuvad

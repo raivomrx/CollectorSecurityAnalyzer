@@ -141,10 +141,12 @@ class Sprint5TestCase(unittest.TestCase):
         submission_id: str,
         nonce: str,
         output_name: str | None = None,
+        evidence: dict | None = None,
     ) -> Path:
         """Build a valid package for the active test session."""
 
-        evidence = self.evidence()
+        if evidence is None:
+            evidence = self.evidence()
         output = Path(self.temporary.name) / (
             output_name or f"{submission_id}.csa.zip"
         )
@@ -215,7 +217,7 @@ class CapabilityAndSessionTests(Sprint5TestCase):
         manifest = verify_collector_package(output)
         self.assertEqual(manifest["sessionId"], self.session.session_id)
         self.assertEqual(manifest["collectorVersion"], COLLECTOR_VERSION)
-        self.assertEqual(COLLECTOR_VERSION, "5.2.0")
+        self.assertEqual(COLLECTOR_VERSION, "5.2.1")
         self.assertIn("collectorBuildCommit", manifest)
         self.assertTrue(
             str(manifest["collectorBuildDigest"]).startswith("sha256:")
@@ -267,7 +269,6 @@ class CapabilityAndSessionTests(Sprint5TestCase):
             ({"recoveryKey": "opaque"}, "FORBIDDEN_FIELD"),
             ({"browserCookie": "opaque"}, "FORBIDDEN_FIELD"),
             ({"privateKey": "opaque"}, "FORBIDDEN_FIELD"),
-            ({"currentUser": "EXAMPLE\\Alice"}, "PLAINTEXT_IDENTIFIER"),
             ({"path": r"C:\Users\Alice\private.txt"}, "USER_PROFILE_PATH"),
         )
         for value, expected in samples:
@@ -276,6 +277,19 @@ class CapabilityAndSessionTests(Sprint5TestCase):
                     expected,
                     {item.code for item in scanner.scan(value)},
                 )
+
+    def test_privacy_scanner_allows_assessment_identifiers(self) -> None:
+        """Endpoint identities are confidential evidence, not credentials."""
+
+        value = {
+            "computerName": "LENOVO-T14",
+            "hostName": "LENOVO-T14",
+            "domain": "WORKGROUP",
+            "currentUser": "EXAMPLE\\Alice",
+            "principal": "AzureAD\\Alice",
+            "username": "Alice",
+        }
+        self.assertEqual(SensitiveDataScanner().scan(value), [])
 
 
 class SubmissionSecurityTests(Sprint5TestCase):
@@ -331,6 +345,53 @@ class SubmissionSecurityTests(Sprint5TestCase):
                 source_address="127.0.0.1",
                 archive_bytes=archive,
             )
+
+    def test_https_accepts_confidential_endpoint_identifiers(self) -> None:
+        """Real endpoint identities must pass the trusted package boundary."""
+
+        service = SubmissionService(self.storage)
+        submission_id = "SUB-REAL-IDENTITY"
+        nonce = service.request_nonce(
+            self.assessment.assessment_id,
+            self.session.session_id,
+            submission_id,
+            self.token,
+            "127.0.0.1",
+        )
+        evidence = self.evidence()
+        evidence["device"].update(
+            {
+                "computerName": "LENOVO-T14",
+                "hostName": "LENOVO-T14",
+                "hostname": "LENOVO-T14",
+                "domain": "WORKGROUP",
+                "workgroup": "WORKGROUP",
+                "domainOrWorkgroup": "WORKGROUP",
+                "currentUser": "EXAMPLE\\Alice",
+            }
+        )
+        archive = self.package(
+            submission_id,
+            nonce,
+            evidence=evidence,
+        ).read_bytes()
+
+        receipt, package, accepted_path = service.accept(
+            assessment_id=self.assessment.assessment_id,
+            session_id=self.session.session_id,
+            submission_id=submission_id,
+            enrollment_token=self.token,
+            nonce=nonce,
+            source_address="127.0.0.1",
+            archive_bytes=archive,
+        )
+
+        self.assertTrue(accepted_path.exists())
+        self.assertEqual(receipt.package_digest, package.package_digest)
+        self.assertEqual(
+            package.evidence["device"]["computerName"],
+            "LENOVO-T14",
+        )
 
     def test_tampered_package_is_rejected(self) -> None:
         """Changing archive bytes must fail before permanent storage."""
