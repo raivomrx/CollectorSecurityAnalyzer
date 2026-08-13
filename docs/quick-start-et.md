@@ -27,4 +27,6 @@ assessment'i auditifailid. Rakenduse üldisesse auditilogisse jääb kustutamise
 kinnitus koos assessment'i auditiahela lõpphashiga.
 
 Kui võrguühendus ei tööta, vali Collectoris encrypted offline package ning
-impordi `.csa` fail CSA Labi nupuga **Import Offline Package**.
+impordi `.csa` fail CSA Labi nupuga **Import Offline Package**. Seda saab teha ka
+pärast **Stop Collection** valimist, kuni assessment'i session expiry pole
+möödunud. Pärast uue endpointi importi genereeri unified raport uuesti.

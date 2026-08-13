@@ -646,19 +646,47 @@ class LabApplicationService:
     ) -> EndpointDashboardItem:
         """Import and analyze one authenticated encrypted offline package."""
 
-        package = OfflineImportService(self.storage).import_file(
-            assessment_id, package_path, analyze=True
-        )
-        self._audit(assessment_id).append(
-            "offline_import_completed",
-            {"submissionId": str(package.manifest["submissionId"])},
-        )
-        item = next(
-            value
-            for value in self.dashboard(assessment_id)
-            if value.submission_id == package.manifest["submissionId"]
-        )
-        return item
+        with self._lock:
+            state = self.load_state(assessment_id)
+            if not state.offline_collection:
+                raise ValueError("Offline collection is disabled")
+            allowed_statuses = {
+                LabAssessmentStatus.COLLECTING,
+                LabAssessmentStatus.CLOSED,
+                LabAssessmentStatus.READY_FOR_REPORT,
+                LabAssessmentStatus.COMPLETED,
+            }
+            if state.status not in allowed_statuses:
+                raise ValueError(
+                    "Offline packages can be imported while collecting or "
+                    "after collection has been stopped"
+                )
+            previous_status = state.status
+            package = OfflineImportService(self.storage).import_file(
+                assessment_id, package_path, analyze=True
+            )
+            report_invalidated = bool(state.report_path)
+            if report_invalidated:
+                state.report_path = ""
+                state.report_generated_at = ""
+            if state.status != LabAssessmentStatus.COLLECTING:
+                state.status = LabAssessmentStatus.READY_FOR_REPORT
+            self._write_state(state)
+            self._audit(assessment_id).append(
+                "offline_import_completed",
+                {
+                    "submissionId": str(package.manifest["submissionId"]),
+                    "previousStatus": previous_status.value,
+                    "resultingStatus": state.status.value,
+                    "reportInvalidated": report_invalidated,
+                },
+            )
+            item = next(
+                value
+                for value in self.dashboard(assessment_id)
+                if value.submission_id == package.manifest["submissionId"]
+            )
+            return item
 
     def run_cve_analysis(
         self, assessment_id: str

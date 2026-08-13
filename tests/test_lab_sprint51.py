@@ -458,6 +458,82 @@ class LabServiceTests(unittest.TestCase):
             SessionStatus.CLOSED,
         )
 
+    def test_offline_import_after_stop_reopens_report_readiness(self) -> None:
+        """A stopped assessment accepts local offline evidence, not HTTPS."""
+
+        state = self.service.create_assessment(self.request())
+        self.service.start_collection(state.assessment_id)
+        state = self.service.stop_collection(state.assessment_id)
+        endpoint = EndpointDashboardItem(
+            device_id="DEVICE-OFFLINE",
+            submission_id="SUB-OFFLINE-AFTER-STOP",
+            status=EndpointUiStatus.COMPLETE,
+            transport="Encrypted offline import",
+            coverage_percent=90.0,
+            finding_count=1,
+            received_at=utc_text(),
+            collector_version="5.2.1",
+            execution_mode="STANDARD_USER",
+            integrity_level="MEDIUM",
+            is_elevated=False,
+            local_administrator_member=False,
+            receipt_status="VERIFIED",
+            evidence_digest="a" * 64,
+        )
+        package = mock.Mock()
+        package.manifest = {"submissionId": endpoint.submission_id}
+
+        with mock.patch(
+            "csa_lab.service.OfflineImportService"
+        ) as offline_service, mock.patch.object(
+            self.service, "dashboard", return_value=[endpoint]
+        ):
+            offline_service.return_value.import_file.return_value = package
+            imported = self.service.import_offline(
+                state.assessment_id,
+                self.root / "endpoint.csa",
+            )
+
+        updated = self.service.load_state(state.assessment_id)
+        self.assertEqual(imported, endpoint)
+        self.assertEqual(
+            updated.status, LabAssessmentStatus.READY_FOR_REPORT
+        )
+        self.assertEqual(
+            self.service.sessions.load_session(
+                state.assessment_id, state.session_id
+            ).status,
+            SessionStatus.CLOSED,
+        )
+
+        updated.status = LabAssessmentStatus.COMPLETED
+        updated.report_path = str(
+            self.service.storage.path(
+                state.assessment_id, "reports", "stale-report.html"
+            )
+        )
+        updated.report_generated_at = utc_text()
+        self.service._write_state(updated)
+        endpoint.submission_id = "SUB-OFFLINE-AFTER-REPORT"
+        package.manifest = {"submissionId": endpoint.submission_id}
+        with mock.patch(
+            "csa_lab.service.OfflineImportService"
+        ) as offline_service, mock.patch.object(
+            self.service, "dashboard", return_value=[endpoint]
+        ):
+            offline_service.return_value.import_file.return_value = package
+            self.service.import_offline(
+                state.assessment_id,
+                self.root / "second-endpoint.csa",
+            )
+
+        refreshed = self.service.load_state(state.assessment_id)
+        self.assertEqual(
+            refreshed.status, LabAssessmentStatus.READY_FOR_REPORT
+        )
+        self.assertEqual(refreshed.report_path, "")
+        self.assertEqual(refreshed.report_generated_at, "")
+
     def test_download_limit_expiry_and_session_close_invalidate_portal(self) -> None:
         state = self.service.create_assessment(self.request())
         code = self.service.join_code(state.assessment_id)

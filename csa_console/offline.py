@@ -319,7 +319,9 @@ class OfflineImportService:
                 maximum_files=validator.maximum_files,
             )
         )
-        self.sessions.verify_token(session, decrypted.enrollment_token)
+        self.sessions.verify_offline_token(
+            session, decrypted.enrollment_token
+        )
         package = validator.validate(
             archive_bytes,
             enrollment_token=decrypted.enrollment_token,

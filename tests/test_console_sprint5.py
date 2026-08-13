@@ -45,7 +45,7 @@ from csa_console.privacy import SensitiveDataScanner
 from csa_console.receipts import verify_receipt
 from csa_console.reporting import ConsoleReportGenerator
 from csa_console.server import ConsoleHttpsServer
-from csa_console.sessions import AssessmentSessionService
+from csa_console.sessions import AssessmentSessionService, SessionError
 from csa_console.storage import AssessmentStorage
 from csa_console.submission import SubmissionRejected, SubmissionService
 from csa_console.tls import generate_session_certificate
@@ -730,6 +730,82 @@ class OfflineAndArchiveTests(Sprint5TestCase):
             service.import_file(
                 self.assessment.assessment_id, tampered, analyze=False
             )
+
+    def test_closed_session_accepts_offline_but_rejects_online_token_use(
+        self,
+    ) -> None:
+        """Stop must preserve bounded offline intake without reopening HTTPS."""
+
+        submission_id = "SUB-OFFLINE-AFTER-STOP"
+        nonce = "offline:after-stop"
+        archive = self.package(submission_id, nonce).read_bytes()
+        package = EvidencePackageValidator().validate(
+            archive,
+            enrollment_token=self.token,
+            expected_assessment_id=self.assessment.assessment_id,
+            expected_session_id=self.session.session_id,
+            expected_submission_id=submission_id,
+            expected_nonce=nonce,
+            expected_profile_digest=self.session.collection_profile_digest,
+        )
+        envelope = encrypt_offline_submission(
+            Path(self.temporary.name) / "after-stop.csa",
+            archive_bytes=archive,
+            enrollment_token=self.token,
+            nonce=nonce,
+            associated_data={
+                "assessmentId": self.assessment.assessment_id,
+                "packageDigest": package.package_digest,
+                "sessionId": self.session.session_id,
+                "submissionId": submission_id,
+            },
+            public_key_xml_path=self.session.offline_public_key_path,
+        )
+        closed = self.sessions.set_session_status(
+            self.assessment.assessment_id,
+            self.session.session_id,
+            SessionStatus.CLOSED,
+        )
+
+        with self.assertRaisesRegex(SessionError, "not open"):
+            self.sessions.verify_token(closed, self.token)
+        imported = OfflineImportService(self.storage).import_file(
+            self.assessment.assessment_id,
+            envelope,
+            analyze=False,
+        )
+
+        self.assertEqual(
+            imported.manifest["submissionId"], submission_id
+        )
+        self.assertEqual(
+            self.sessions.load_session(
+                self.assessment.assessment_id,
+                self.session.session_id,
+            ).status,
+            SessionStatus.CLOSED,
+        )
+
+    def test_offline_import_does_not_bypass_expiry_or_archival(self) -> None:
+        """The post-stop allowance must retain terminal token boundaries."""
+
+        closed = self.sessions.set_session_status(
+            self.assessment.assessment_id,
+            self.session.session_id,
+            SessionStatus.CLOSED,
+        )
+        closed.token_expires_at = "2020-01-01T00:00:00Z"
+        self.sessions._write_session(closed)
+        with self.assertRaisesRegex(SessionError, "expired"):
+            self.sessions.verify_offline_token(closed, self.token)
+
+        archived = self.sessions.set_session_status(
+            self.assessment.assessment_id,
+            self.session.session_id,
+            SessionStatus.ARCHIVED,
+        )
+        with self.assertRaisesRegex(SessionError, "does not accept"):
+            self.sessions.verify_offline_token(archived, self.token)
 
     def test_known_payload_prefix_defect_is_normalized_before_validation(
         self,

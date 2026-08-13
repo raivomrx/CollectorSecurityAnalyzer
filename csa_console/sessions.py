@@ -220,6 +220,30 @@ class AssessmentSessionService:
 
         if session.status != SessionStatus.OPEN:
             raise SessionError("Session is not open")
+        self._verify_token_contract(session, enrollment_token)
+
+    def verify_offline_token(
+        self,
+        session: AssessmentSession,
+        enrollment_token: str,
+    ) -> None:
+        """Validate a local offline import for an open or closed session.
+
+        Closing a session revokes network collection but preserves the ability
+        to import an already-created encrypted package until token expiry.
+        """
+
+        if session.status not in {SessionStatus.OPEN, SessionStatus.CLOSED}:
+            raise SessionError("Session does not accept offline imports")
+        self._verify_token_contract(session, enrollment_token)
+
+    def _verify_token_contract(
+        self,
+        session: AssessmentSession,
+        enrollment_token: str,
+    ) -> None:
+        """Validate expiry, use limits and the constant-time token binding."""
+
         if utc_now() >= _parse_utc(session.token_expires_at):
             raise SessionError("Enrollment token has expired")
         if session.token_uses >= min(
