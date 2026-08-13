@@ -7,11 +7,13 @@ import json
 import socket
 import tempfile
 import threading
+import time
 import unittest
 from unittest import mock
 import zipfile
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import urljoin
 
 import requests
@@ -78,10 +80,13 @@ class LabUiContractTests(unittest.TestCase):
         self.assertIn('item.status === "COMPLETE"', script)
         self.assertIn('"READY_FOR_REPORT", "COMPLETED"', script)
         self.assertIn("cveAnalysisStatus", script)
+        self.assertIn("cve-analysis-status", script)
+        self.assertIn("productsProcessed", script)
+        self.assertIn("CVE product evaluation pipeline", script)
         self.assertIn("Run CVE Analysis", (
             ROOT / "csa_lab" / "templates" / "lab.html"
         ).read_text(encoding="utf-8"))
-        self.assertIn("Generate without CVE data", (
+        self.assertIn("Generate Report with Incomplete CVE Analysis", (
             ROOT / "csa_lab" / "templates" / "lab.html"
         ).read_text(encoding="utf-8"))
         self.assertEqual(
@@ -101,6 +106,26 @@ class LabUiContractTests(unittest.TestCase):
         self.assertIn(
             "its evidence, reports, and local audit history",
             script,
+        )
+
+    def test_cve_report_language_and_typography_are_explicit(self) -> None:
+        """Partial CVE data and report tables should remain unambiguous."""
+
+        template = (
+            ROOT / "csa_lab" / "templates" / "unified.html"
+        ).read_text(encoding="utf-8")
+        style = (
+            ROOT / "csa_lab" / "templates" / "unified.css"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("CVE analysis not fully evaluated", template)
+        self.assertIn("Known / confirmed CVEs", template)
+        self.assertIn("Assessment Overview", template)
+        self.assertNotIn("Fleet Dashboard", template)
+        self.assertIn("remediation-table", template)
+        self.assertNotIn(
+            "th, td { border-bottom: 1px solid var(--border); padding: 10px 12px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }",
+            style,
         )
 
     def test_packaged_lab_includes_default_policy_profile(self) -> None:
@@ -161,6 +186,55 @@ class LabServiceTests(unittest.TestCase):
             self.request(name="").validate()
         with self.assertRaises(ValueError):
             self.request(active_validation=True).validate()
+
+    def test_cve_background_job_publishes_real_progress(self) -> None:
+        """The Lab should expose running and terminal CVE job states."""
+
+        state = self.service.create_assessment(self.request())
+
+        def run_stub(_assessment_id, progress_callback=None):
+            assert progress_callback is not None
+            progress_callback(
+                {
+                    "state": "RUNNING",
+                    "phase": "QUERYING_PROVIDER",
+                    "percent": 50,
+                    "endpointIndex": 1,
+                    "endpointTotal": 1,
+                    "productsProcessed": 1,
+                    "productsTotal": 2,
+                    "currentProduct": "Google Chrome",
+                    "currentVersion": "151.0",
+                }
+            )
+            return [
+                SimpleNamespace(
+                    cve_analysis_status="COMPLETE",
+                    status=EndpointUiStatus.COMPLETE,
+                )
+            ]
+
+        with mock.patch(
+            "csa_lab.service.FleetAnalyzer.load_latest_endpoint_data",
+            return_value=([{"submissionId": "SUB-01"}], [], []),
+        ), mock.patch.object(
+            self.service,
+            "run_cve_analysis",
+            side_effect=run_stub,
+        ):
+            started = self.service.start_cve_analysis(state.assessment_id)
+            self.assertEqual(started["state"], "RUNNING")
+            for _ in range(100):
+                progress = self.service.cve_analysis_progress(
+                    state.assessment_id
+                )
+                if progress["state"] != "RUNNING":
+                    break
+                time.sleep(0.01)
+
+        self.assertEqual(progress["state"], "COMPLETED")
+        self.assertEqual(progress["result"], "COMPLETE")
+        self.assertEqual(progress["percent"], 100)
 
     def test_interface_selection_prefers_physical_private_network(self) -> None:
         interfaces = [

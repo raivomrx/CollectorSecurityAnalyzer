@@ -129,6 +129,11 @@
             <label><input id="include-audit" type="checkbox" checked> Include audit details</label>
             <label><input id="include-endpoints" type="checkbox" checked> Include endpoint details</label>
           </div>
+          <div id="cve-progress" class="cve-progress hidden" role="status" aria-live="polite">
+            <strong id="cve-progress-message">Preparing CVE analysis</strong>
+            <progress id="cve-progress-bar" max="100" value="0"></progress>
+            <span id="cve-progress-details"></span>
+          </div>
         </div>
         <div class="report-actions">
           <button id="run-cve-analysis" type="button">Run CVE Analysis</button>
@@ -142,6 +147,7 @@
       <details class="advanced-details">
         <summary>Advanced Details</summary>
         <dl id="advanced-values"></dl>
+        <div id="advanced-cve-pipeline"></div>
       </details>
     </section>
   </main>
@@ -189,7 +195,7 @@
   </div>
   <footer>
     <button id="cancel-cve-report" type="button">Cancel</button>
-    <button id="generate-without-cve" type="button">Generate without CVE data</button>
+    <button id="generate-without-cve" type="button">Generate Report with Incomplete CVE Analysis</button>
     <button id="dialog-run-cve" type="button">Run CVE Analysis</button>
   </footer>
 </dialog>

@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from cve.applicability import evaluate_applicability
 from cve.client import NvdClient
 from cve.cpe_resolver import CpeResolver
-from cve.exceptions import CveEngineError
+from cve.exceptions import NvdRequestError
 from cve.models import (
     ApplicabilityStatus,
     CpeMatchStatus,
     CveAssessment,
     CveRecord,
+    CveProductEvaluation,
     CveScanError,
     CveScanSummary,
 )
@@ -21,6 +23,7 @@ from cve.parser import parse_cve_items
 from software.models import SoftwareInventory, SoftwareProduct
 
 LOGGER = logging.getLogger(__name__)
+CveProgressCallback = Callable[[dict[str, Any]], None]
 
 
 class CveService:
@@ -45,10 +48,12 @@ class CveService:
         self,
         inventory: SoftwareInventory,
         raw_data: dict[str, Any] | None = None,
+        progress_callback: CveProgressCallback | None = None,
     ) -> CveScanSummary:
         """Scan a software inventory for CVEs."""
 
         unique_products = _deduplicate(inventory.products)
+        eligible_total = sum(1 for item in unique_products if _is_eligible(item))
         LOGGER.info("CVE scan started: %s unique software products", len(unique_products))
         assessments: list[CveAssessment] = []
         errors: list[CveScanError] = []
@@ -57,42 +62,133 @@ class CveService:
         ambiguous = 0
         eligible_products = 0
         evaluated_products = 0
+        product_evaluations: list[CveProductEvaluation] = []
+
+        _notify(
+            progress_callback,
+            phase="SCANNING_PRODUCTS",
+            products_processed=0,
+            products_total=eligible_total,
+        )
 
         for software in unique_products:
             product_key = _product_key(software)
-            try:
-                if not _is_eligible(software):
-                    products_without_cpe += 1
-                    continue
+            eligible = _is_eligible(software)
+            evaluation = CveProductEvaluation(
+                product_key=product_key,
+                display_name=software.product,
+                version=software.version,
+                normalization_status=_normalization_stage_status(software),
+                normalization_confidence=software.confidence,
+                eligibility_status="ELIGIBLE" if eligible else "NOT_ELIGIBLE",
+                provider_reason=(
+                    None if eligible else _ineligible_reason(software)
+                ),
+            )
+            product_evaluations.append(evaluation)
+            if not eligible:
+                products_without_cpe += 1
+                continue
 
-                eligible_products += 1
-                cpe = self.resolver.resolve(software)
+            eligible_products += 1
+            _notify(
+                progress_callback,
+                phase="MAPPING_PRODUCT",
+                products_processed=eligible_products - 1,
+                products_total=eligible_total,
+                current_product=software.product,
+                current_version=software.version,
+            )
+            try:
+                resolution_method = getattr(
+                    self.resolver, "resolve_with_trace", None
+                )
+                if callable(resolution_method):
+                    resolution = resolution_method(software)
+                    cpe = resolution.candidate
+                    evaluation.cpe_candidate_count = resolution.candidate_count
+                    evaluation.product_mapping_status = resolution.status
+                    evaluation.provider_reason = resolution.reason
+                else:
+                    cpe = self.resolver.resolve(software)
+                    evaluation.cpe_candidate_count = 1 if cpe else 0
+                    evaluation.product_mapping_status = (
+                        "SUCCESS" if cpe else "NO_RELIABLE_MAPPING"
+                    )
                 if cpe is None:
                     products_without_cpe += 1
                     continue
                 if cpe.match_status == CpeMatchStatus.AMBIGUOUS:
                     ambiguous += 1
                     products_without_cpe += 1
+                    evaluation.product_mapping_status = "AMBIGUOUS"
                     continue
                 if cpe.confidence < self.minimum_cpe_confidence:
                     products_without_cpe += 1
+                    evaluation.product_mapping_status = "NO_RELIABLE_MAPPING"
+                    evaluation.provider_reason = (
+                        f"CPE confidence {cpe.confidence} is below "
+                        f"{self.minimum_cpe_confidence}"
+                    )
                     continue
 
                 products_with_cpe += 1
-                cve_items = self.client.get_cves({"cpeName": cpe.cpe_name})
+                software.cpe = cpe.cpe_name
+                evaluation.cpe = cpe.cpe_name
+                evaluation.product_mapping_status = "SUCCESS"
+                _notify(
+                    progress_callback,
+                    phase="QUERYING_PROVIDER",
+                    products_processed=eligible_products - 1,
+                    products_total=eligible_total,
+                    current_product=software.product,
+                    current_version=software.version,
+                )
+                cve_items = self.client.get_cves(_cve_query(cpe.cpe_name))
+                evaluation.provider_query_status = "SUCCESS"
+                evaluation.provider_reason = None
                 evaluated_products += 1
                 records = parse_cve_items(cve_items)
+                evaluation.records_received = len(records)
+                _notify(
+                    progress_callback,
+                    phase="EVALUATING_VERSIONS",
+                    products_processed=eligible_products - 1,
+                    products_total=eligible_total,
+                    current_product=software.product,
+                    current_version=software.version,
+                )
+                product_assessments = []
                 for record in records:
-                    assessments.append(_assess(software, cpe, record, raw_data))
+                    assessment = _assess(software, cpe, record, raw_data)
+                    assessments.append(assessment)
+                    product_assessments.append(assessment)
+                _complete_evaluation(evaluation, product_assessments)
             except Exception as error:
                 LOGGER.exception("CVE scan failed for a product")
+                endpoint = getattr(error, "endpoint_label", None)
+                if endpoint == "CPES" or evaluation.product_mapping_status == "NOT_RUN":
+                    evaluation.product_mapping_status = "FAILED"
+                else:
+                    evaluation.provider_query_status = "FAILED"
+                evaluation.provider_reason = _safe_error_reason(error)
                 errors.append(
                     CveScanError(
                         product_key=product_key,
                         stage="SCAN_PRODUCT",
-                        message=str(error),
-                        retryable=isinstance(error, CveEngineError),
+                        message=_safe_error_reason(error),
+                        retryable=bool(getattr(error, "retryable", False)),
                     )
+                )
+            finally:
+                _notify(
+                    progress_callback,
+                    phase="SCANNING_PRODUCTS",
+                    products_processed=eligible_products,
+                    products_total=eligible_total,
+                    current_product=software.product,
+                    current_version=software.version,
+                    product_status=evaluation.cve_result_status,
                 )
 
         summary = _summary(
@@ -105,6 +201,7 @@ class CveService:
             ambiguous_cpe_matches=ambiguous,
             assessments=assessments,
             errors=errors,
+            product_evaluations=product_evaluations,
         )
         LOGGER.info(
             "CVE scan completed: confirmed=%s, possible=%s, not_evaluated=%s",
@@ -115,12 +212,22 @@ class CveService:
         return summary
 
 
-def empty_summary(scan_complete: bool = False, message: str | None = None) -> CveScanSummary:
+def empty_summary(
+    scan_complete: bool = False,
+    message: str | None = None,
+) -> CveScanSummary:
     """Return an empty CVE summary for skipped or failed scans."""
 
     errors = []
     if message:
-        errors.append(CveScanError(product_key=None, stage="CVE_SCAN", message=message, retryable=True))
+        errors.append(
+            CveScanError(
+                product_key=None,
+                stage="CVE_SCAN",
+                message=message,
+                retryable=True,
+            )
+        )
     return CveScanSummary(
         scanned_products=0,
         unique_products=0,
@@ -138,6 +245,7 @@ def empty_summary(scan_complete: bool = False, message: str | None = None) -> Cv
         assessments=[],
         errors=errors,
         scan_complete=scan_complete,
+        product_evaluations=[],
     )
 
 
@@ -177,12 +285,25 @@ def _summary(
     ambiguous_cpe_matches: int,
     assessments: list[CveAssessment],
     errors: list[CveScanError],
+    product_evaluations: list[CveProductEvaluation],
 ) -> CveScanSummary:
     """Build a scan summary from assessments."""
 
-    confirmed = sum(1 for item in assessments if item.applicability == ApplicabilityStatus.AFFECTED)
-    possible = sum(1 for item in assessments if item.applicability == ApplicabilityStatus.POSSIBLY_AFFECTED)
-    not_evaluated = sum(1 for item in assessments if item.applicability == ApplicabilityStatus.NOT_EVALUATED)
+    confirmed = sum(
+        1
+        for item in assessments
+        if item.applicability == ApplicabilityStatus.AFFECTED
+    )
+    possible = sum(
+        1
+        for item in assessments
+        if item.applicability == ApplicabilityStatus.POSSIBLY_AFFECTED
+    )
+    not_evaluated = sum(
+        1
+        for item in assessments
+        if item.applicability == ApplicabilityStatus.NOT_EVALUATED
+    )
     coverage_percent = 100.0
     if eligible_products:
         coverage_percent = round((evaluated_products / eligible_products) * 100, 1)
@@ -203,7 +324,105 @@ def _summary(
         assessments=assessments,
         errors=errors,
         scan_complete=len(errors) == 0,
+        product_evaluations=product_evaluations,
     )
+
+
+def _cve_query(cpe_name: str) -> dict[str, str]:
+    """Use the NVD virtual match parameter for wildcard product CPEs."""
+
+    if "*" in cpe_name:
+        return {"virtualMatchString": cpe_name}
+    return {"cpeName": cpe_name}
+
+
+def _complete_evaluation(
+    evaluation: CveProductEvaluation,
+    assessments: list[CveAssessment],
+) -> None:
+    """Finalize version and result stages from parsed CVE assessments."""
+
+    evaluation.version_evaluation_status = (
+        "PARTIAL"
+        if any(
+            item.applicability == ApplicabilityStatus.NOT_EVALUATED
+            for item in assessments
+        )
+        else "SUCCESS"
+    )
+    evaluation.confirmed_cves = len(
+        {
+            item.cve.cve_id
+            for item in assessments
+            if item.applicability == ApplicabilityStatus.AFFECTED
+        }
+    )
+    evaluation.possible_cves = len(
+        {
+            item.cve.cve_id
+            for item in assessments
+            if item.applicability == ApplicabilityStatus.POSSIBLY_AFFECTED
+        }
+    )
+    evaluation.not_affected_cves = len(
+        {
+            item.cve.cve_id
+            for item in assessments
+            if item.applicability == ApplicabilityStatus.NOT_AFFECTED
+        }
+    )
+    if evaluation.confirmed_cves:
+        evaluation.cve_result_status = "CONFIRMED"
+    elif evaluation.possible_cves:
+        evaluation.cve_result_status = "POSSIBLE"
+    elif evaluation.version_evaluation_status == "PARTIAL":
+        evaluation.cve_result_status = "NOT_EVALUATED"
+    else:
+        evaluation.cve_result_status = "NO_KNOWN_VULNERABILITIES"
+
+
+def _ineligible_reason(software: SoftwareProduct) -> str:
+    """Explain why a normalized inventory row cannot enter CVE matching."""
+
+    if software.confidence < 60:
+        return "Normalization confidence is below the CVE eligibility threshold"
+    if not software.version:
+        return "Installed version is missing"
+    return "Normalized product identity is missing"
+
+
+def _normalization_stage_status(software: SoftwareProduct) -> str:
+    """Translate normalization confidence to a pipeline stage result."""
+
+    if software.confidence >= 95:
+        return "SUCCESS"
+    if software.confidence >= 60:
+        return "PARTIAL"
+    return "FAILED"
+
+
+def _safe_error_reason(error: Exception) -> str:
+    """Return structured provider diagnostics without response bodies."""
+
+    if isinstance(error, NvdRequestError):
+        endpoint = error.endpoint_label or "UNKNOWN"
+        status = f" HTTP {error.status_code}" if error.status_code else ""
+        return f"NVD {endpoint}{status}"
+    return f"{type(error).__name__}: CVE evaluation stage failed"
+
+
+def _notify(
+    callback: CveProgressCallback | None,
+    **details: Any,
+) -> None:
+    """Emit best-effort progress without allowing UI failures to stop scans."""
+
+    if callback is None:
+        return
+    try:
+        callback(details)
+    except Exception:
+        LOGGER.exception("CVE progress callback failed")
 
 
 def _deduplicate(products: list[SoftwareProduct]) -> list[SoftwareProduct]:
@@ -228,7 +447,11 @@ def _deduplicate(products: list[SoftwareProduct]) -> list[SoftwareProduct]:
 def _is_eligible(software: SoftwareProduct) -> bool:
     """Return whether a product has enough data for CVE evaluation."""
 
-    return bool(software.normalized_product and software.version and software.confidence >= 60)
+    return bool(
+        software.normalized_product
+        and software.version
+        and software.confidence >= 60
+    )
 
 
 def _product_key(software: SoftwareProduct) -> str:

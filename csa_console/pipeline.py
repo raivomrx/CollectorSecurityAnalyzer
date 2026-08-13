@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 from analyzer import analyze_file
@@ -159,6 +160,7 @@ class ConsoleAnalysisPipeline:
         submission_id: str,
         *,
         run_cve: bool = False,
+        cve_progress_callback: Callable[[dict], None] | None = None,
     ) -> EndpointAnalysis:
         """Rerun analysis from accepted evidence after any analysis failure."""
 
@@ -224,6 +226,7 @@ class ConsoleAnalysisPipeline:
                 validate_input=True,
                 privacy_mode="strict",
                 analysis_metadata=cve_metadata,
+                cve_progress_callback=cve_progress_callback,
             )
         except Exception:
             if run_cve and existing:
@@ -419,6 +422,42 @@ def _append_intelligence_audit(
         "report_identity_mode_selected",
         {"submissionId": submission_id, "mode": "REAL_ENDPOINT_IDENTITIES"},
     )
+    for evaluation in cve_metadata.get("productEvaluations", []):
+        audit.append(
+            "cve_product_evaluated",
+            {
+                "submissionId": submission_id,
+                "productKey": str(evaluation.get("productKey", "")),
+                "normalizationStatus": str(
+                    evaluation.get("normalizationStatus", "UNKNOWN")
+                ),
+                "eligibilityStatus": str(
+                    evaluation.get("eligibilityStatus", "NOT_EVALUATED")
+                ),
+                "productMappingStatus": str(
+                    evaluation.get("productMappingStatus", "NOT_RUN")
+                ),
+                "cpeCandidateCount": int(
+                    evaluation.get("cpeCandidateCount", 0) or 0
+                ),
+                "providerQueryStatus": str(
+                    evaluation.get("providerQueryStatus", "NOT_RUN")
+                ),
+                "providerReason": str(
+                    evaluation.get("providerReason", "") or ""
+                ),
+                "reason": str(evaluation.get("reason", "") or ""),
+                "versionEvaluationStatus": str(
+                    evaluation.get("versionEvaluationStatus", "NOT_RUN")
+                ),
+                "cveResultStatus": str(
+                    evaluation.get("cveResultStatus", "NOT_EVALUATED")
+                ),
+                "confirmedCves": int(
+                    evaluation.get("confirmedCves", 0) or 0
+                ),
+            },
+        )
 
 
 def _cve_audit_details(

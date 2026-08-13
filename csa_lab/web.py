@@ -134,7 +134,16 @@ def _admin_handler_factory(application: LabAdminServer):
                     )
                 elif path.startswith("/api/v1/assessments/"):
                     assessment_id, action = self._assessment_route(path)
-                    if action:
+                    if action == "cve-analysis-status":
+                        self._json(
+                            HTTPStatus.OK,
+                            {
+                                "progress": service.cve_analysis_progress(
+                                    assessment_id
+                                )
+                            },
+                        )
+                    elif action:
                         self._json(HTTPStatus.NOT_FOUND, {"error": "NOT_FOUND"})
                     else:
                         self._json(
@@ -271,14 +280,10 @@ def _admin_handler_factory(application: LabAdminServer):
                         HTTPStatus.OK, {"assessment": model_to_dict(state)}
                     )
                 elif action == "cve-analysis":
-                    endpoints = service.run_cve_analysis(assessment_id)
+                    progress = service.start_cve_analysis(assessment_id)
                     self._json(
-                        HTTPStatus.OK,
-                        {
-                            "endpoints": [
-                                model_to_dict(item) for item in endpoints
-                            ]
-                        },
+                        HTTPStatus.ACCEPTED,
+                        {"progress": progress},
                     )
                 elif action == "report":
                     data = self._read_json(MAX_JSON)

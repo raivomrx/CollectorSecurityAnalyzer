@@ -49,6 +49,26 @@ class CveEngineTests(unittest.TestCase):
         self.assertIn("google:chrome", candidate.cpe_name)
         self.assertEqual(build_cpe23("a", "Vendor:Name", "Product Name"), "cpe:2.3:a:vendor\\:name:product_name:*:*:*:*:*:*:*:*")
 
+    def test_edge_uses_validated_chromium_cpe_mapping(self) -> None:
+        """Microsoft Edge should not depend on ambiguous remote discovery."""
+
+        software = SoftwareProduct(
+            vendor="Microsoft Corporation",
+            product="Microsoft Edge",
+            version="151.0.4129.78",
+            normalized_vendor="Microsoft",
+            normalized_product="Microsoft Edge",
+            normalized_version="151.0.4129.78",
+            confidence=100,
+        )
+
+        candidate = CpeResolver(client=None).resolve(software)
+
+        self.assertIsNotNone(candidate)
+        assert candidate is not None
+        self.assertEqual(candidate.confidence, 100)
+        self.assertIn("microsoft:edge_chromium", candidate.cpe_name)
+
     def test_unvalidated_local_mapping_caps_confidence(self) -> None:
         """Unvalidated local mappings should not produce automatic 100 confidence."""
 
@@ -540,6 +560,47 @@ class CveEngineTests(unittest.TestCase):
         self.assertEqual(summary.coverage_percent, 100.0)
         self.assertEqual(summary.confirmed_vulnerabilities, 1)
 
+    def test_service_uses_virtual_match_for_wildcard_cpe_and_traces_stages(
+        self,
+    ) -> None:
+        """Wildcard CPE scans should use the NVD virtual match contract."""
+
+        queries = []
+        progress = []
+
+        class Client:
+            def get_cves(self, params):
+                queries.append(params)
+                return []
+
+        class Resolver:
+            def resolve(self, software):
+                return _cpe()
+
+        summary = CveService(
+            client=Client(), resolver=Resolver()
+        ).scan_inventory(
+            SoftwareInventory(products=[_software()], product_count=1),
+            progress_callback=progress.append,
+        )
+
+        self.assertEqual(
+            queries,
+            [{"virtualMatchString": _cpe().cpe_name}],
+        )
+        evaluation = summary.product_evaluations[0]
+        self.assertEqual(evaluation.product_mapping_status, "SUCCESS")
+        self.assertEqual(evaluation.provider_query_status, "SUCCESS")
+        self.assertEqual(evaluation.version_evaluation_status, "SUCCESS")
+        self.assertEqual(
+            evaluation.cve_result_status,
+            "NO_KNOWN_VULNERABILITIES",
+        )
+        self.assertIn(
+            "QUERYING_PROVIDER",
+            {item["phase"] for item in progress},
+        )
+
     def test_service_reports_incomplete_coverage(self) -> None:
         """Products without a usable CPE should reduce CVE coverage."""
 
@@ -721,6 +782,28 @@ class CveEngineTests(unittest.TestCase):
         context = type("Context", (), {"cve_summary": clean})()
         clean_finding = rule.check({}, context)[0]
         self.assertEqual(clean_finding.status.value, "PASS")
+
+        incomplete = replace(
+            clean,
+            scanned_products=9,
+            unique_products=9,
+            eligible_products=9,
+            evaluated_products=0,
+            coverage_percent=0.0,
+            coverage_complete=False,
+            products_without_cpe=9,
+            api_errors=1,
+            scan_complete=False,
+        )
+        incomplete_context = type(
+            "Context", (), {"cve_summary": incomplete}
+        )()
+        incomplete_finding = rule.check({}, incomplete_context)[0]
+        self.assertEqual(
+            incomplete_finding.status.value,
+            "NOT_EVALUATED",
+        )
+        self.assertEqual(incomplete_finding.score, 0)
 
 
 def _software(version: str = "144.0.7559.60") -> SoftwareProduct:

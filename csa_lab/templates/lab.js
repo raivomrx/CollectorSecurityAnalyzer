@@ -1,7 +1,7 @@
 (() => {
   "use strict";
   const csrf = document.querySelector('meta[name="csa-csrf"]').content;
-  const state = { assessments: [], currentId: "", current: null, interfaces: [], timer: null };
+  const state = { assessments: [], currentId: "", current: null, interfaces: [], timer: null, cveTimer: null, cveRunning: false };
   const $ = (id) => document.getElementById(id);
 
   async function request(path, options = {}) {
@@ -62,12 +62,17 @@
   }
 
   async function openAssessment(assessmentId) {
+    if (state.currentId !== assessmentId && state.cveTimer) {
+      window.clearTimeout(state.cveTimer);
+      state.cveTimer = null;
+    }
     state.currentId = assessmentId;
     state.current = await request(`/api/v1/assessments/${encodeURIComponent(assessmentId)}`);
     $("home-view").classList.add("hidden");
     $("assessment-view").classList.remove("hidden");
     renderAssessment();
     renderAssessmentList();
+    syncCveProgress().catch(() => {});
   }
 
   function renderAssessment() {
@@ -101,7 +106,7 @@
       : "Delete Assessment";
     $("generate-report").disabled = !["READY_FOR_REPORT", "COMPLETED"].includes(status)
       || completeEndpoints.length === 0;
-    $("run-cve-analysis").disabled = completeEndpoints.length === 0;
+    $("run-cve-analysis").disabled = completeEndpoints.length === 0 || state.cveRunning;
     $("open-report").disabled = !assessment.reportPath;
     $("show-report").disabled = !assessment.reportPath;
     if (status === "COLLECTING") {
@@ -118,7 +123,7 @@
     $("recovery-panel").classList.toggle("hidden", !recovery);
     $("recovery-details").textContent = (assessment.recoveryDetails || []).join(" ");
     renderEndpoints(payload.endpoints);
-    renderAdvanced(assessment);
+    renderAdvanced(payload);
   }
 
   function renderEndpoints(endpoints) {
@@ -194,10 +199,55 @@
       list.append(wrapper);
     });
     root.append(heading, list);
+    const evaluations = item.cveSummary?.productEvaluations || [];
+    appendCvePipeline(root, evaluations);
     root.classList.remove("hidden");
   }
 
-  function renderAdvanced(assessment) {
+  function appendCvePipeline(root, evaluations, endpoint = "") {
+    if (!evaluations.length) return;
+    const pipelineHeading = document.createElement("h4");
+    pipelineHeading.textContent = endpoint
+      ? `${endpoint} CVE product evaluation pipeline`
+      : "CVE product evaluation pipeline";
+    const wrapper = document.createElement("div");
+    wrapper.className = "table-scroll";
+    const table = document.createElement("table");
+    const head = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    ["Product", "Normalization", "Mapping", "Candidates", "Provider", "Version", "CVE result", "Reason"].forEach((label) => {
+      const cell = document.createElement("th");
+      cell.textContent = label;
+      headerRow.append(cell);
+    });
+    head.append(headerRow);
+    const body = document.createElement("tbody");
+    evaluations.forEach((evaluation) => {
+      const row = document.createElement("tr");
+      const values = [
+        `${evaluation.displayName || "Unknown"} ${evaluation.version || ""}`.trim(),
+        `${evaluation.normalizationStatus} (${evaluation.normalizationConfidence}%)`,
+        evaluation.productMappingStatus,
+        String(evaluation.cpeCandidateCount),
+        evaluation.providerQueryStatus,
+        evaluation.versionEvaluationStatus,
+        `${evaluation.cveResultStatus} (${evaluation.confirmedCves || 0} confirmed)`,
+        evaluation.reason || evaluation.providerReason || "-",
+      ];
+      values.forEach((value) => {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        row.append(cell);
+      });
+      body.append(row);
+    });
+    table.append(head, body);
+    wrapper.append(table);
+    root.append(pipelineHeading, wrapper);
+  }
+
+  function renderAdvanced(payload) {
+    const assessment = payload.assessment;
     const root = $("advanced-values");
     root.replaceChildren();
     const values = {
@@ -219,6 +269,15 @@
       dd.textContent = value;
       div.append(dt, dd);
       root.append(div);
+    });
+    const pipelineRoot = $("advanced-cve-pipeline");
+    pipelineRoot.replaceChildren();
+    payload.endpoints.forEach((endpoint) => {
+      appendCvePipeline(
+        pipelineRoot,
+        endpoint.cveSummary?.productEvaluations || [],
+        endpoint.deviceId,
+      );
     });
   }
 
@@ -308,14 +367,73 @@
   async function runCveAnalysis() {
     if (!state.currentId) return;
     try {
-      showMessage("CVE analysis is running. This may take several minutes.");
-      await request(`/api/v1/assessments/${encodeURIComponent(state.currentId)}/cve-analysis`, {
+      const data = await request(`/api/v1/assessments/${encodeURIComponent(state.currentId)}/cve-analysis`, {
         method: "POST",
       });
-      await openAssessment(state.currentId);
-      showMessage("CVE analysis completed. Review endpoint status before generating the report.");
+      renderCveProgress(data.progress);
+      scheduleCveProgressPoll();
     } catch (error) {
       await openAssessment(state.currentId);
+      showMessage(error.message, true);
+    }
+  }
+
+  function renderCveProgress(progress) {
+    const running = progress.state === "RUNNING";
+    state.cveRunning = running;
+    $("cve-progress").classList.toggle("hidden", progress.state === "IDLE");
+    $("cve-progress-bar").value = Number(progress.percent || 0);
+    $("cve-progress-message").textContent = progress.message || progress.phase.replaceAll("_", " ");
+    const endpoint = progress.endpointTotal
+      ? `Endpoint ${progress.endpointIndex || 0}/${progress.endpointTotal}`
+      : "";
+    const products = progress.productsTotal
+      ? `Products ${progress.productsProcessed || 0}/${progress.productsTotal}`
+      : "";
+    const current = progress.currentProduct
+      ? `${progress.currentProduct} ${progress.currentVersion || ""}`.trim()
+      : "";
+    $("cve-progress-details").textContent = [endpoint, products, current].filter(Boolean).join(" | ");
+    const completed = state.current?.endpoints?.filter((item) => item.status === "COMPLETE").length || 0;
+    $("run-cve-analysis").disabled = running || completed === 0;
+  }
+
+  async function syncCveProgress() {
+    if (!state.currentId) return;
+    const assessmentId = state.currentId;
+    const data = await request(`/api/v1/assessments/${encodeURIComponent(assessmentId)}/cve-analysis-status`);
+    if (assessmentId !== state.currentId) return;
+    renderCveProgress(data.progress);
+    if (data.progress.state === "RUNNING") scheduleCveProgressPoll();
+  }
+
+  function scheduleCveProgressPoll() {
+    if (state.cveTimer) window.clearTimeout(state.cveTimer);
+    state.cveTimer = window.setTimeout(pollCveProgress, 700);
+  }
+
+  async function pollCveProgress() {
+    const assessmentId = state.currentId;
+    if (!assessmentId) return;
+    try {
+      const data = await request(`/api/v1/assessments/${encodeURIComponent(assessmentId)}/cve-analysis-status`);
+      if (assessmentId !== state.currentId) return;
+      renderCveProgress(data.progress);
+      if (data.progress.state === "RUNNING") {
+        scheduleCveProgressPoll();
+        return;
+      }
+      await loadAssessments();
+      await openAssessment(assessmentId);
+      const result = data.progress.result || data.progress.state;
+      showMessage(
+        result === "COMPLETE"
+          ? "CVE analysis completed with full coverage."
+          : `CVE analysis finished with status ${result}. Review product pipeline details before generating the report.`,
+        data.progress.state === "FAILED",
+      );
+    } catch (error) {
+      state.cveRunning = false;
       showMessage(error.message, true);
     }
   }

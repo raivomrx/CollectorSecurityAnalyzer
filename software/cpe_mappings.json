@@ -8,6 +8,15 @@
     "validated_at": "2026-07-13",
     "validation_source": "NVD_CPE_API"
   },
+  "microsoft|microsoft edge": {
+    "part": "a",
+    "vendor": "microsoft",
+    "product": "edge_chromium",
+    "confidence": 100,
+    "validated": true,
+    "validated_at": "2026-08-13",
+    "validation_source": "NVD_CPE_DICTIONARY"
+  },
   "zoom|zoom workplace": {
     "part": "a",
     "vendor": "zoom",

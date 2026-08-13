@@ -22,7 +22,7 @@ class KnownVulnerabilitiesRule(BaseRule):
 
     metadata = RuleMetadata(
         id="CVE-001",
-        title="Known Vulnerabilities Detected",
+        title="Known Vulnerability Assessment",
         version="1.0",
         author="CSA",
         category=RuleCategory.SOFTWARE,
@@ -82,10 +82,18 @@ class KnownVulnerabilitiesRule(BaseRule):
             status = Status.FAIL
             severity = _severity_for_affected(affected)
             score = 20
-        elif not summary.scan_complete or possible or not_evaluated:
+        elif possible:
             status = Status.WARNING
             severity = Severity.MEDIUM
             score = 10
+        elif (
+            not summary.scan_complete
+            or not summary.coverage_complete
+            or not_evaluated
+        ):
+            status = Status.NOT_EVALUATED
+            severity = Severity.INFO
+            score = 0
         else:
             status = Status.PASS
             severity = Severity.INFO

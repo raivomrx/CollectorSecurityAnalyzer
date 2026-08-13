@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -85,6 +86,7 @@ def analyze_file(
     active_profile: str | None = None,
     active_plan_digest: str | None = None,
     analysis_metadata: dict[str, Any] | None = None,
+    cve_progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[list[AuditFinding], int, SoftwareInventory, Path]:
     """Analyze a collector JSON file and generate an HTML report."""
 
@@ -115,7 +117,27 @@ def analyze_file(
         privacy_mode=PrivacyMode(privacy_mode),
         skipped_categories=skipped_categories or [],
     )
-    _run_cve_scan(context, skip_cve, refresh_cve_cache, cve_debug)
+    _run_cve_scan(
+        context,
+        skip_cve,
+        refresh_cve_cache,
+        cve_debug,
+        cve_progress_callback,
+    )
+    _emit_cve_progress(
+        cve_progress_callback,
+        phase="ENRICHING",
+        products_processed=(
+            context.cve_summary.eligible_products
+            if context.cve_summary is not None
+            else 0
+        ),
+        products_total=(
+            context.cve_summary.eligible_products
+            if context.cve_summary is not None
+            else 0
+        ),
+    )
     _run_cve_enrichment(
         context=context,
         skip_enrichment=skip_enrichment,
@@ -123,6 +145,20 @@ def analyze_file(
         skip_cve_program=skip_cve_program,
         refresh_enrichment_cache=refresh_enrichment_cache,
         cvelist_path=cvelist_path,
+    )
+    _emit_cve_progress(
+        cve_progress_callback,
+        phase="FINALIZING",
+        products_processed=(
+            context.cve_summary.eligible_products
+            if context.cve_summary is not None
+            else 0
+        ),
+        products_total=(
+            context.cve_summary.eligible_products
+            if context.cve_summary is not None
+            else 0
+        ),
     )
     if analysis_metadata is not None:
         analysis_metadata.update(_cve_analysis_metadata(context))
@@ -261,12 +297,14 @@ def _cve_analysis_metadata(
             "cisaKevCveIds": [],
             "coveragePercent": 0.0,
             "providerCoverage": [],
+            "productEvaluations": [],
             "softwareResults": _software_results(
                 context.software_inventory,
                 [],
                 lifecycle_results,
                 scan_status=initial_status,
                 kev_ids=set(),
+                product_evaluations=[],
             ),
         }
 
@@ -377,12 +415,17 @@ def _cve_analysis_metadata(
         "cisaKevCveIds": sorted(kev_ids),
         "coveragePercent": summary.coverage_percent,
         "providerCoverage": provider_coverage,
+        "productEvaluations": [
+            _product_evaluation_dict(item)
+            for item in summary.product_evaluations
+        ],
         "softwareResults": _software_results(
             context.software_inventory,
             assessments,
             lifecycle_results,
             scan_status=status,
             kev_ids=kev_ids,
+            product_evaluations=summary.product_evaluations,
         ),
     }
 
@@ -394,11 +437,16 @@ def _software_results(
     *,
     scan_status: str,
     kev_ids: set[str],
+    product_evaluations: list[Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Build report-safe software/CVE/lifecycle relationships."""
 
     rows: list[dict[str, Any]] = []
+    evaluation_by_key = {
+        item.product_key: item for item in (product_evaluations or [])
+    }
     for product, lifecycle in zip(inventory.products, lifecycle_results):
+        pipeline = evaluation_by_key.get(_cve_product_key(product))
         related = [
             item for item in assessments
             if _software_key(item.software) == _software_key(product)
@@ -476,6 +524,23 @@ def _software_results(
                 "normalizationConfidence": product.confidence,
                 "normalizationStatus": product.normalization_status,
                 "cpe": product.cpe,
+                "cvePipeline": (
+                    _product_evaluation_dict(pipeline)
+                    if pipeline is not None
+                    else {
+                        "productKey": _cve_product_key(product),
+                        "normalizationStatus": product.normalization_status,
+                        "normalizationConfidence": product.confidence,
+                        "eligibilityStatus": "NOT_EVALUATED",
+                        "productMappingStatus": "NOT_RUN",
+                        "cpeCandidateCount": 0,
+                        "providerQueryStatus": "NOT_RUN",
+                        "providerReason": "CVE analysis was not performed",
+                        "reason": "CVE analysis was not performed",
+                        "versionEvaluationStatus": "NOT_RUN",
+                        "cveResultStatus": "NOT_EVALUATED",
+                    }
+                ),
                 "securityStatus": security_status,
                 "cveEvaluationStatus": evaluation_status,
                 "confirmedCves": len(
@@ -569,6 +634,44 @@ def _software_key(product: SoftwareProduct) -> tuple[str, str, str, str, str]:
     )
 
 
+def _cve_product_key(product: SoftwareProduct) -> str:
+    """Return the product identity used by the CVE scan audit trail."""
+
+    return "|".join(
+        [
+            product.normalized_vendor,
+            product.normalized_product,
+            product.normalized_version,
+            product.architecture or "",
+        ]
+    )
+
+
+def _product_evaluation_dict(evaluation: Any) -> dict[str, Any]:
+    """Serialize a product evaluation without provider response bodies."""
+
+    return {
+        "productKey": evaluation.product_key,
+        "displayName": evaluation.display_name,
+        "version": evaluation.version,
+        "normalizationStatus": evaluation.normalization_status,
+        "normalizationConfidence": evaluation.normalization_confidence,
+        "eligibilityStatus": evaluation.eligibility_status,
+        "productMappingStatus": evaluation.product_mapping_status,
+        "cpeCandidateCount": evaluation.cpe_candidate_count,
+        "cpe": evaluation.cpe,
+        "providerQueryStatus": evaluation.provider_query_status,
+        "providerReason": evaluation.provider_reason,
+        "reason": evaluation.provider_reason,
+        "versionEvaluationStatus": evaluation.version_evaluation_status,
+        "cveResultStatus": evaluation.cve_result_status,
+        "recordsReceived": evaluation.records_received,
+        "confirmedCves": evaluation.confirmed_cves,
+        "possibleCves": evaluation.possible_cves,
+        "notAffectedCves": evaluation.not_affected_cves,
+    }
+
+
 def _highest_cve_severity(values: list[Any]) -> str:
     order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "UNKNOWN": 4}
     return min(
@@ -638,6 +741,7 @@ def _run_cve_scan(
     skip_cve: bool,
     refresh_cve_cache: bool,
     cve_debug: bool,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> None:
     """Run the CVE scan and store results on the analysis context."""
 
@@ -687,10 +791,25 @@ def _run_cve_scan(
         context.cve_summary = service.scan_inventory(
             context.software_inventory,
             context.raw_data,
+            progress_callback,
         )
     except Exception as error:
         LOGGER.exception("CVE service failed")
         context.cve_summary = empty_summary(scan_complete=False, message=str(error))
+
+
+def _emit_cve_progress(
+    callback: Callable[[dict[str, Any]], None] | None,
+    **details: Any,
+) -> None:
+    """Publish optional CVE orchestration progress without affecting results."""
+
+    if callback is None:
+        return
+    try:
+        callback(details)
+    except Exception:
+        LOGGER.exception("CVE progress callback failed")
 
 
 def _run_cve_enrichment(

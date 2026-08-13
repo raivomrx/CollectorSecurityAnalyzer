@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import zipfile
+from collections.abc import Callable
 from dataclasses import fields
 from pathlib import Path
 from typing import Any
@@ -79,6 +80,7 @@ class LabApplicationService:
         )
         self._servers: dict[str, ConsoleHttpsServer] = {}
         self._threads: dict[str, threading.Thread] = {}
+        self._cve_jobs: dict[str, dict[str, Any]] = {}
         self._lock = threading.RLock()
         self._secret = self._load_or_create_join_secret()
         self._application_audit().append(
@@ -689,7 +691,9 @@ class LabApplicationService:
             return item
 
     def run_cve_analysis(
-        self, assessment_id: str
+        self,
+        assessment_id: str,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> list[EndpointDashboardItem]:
         """Run CVE analysis for every latest completed endpoint."""
 
@@ -714,11 +718,75 @@ class LabApplicationService:
         completed = 0
         partial = 0
         failed = 0
-        for endpoint in latest:
+        endpoint_total = len(latest)
+        for endpoint_index, endpoint in enumerate(latest, start=1):
+            submission_id = str(endpoint["submissionId"])
+
+            def endpoint_progress(
+                details: dict[str, Any],
+                *,
+                current_index: int = endpoint_index,
+                current_submission: str = submission_id,
+            ) -> None:
+                products_total = int(details.get("products_total", 0) or 0)
+                products_processed = int(
+                    details.get("products_processed", 0) or 0
+                )
+                product_fraction = (
+                    min(products_processed / products_total, 1.0)
+                    if products_total
+                    else 0.0
+                )
+                overall = min(
+                    99,
+                    int(
+                        (
+                            (current_index - 1 + product_fraction)
+                            / endpoint_total
+                        )
+                        * 100
+                    ),
+                )
+                _emit_progress(
+                    progress_callback,
+                    {
+                        "state": "RUNNING",
+                        "phase": str(details.get("phase", "SCANNING")),
+                        "percent": overall,
+                        "endpointIndex": current_index,
+                        "endpointTotal": endpoint_total,
+                        "submissionId": current_submission,
+                        "productsProcessed": products_processed,
+                        "productsTotal": products_total,
+                        "currentProduct": str(
+                            details.get("current_product", "")
+                        ),
+                        "currentVersion": str(
+                            details.get("current_version", "")
+                        ),
+                    },
+                )
+
+            _emit_progress(
+                progress_callback,
+                {
+                    "state": "RUNNING",
+                    "phase": "PREPARING_ENDPOINT",
+                    "percent": int(((endpoint_index - 1) / endpoint_total) * 100),
+                    "endpointIndex": endpoint_index,
+                    "endpointTotal": endpoint_total,
+                    "submissionId": submission_id,
+                    "productsProcessed": 0,
+                    "productsTotal": 0,
+                    "currentProduct": "",
+                    "currentVersion": "",
+                },
+            )
             result = pipeline.retry_analysis(
                 assessment_id,
-                str(endpoint["submissionId"]),
+                submission_id,
                 run_cve=True,
+                cve_progress_callback=endpoint_progress,
             )
             if result.cve_analysis_status == "COMPLETE":
                 completed += 1
@@ -742,6 +810,110 @@ class LabApplicationService:
                 state.status = LabAssessmentStatus.READY_FOR_REPORT
             self._write_state(state)
         return self.dashboard(assessment_id)
+
+    def start_cve_analysis(self, assessment_id: str) -> dict[str, Any]:
+        """Start one auditable CVE analysis job in the background."""
+
+        with self._lock:
+            current = self._cve_jobs.get(assessment_id)
+            if current and current.get("state") == "RUNNING":
+                return dict(current)
+            latest, _all, _index = FleetAnalyzer(
+                self.storage
+            ).load_latest_endpoint_data(assessment_id)
+            if not latest:
+                raise ValueError(
+                    "At least one completed endpoint analysis is required"
+                )
+            progress = {
+                "state": "RUNNING",
+                "result": "PENDING",
+                "phase": "PREPARING",
+                "percent": 0,
+                "endpointIndex": 0,
+                "endpointTotal": len(latest),
+                "submissionId": "",
+                "productsProcessed": 0,
+                "productsTotal": 0,
+                "currentProduct": "",
+                "currentVersion": "",
+                "message": "Preparing CVE analysis",
+            }
+            self._cve_jobs[assessment_id] = progress
+            worker = threading.Thread(
+                target=self._run_cve_job,
+                args=(assessment_id,),
+                name=f"CSA-CVE-{assessment_id}",
+                daemon=True,
+            )
+            initial = dict(progress)
+            worker.start()
+            return initial
+
+    def cve_analysis_progress(self, assessment_id: str) -> dict[str, Any]:
+        """Return the current in-memory CVE job state for an assessment."""
+
+        self.load_state(assessment_id)
+        with self._lock:
+            return dict(
+                self._cve_jobs.get(
+                    assessment_id,
+                    {
+                        "state": "IDLE",
+                        "result": "NOT_STARTED",
+                        "phase": "IDLE",
+                        "percent": 0,
+                    },
+                )
+            )
+
+    def _run_cve_job(self, assessment_id: str) -> None:
+        """Execute a background CVE job and publish a terminal state."""
+
+        def update(details: dict[str, Any]) -> None:
+            with self._lock:
+                current = self._cve_jobs.setdefault(assessment_id, {})
+                current.update(details)
+                current["message"] = _cve_progress_message(current)
+
+        try:
+            endpoints = self.run_cve_analysis(
+                assessment_id,
+                progress_callback=update,
+            )
+            statuses = {
+                item.cve_analysis_status
+                for item in endpoints
+                if item.status == EndpointUiStatus.COMPLETE
+            }
+            result = (
+                "COMPLETE"
+                if statuses == {"COMPLETE"}
+                else "PARTIAL"
+                if statuses
+                else "FAILED"
+            )
+            update(
+                {
+                    "state": "COMPLETED",
+                    "result": result,
+                    "phase": "COMPLETED",
+                    "percent": 100,
+                    "currentProduct": "",
+                    "currentVersion": "",
+                }
+            )
+        except Exception as error:
+            update(
+                {
+                    "state": "FAILED",
+                    "result": "FAILED",
+                    "phase": "FAILED",
+                    "message": (
+                        f"CVE analysis failed ({type(error).__name__})"
+                    ),
+                }
+            )
 
     def generate_unified_report(
         self,
@@ -1093,6 +1265,44 @@ def _transport_label(value: str) -> str:
         "OFFLINE_ENCRYPTED": "Encrypted offline import",
     }
     return labels.get(value, value.replace("_", " ").title())
+
+
+def _emit_progress(
+    callback: Callable[[dict[str, Any]], None] | None,
+    details: dict[str, Any],
+) -> None:
+    """Send optional CVE progress without coupling analysis to the UI."""
+
+    if callback is not None:
+        callback(details)
+
+
+def _cve_progress_message(progress: dict[str, Any]) -> str:
+    """Build a concise user-facing message from structured progress."""
+
+    state = str(progress.get("state", "RUNNING"))
+    if state == "FAILED":
+        return str(progress.get("message", "CVE analysis failed"))
+    if state == "COMPLETED":
+        result = str(progress.get("result", "COMPLETE"))
+        return f"CVE analysis completed with status {result}"
+    endpoint_index = int(progress.get("endpointIndex", 0) or 0)
+    endpoint_total = int(progress.get("endpointTotal", 0) or 0)
+    products_processed = int(progress.get("productsProcessed", 0) or 0)
+    products_total = int(progress.get("productsTotal", 0) or 0)
+    product = str(progress.get("currentProduct", "") or "")
+    endpoint_text = (
+        f"Endpoint {endpoint_index}/{endpoint_total}"
+        if endpoint_index and endpoint_total
+        else "Preparing endpoints"
+    )
+    product_text = (
+        f", product {min(products_processed + 1, products_total)}/"
+        f"{products_total}: {product}"
+        if products_total and product
+        else ""
+    )
+    return f"{endpoint_text}{product_text}"
 
 
 def _default_collector_bootstrap() -> Path:

@@ -30,7 +30,7 @@ header h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: 0; }
 header p {
   margin: 4px 0;
   color: #d5dce3;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 60px; }
 section { margin: 0 0 34px; }
@@ -52,7 +52,7 @@ th, td {
   border: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 th { background: #e9edf1; font-weight: 650; }
 .finding {
@@ -61,7 +61,7 @@ th { background: #e9edf1; font-weight: 650; }
   border-left-width: 5px;
   padding: 16px;
   margin: 0 0 10px;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .finding.CRITICAL { border-left-color: var(--critical); }
 .finding.HIGH { border-left-color: var(--high); }
@@ -75,7 +75,7 @@ th { background: #e9edf1; font-weight: 650; }
 dl { display: grid; grid-template-columns: minmax(150px, 230px) 1fr; margin: 0; }
 dt, dd { padding: 8px 0; border-bottom: 1px solid var(--line); }
 dt { color: var(--muted); }
-dd { margin: 0; overflow-wrap: anywhere; }
+dd { margin: 0; overflow-wrap: break-word; }
 footer { max-width: 1180px; margin: 0 auto; padding: 0 24px 30px; color: var(--muted); }
 @media (max-width: 700px) {
   main { padding-inline: 14px; }

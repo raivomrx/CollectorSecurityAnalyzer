@@ -32,7 +32,7 @@
     <li><a href="#executive">Executive Summary</a></li>
     <li><a href="#scope">Assessment Scope</a></li>
     <li><a href="#risk">Overall Risk and Coverage</a></li>
-    <li><a href="#fleet">Fleet Dashboard</a></li>
+    <li><a href="#fleet">Assessment Overview</a></li>
     <li><a href="#cve">CVE Analysis</a></li>
     <li><a href="#priority">Priority Findings</a></li>
     <li><a href="#systemic">Systemic Findings</a></li>
@@ -61,7 +61,13 @@
       <div class="metric"><span>Critical findings</span><strong>{{ model.risk.criticalFindings }}</strong></div>
       <div class="metric"><span>High findings</span><strong>{{ model.risk.highFindings }}</strong></div>
       <div class="metric"><span>Critical-risk endpoints</span><strong>{{ model.risk.criticalRiskEndpoints }}</strong></div>
+      <div class="metric"><span>Known / confirmed CVEs</span><strong>{{ model.cve.uniqueCves }} / {{ model.cve.confirmedUniqueCves }}</strong></div>
+      <div class="metric"><span>Critical CVEs</span><strong>{{ model.cve.criticalUniqueCves }}</strong></div>
+      <div class="metric"><span>CISA KEV</span><strong>{{ model.cve.cisaKevUniqueCves }}</strong></div>
     </div>
+    {% if model.cve.status != "COMPLETE" %}
+    <p class="notice warning"><strong>CVE analysis not fully evaluated.</strong> {{ model.cve.successfullyEvaluatedProducts }} of {{ model.cve.cveEligibleProducts }} eligible products were evaluated ({{ "%.1f"|format(model.cve.coveragePercent) }}% coverage). CVE totals must not be interpreted as proof that the remaining software is unaffected.</p>
+    {% endif %}
     <p class="lead">{{ model.assessment.description or "This report summarizes the Windows endpoint security assessment." }}</p>
     <p class="notice">This report may contain personal data and security-sensitive system information. Handle and distribute it according to the assessment agreement.</p>
     {% if model.priorityActions %}
@@ -131,7 +137,7 @@
   </section>
 
   <section id="fleet" class="report-section">
-    <div class="section-heading"><p>04</p><h2>Fleet Dashboard</h2></div>
+    <div class="section-heading"><p>04</p><h2>Assessment Overview</h2></div>
     <div class="chart-grid">
       <div class="chart">
         <h3>Risk distribution</h3>
@@ -221,12 +227,12 @@
 
   <section id="remediation" class="report-section">
     <div class="section-heading"><p>08</p><h2>Remediation Plan</h2></div>
-    <table>
+    <div class="table-scroll"><table class="remediation-table">
       <thead><tr><th>Priority</th><th>Finding</th><th>Severity</th><th>Affected</th><th>Recommended action</th></tr></thead>
       <tbody>{% for item in model.remediationPlan %}
         <tr><td>{{ item.priority }}</td><td>{{ item.ruleId }} - {{ item.title }}</td><td><span class="severity severity-{{ item.severity|lower }}">{{ item.severity }}</span></td><td>{{ item.affectedPercent }}%</td><td>{{ item.recommendation }}</td></tr>
       {% endfor %}</tbody>
-    </table>
+    </table></div>
     <a class="back-top no-print" href="#top">Back to top</a>
   </section>
 
@@ -293,7 +299,7 @@
           <label>Search software<input type="search" data-inventory-search placeholder="Name, vendor, version or CVE"></label>
           <label>Security status<select data-inventory-status><option value="">All statuses</option>{% for status in endpoint.softwareResults|map(attribute="securityStatus")|unique|sort %}<option value="{{ status }}">{{ status }}</option>{% endfor %}</select></label>
         </div>
-        <div class="table-scroll"><table class="sortable inventory-table"><thead><tr><th>Software</th><th>Version</th><th>Publisher</th><th>Architecture</th><th>Scope</th><th>Security status</th><th>Lifecycle</th></tr></thead><tbody>{% for software in endpoint.softwareResults %}<tr data-inventory-row data-security-status="{{ software.securityStatus }}"><td><details><summary>{{ software.displayName }}</summary><p>Normalized: {{ software.normalizedVendor }} / {{ software.normalizedProduct }} / {{ software.normalizedVersion }}</p><p>Confidence: {{ software.normalizationConfidence }}%. Source: {{ software.source }}.</p><p>Lifecycle source: {{ software.lifecycleSource or "Not available" }} ({{ software.lifecycleDataVersion }}).</p>{% if software.cveDetails %}<table><thead><tr><th>CVE</th><th>Severity</th><th>CVSS</th><th>Match</th><th>KEV</th></tr></thead><tbody>{% for cve in software.cveDetails %}<tr><td>{{ cve.cveId }}</td><td>{{ cve.severity }}</td><td>{{ cve.cvssScore if cve.cvssScore is not none else "N/A" }}</td><td>{{ cve.matchStatus }} - {{ cve.matchRationale }}</td><td>{{ "YES" if cve.cisaKev else "NO" }}</td></tr>{% endfor %}</tbody></table>{% endif %}</details></td><td>{{ software.displayVersion or "Unknown" }}</td><td>{{ software.publisher or "Unknown" }}</td><td>{{ software.architecture }}</td><td>{{ software.scope }}</td><td>{{ software.securityStatus }}</td><td>{{ software.lifecycleStatus }}</td></tr>{% endfor %}</tbody></table></div>
+        <div class="table-scroll"><table class="sortable inventory-table"><thead><tr><th>Software</th><th>Version</th><th>Publisher</th><th>Architecture</th><th>Scope</th><th>Security status</th><th>Lifecycle</th></tr></thead><tbody>{% for software in endpoint.softwareResults %}<tr data-inventory-row data-security-status="{{ software.securityStatus }}"><td><details><summary>{{ software.displayName }}</summary><p>Normalized: {{ software.normalizedVendor }} / {{ software.normalizedProduct }} / {{ software.normalizedVersion }}</p><p>Confidence: {{ software.normalizationConfidence }}%. Source: {{ software.source }}.</p>{% set pipeline = software.cvePipeline %}<dl class="pipeline-details"><div><dt>Eligibility</dt><dd>{{ pipeline.eligibilityStatus }}</dd></div><div><dt>Product mapping</dt><dd>{{ pipeline.productMappingStatus }}</dd></div><div><dt>CPE candidates</dt><dd>{{ pipeline.cpeCandidateCount }}</dd></div><div><dt>Provider query</dt><dd>{{ pipeline.providerQueryStatus }}</dd></div><div><dt>Version evaluation</dt><dd>{{ pipeline.versionEvaluationStatus }}</dd></div><div><dt>CVE result</dt><dd>{{ pipeline.cveResultStatus }}</dd></div></dl>{% if pipeline.providerReason %}<p><strong>Evaluation reason:</strong> {{ pipeline.providerReason }}</p>{% endif %}<p>Lifecycle source: {{ software.lifecycleSource or "Not available" }} ({{ software.lifecycleDataVersion }}).</p>{% if software.cveDetails %}<table><thead><tr><th>CVE</th><th>Severity</th><th>CVSS</th><th>Match</th><th>KEV</th></tr></thead><tbody>{% for cve in software.cveDetails %}<tr><td>{{ cve.cveId }}</td><td>{{ cve.severity }}</td><td>{{ cve.cvssScore if cve.cvssScore is not none else "N/A" }}</td><td>{{ cve.matchStatus }} - {{ cve.matchRationale }}</td><td>{{ "YES" if cve.cisaKev else "NO" }}</td></tr>{% endfor %}</tbody></table>{% endif %}</details></td><td>{{ software.displayVersion or "Unknown" }}</td><td>{{ software.publisher or "Unknown" }}</td><td>{{ software.architecture }}</td><td>{{ software.scope }}</td><td>{{ software.securityStatus }}</td><td>{{ software.lifecycleStatus }}</td></tr>{% endfor %}</tbody></table></div>
         {% elif endpoint.softwareCollection.get("status") == "SUCCESS" %}<p>No installed software detected.</p>{% else %}<p class="notice warning">Software inventory collection failed or was not evaluated.</p>{% endif %}
 
         <h3>Known Vulnerabilities</h3>

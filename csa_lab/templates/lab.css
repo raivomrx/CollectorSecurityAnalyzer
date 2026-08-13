@@ -112,7 +112,7 @@ main { min-width: 0; }
 .metric-strip > div { padding: 15px 18px; border-right: 1px solid var(--border); }
 .metric-strip > div:last-child { border-right: 0; }
 .metric-strip span { display: block; color: var(--muted); font-size: 12px; }
-.metric-strip strong { display: block; margin-top: 5px; font-size: 20px; overflow-wrap: anywhere; }
+.metric-strip strong { display: block; margin-top: 5px; font-size: 20px; overflow-wrap: break-word; }
 .collection-band, .endpoint-band, .report-band, .advanced-details {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -129,7 +129,7 @@ main { min-width: 0; }
 .privacy-line { margin-top: 15px; color: var(--muted); font-size: 13px; }
 .table-scroll { margin-top: 14px; overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
-th, td { padding: 10px 11px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+th, td { padding: 10px 11px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: break-word; }
 th { background: var(--surface-alt); font-size: 12px; }
 tbody tr[data-index] { cursor: pointer; }
 tbody tr[data-index]:hover { background: #edf7f4; }
@@ -139,9 +139,12 @@ tbody tr[data-index]:hover { background: #edf7f4; }
 .endpoint-detail dl, .advanced-details dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .endpoint-detail div, .advanced-details dl div { min-width: 0; }
 dt { color: var(--muted); font-size: 12px; }
-dd { margin: 2px 0 0; font-weight: 650; overflow-wrap: anywhere; }
+dd { margin: 2px 0 0; font-weight: 650; overflow-wrap: break-word; }
 .report-band { align-items: center; }
 .report-options { display: flex; gap: 15px; flex-wrap: wrap; margin-top: 13px; font-size: 13px; }
+.cve-progress { display: grid; gap: 7px; margin-top: 16px; max-width: 720px; }
+.cve-progress progress { width: 100%; height: 14px; accent-color: var(--accent); }
+.cve-progress span { color: var(--muted); font-size: 12px; }
 .report-actions { display: grid; gap: 8px; min-width: 230px; }
 .advanced-details summary { cursor: pointer; font-weight: 700; }
 .advanced-details dl { margin-bottom: 0; }

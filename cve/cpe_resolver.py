@@ -35,6 +35,16 @@ class ParsedCpe23:
     other: str
 
 
+@dataclass(frozen=True, slots=True)
+class CpeResolution:
+    """Describe the candidate set and decision made by the resolver."""
+
+    candidate: CpeCandidate | None
+    candidate_count: int
+    status: str
+    reason: str | None = None
+
+
 class CpeResolver:
     """Resolve software products to CPE 2.3 candidates."""
 
@@ -55,6 +65,11 @@ class CpeResolver:
     def resolve(self, software: SoftwareProduct) -> CpeCandidate | None:
         """Resolve a software product to a CPE candidate."""
 
+        return self.resolve_with_trace(software).candidate
+
+    def resolve_with_trace(self, software: SoftwareProduct) -> CpeResolution:
+        """Resolve a product and retain the candidate decision for audit."""
+
         local = self._resolve_local(software)
         if local is not None:
             LOGGER.info(
@@ -63,23 +78,45 @@ class CpeResolver:
                 local.confidence,
                 local.source,
             )
-            return local
+            return CpeResolution(local, 1, "SUCCESS")
 
         if self.client is None:
-            return None
+            return CpeResolution(
+                None,
+                0,
+                "NO_RELIABLE_MAPPING",
+                "No validated local mapping and remote lookup is disabled",
+            )
         candidates = self._resolve_nvd(software)
         if not candidates:
-            return None
+            return CpeResolution(
+                None,
+                0,
+                "NO_RELIABLE_MAPPING",
+                "NVD CPE search returned no reliable candidate",
+            )
         candidates.sort(key=lambda candidate: candidate.confidence, reverse=True)
         active = [candidate for candidate in candidates if not candidate.deprecated]
         ranked = active or candidates
         best = ranked[0]
         if best.confidence < self.minimum_confidence:
-            return None
+            return CpeResolution(
+                None,
+                len(ranked),
+                "NO_RELIABLE_MAPPING",
+                f"Best CPE confidence {best.confidence} is below "
+                f"{self.minimum_confidence}",
+            )
         if len(ranked) > 1 and best.confidence - ranked[1].confidence < self.ambiguous_score_difference:
             best.match_status = CpeMatchStatus.AMBIGUOUS
             LOGGER.warning("Ambiguous CPE match for product: %s", software.product)
-        return best
+            return CpeResolution(
+                best,
+                len(ranked),
+                "AMBIGUOUS",
+                "Top CPE candidates are too close to select reliably",
+            )
+        return CpeResolution(best, len(ranked), "SUCCESS")
 
     def _resolve_local(self, software: SoftwareProduct) -> CpeCandidate | None:
         """Resolve using local audited mappings."""

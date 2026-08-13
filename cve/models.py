@@ -97,6 +97,29 @@ class CveScanError:
 
 
 @dataclass(slots=True)
+class CveProductEvaluation:
+    """Describe each auditable stage of one software CVE evaluation."""
+
+    product_key: str
+    display_name: str
+    version: str
+    normalization_status: str
+    normalization_confidence: int
+    eligibility_status: str
+    product_mapping_status: str = "NOT_RUN"
+    cpe_candidate_count: int = 0
+    cpe: str | None = None
+    provider_query_status: str = "NOT_RUN"
+    provider_reason: str | None = None
+    version_evaluation_status: str = "NOT_RUN"
+    cve_result_status: str = "NOT_EVALUATED"
+    records_received: int = 0
+    confirmed_cves: int = 0
+    possible_cves: int = 0
+    not_affected_cves: int = 0
+
+
+@dataclass(slots=True)
 class CveScanSummary:
     """Represent a CVE inventory scan summary."""
 
@@ -116,3 +139,6 @@ class CveScanSummary:
     assessments: list[CveAssessment]
     errors: list[CveScanError]
     scan_complete: bool
+    product_evaluations: list[CveProductEvaluation] = field(
+        default_factory=list
+    )

@@ -168,7 +168,7 @@ h3 { font-size: 18px; }
   padding: 18px;
 }
 .metric span { display: block; color: var(--muted); font-size: 14px; }
-.metric strong { display: block; margin-top: 8px; font-size: 27px; overflow-wrap: anywhere; }
+.metric strong { display: block; margin-top: 8px; font-size: 27px; overflow-wrap: break-word; }
 .notice { border-left: 5px solid var(--medium); padding: 12px 16px; background: var(--surface-muted); }
 .plain-list { padding-left: 20px; }
 .risk-layout { display: grid; grid-template-columns: 250px 1fr; gap: 34px; align-items: start; }
@@ -226,7 +226,7 @@ h3 { font-size: 18px; }
 .finding[data-severity="high"] { border-left-color: var(--high); }
 .finding[data-severity="medium"] { border-left-color: var(--medium); }
 table { width: 100%; border-collapse: collapse; background: var(--surface); }
-th, td { border-bottom: 1px solid var(--border); padding: 10px 12px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+th, td { border-bottom: 1px solid var(--border); padding: 10px 12px; text-align: left; vertical-align: top; overflow-wrap: break-word; }
 th { background: var(--surface-muted); font-weight: 700; }
 .table-scroll { overflow-x: auto; }
 details { border: 1px solid var(--border); background: var(--surface); margin: 10px 0; }
@@ -237,7 +237,14 @@ summary { cursor: pointer; padding: 12px 14px; font-weight: 650; }
 .details-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .details-grid > div { padding: 10px; background: var(--surface-muted); }
 dt { color: var(--muted); font-size: 13px; }
-dd { margin: 4px 0 0; font-weight: 650; overflow-wrap: anywhere; }
+dd { margin: 4px 0 0; font-weight: 650; overflow-wrap: break-word; }
+.pipeline-details { display: grid; grid-template-columns: repeat(2, minmax(160px, 1fr)); gap: 8px; }
+.pipeline-details > div { padding: 8px; background: var(--surface-muted); }
+.remediation-table { table-layout: auto; min-width: 780px; }
+.remediation-table th:nth-child(1) { width: 70px; }
+.remediation-table th:nth-child(3) { width: 100px; }
+.remediation-table th:nth-child(4) { width: 90px; }
+.remediation-table th:nth-child(5) { min-width: 260px; }
 pre {
   margin: 0;
   padding: 14px;
@@ -266,6 +273,7 @@ footer { max-width: 1180px; margin: 0 auto; padding: 25px 30px 45px; color: var(
   .chart-grid, .control-grid, .risk-layout, .details-grid { grid-template-columns: 1fr; }
   .score-gauge { border-radius: 6px; }
   .bar-row { grid-template-columns: minmax(90px, 130px) 1fr 48px; }
+  table { display: block; max-width: 100%; overflow-x: auto; }
 }
 
 @media (max-width: 520px) {

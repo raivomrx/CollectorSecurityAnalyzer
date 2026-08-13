@@ -180,7 +180,7 @@
       ]
     },
     "CVE-001": {
-      "title": "Known vulnerabilities detected",
+      "title": "Known vulnerability assessment",
       "description": "Installed software may be affected by known vulnerabilities based on NVD applicability, CISA KEV exploitation evidence, CVE Program CNA affected-version data, and related source references. CVSS describes technical severity, while CSA priority combines exploit evidence, applicability, CNA confirmation, and source conflicts.",
       "risk": "Confirmed vulnerable versions can expose the workstation to exploitation, privilege escalation, data exposure, or remote code execution. KEV membership indicates known exploitation in the wild, but does not by itself prove that this specific installed version is affected.",
       "recommendation": "For confirmed affected KEV or P1 findings, prioritize remediation or vendor mitigation. For possible, not evaluated, or source-conflicting entries, manually validate the installed product, version, and vendor advisory before treating the device as confirmed vulnerable. P1 priority does not automatically mean every endpoint is exploitable.",

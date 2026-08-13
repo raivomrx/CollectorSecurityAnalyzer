@@ -464,6 +464,20 @@ class UnifiedReportGenerator:
         software_results = list(
             endpoint.get("cveSummary", {}).get("softwareResults", [])
         )
+        for software in software_results:
+            software.setdefault(
+                "cvePipeline",
+                {
+                    "eligibilityStatus": "NOT_EVALUATED",
+                    "productMappingStatus": "NOT_RUN",
+                    "cpeCandidateCount": 0,
+                    "providerQueryStatus": "NOT_RUN",
+                    "providerReason": "Detailed CVE pipeline data is unavailable",
+                    "reason": "Detailed CVE pipeline data is unavailable",
+                    "versionEvaluationStatus": "NOT_RUN",
+                    "cveResultStatus": "NOT_EVALUATED",
+                },
+            )
         unsupported_count = sum(
             1
             for item in software_results
