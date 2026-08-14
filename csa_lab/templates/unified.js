@@ -95,6 +95,87 @@
     statusSelect.addEventListener("change", filterInventory);
   });
 
+  const wireFilter = (buttonSelector, rowSelector, valueAttribute, matcher) => {
+    const buttons = Array.from(document.querySelectorAll(buttonSelector));
+    const rows = Array.from(document.querySelectorAll(rowSelector));
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const value = button.dataset[valueAttribute];
+        buttons.forEach((item) => item.classList.toggle("active", item === button));
+        rows.forEach((row) => row.classList.toggle("hidden", !matcher(row, value)));
+      });
+    });
+  };
+
+  wireFilter(".vulnerability-filter", "[data-vulnerability-row]", "vulnerabilityFilter", (row, value) => {
+    if (value === "all") return true;
+    if (value === "confirmed") return Number(row.dataset.confirmed) > 0;
+    if (value === "possible") return Number(row.dataset.possible) > 0;
+    if (value === "critical") return Number(row.dataset.critical) > 0;
+    if (value === "high") return Number(row.dataset.high) > 0;
+    return value === "known-exploited" && Number(row.dataset.kev) > 0;
+  });
+  wireFilter(".matrix-filter", "[data-matrix-row]", "matrixFilter", (row, value) => {
+    if (value === "all-software") return true;
+    if (value === "vulnerable") return row.dataset.vulnerable === "1";
+    if (value === "end-of-support") return row.dataset.eol === "1";
+    if (value === "remote-access") return row.dataset.remote === "1";
+    return value === "only-differences" && row.dataset.different === "1";
+  });
+  wireFilter(".framework-filter", "[data-framework-row]", "frameworkFilter", (row, value) => {
+    if (value === "all") return true;
+    return (row.dataset.framework || "").includes(value);
+  });
+
+  const copyButton = document.getElementById("copy-remediation");
+  const copyStatus = document.getElementById("copy-status");
+  const remediationMarkdown = () => Array.from(document.querySelectorAll(".remediation-row"))
+    .map((row) => {
+      const priority = row.cells[0]?.textContent.trim() || "";
+      const affected = row.dataset.endpoints.split("|").filter(Boolean).join(", ");
+      return `## ${priority} - ${row.dataset.action}\nAffected: ${affected}\nReason: ${row.dataset.reason}\nVerification: ${row.dataset.verification}`;
+    }).join("\n\n");
+  const fallbackCopy = (value) => {
+    const area = document.createElement("textarea");
+    area.value = value;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.append(area);
+    area.select();
+    const copied = document.execCommand("copy");
+    area.remove();
+    return copied;
+  };
+  copyButton.addEventListener("click", async () => {
+    const markdown = remediationMarkdown();
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(markdown);
+      } else if (!fallbackCopy(markdown)) {
+        throw new Error("Clipboard is unavailable");
+      }
+      copyStatus.textContent = "Remediation list copied as Markdown.";
+    } catch (_error) {
+      copyStatus.textContent = "Clipboard access was blocked by the browser.";
+    }
+  });
+
+  const openFragment = () => {
+    if (!location.hash) return;
+    let target;
+    try {
+      target = document.querySelector(location.hash);
+    } catch (_error) {
+      return;
+    }
+    if (!target) return;
+    if (target.tagName === "DETAILS") target.open = true;
+    const parent = target.closest("details");
+    if (parent) parent.open = true;
+  };
+  window.addEventListener("hashchange", openFragment);
+  openFragment();
+
   const navigation = Array.from(document.querySelectorAll(".report-nav a"));
   const sections = navigation
     .map((link) => document.querySelector(link.getAttribute("href")))

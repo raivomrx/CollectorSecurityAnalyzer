@@ -157,7 +157,7 @@ class Sprint52IntelligenceTests(unittest.TestCase):
             "endpointReferences": ["DELL-MINI"],
         }]
         actions = _priority_actions(endpoints, findings)
-        self.assertEqual(actions[0]["action"], "Remediate CISA KEV vulnerabilities")
+        self.assertEqual(actions[0]["action"], "Remediate known exploited vulnerabilities")
         self.assertLessEqual(len(actions), 5)
         self.assertEqual(len({item["action"] for item in actions}), len(actions))
 

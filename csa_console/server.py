@@ -65,6 +65,8 @@ class ConsoleHttpsServer:
         self._stop_path.unlink(missing_ok=True)
         self._stopped = threading.Event()
         self._serving = threading.Event()
+        self._close_lock = threading.Lock()
+        self._closed = False
         validate_listen_address(
             self.session.listen_address, allow_wildcard=allow_wildcard_bind
         )
@@ -102,7 +104,7 @@ class ConsoleHttpsServer:
         finally:
             self._serving.clear()
             self._stopped.set()
-            self._server.server_close()
+            self._close_server()
 
     def shutdown(self) -> None:
         """Stop accepting requests and close the listener."""
@@ -110,7 +112,7 @@ class ConsoleHttpsServer:
         if self._serving.is_set():
             self._server.shutdown()
         self._stopped.set()
-        self._server.server_close()
+        self._close_server()
 
     @property
     def address(self) -> tuple[str, int]:
@@ -128,6 +130,15 @@ class ConsoleHttpsServer:
                 self._server.shutdown()
                 return
             self._stopped.wait(0.25)
+
+    def _close_server(self) -> None:
+        """Close the listener socket exactly once across shutdown paths."""
+
+        with self._close_lock:
+            if self._closed:
+                return
+            self._server.server_close()
+            self._closed = True
 
 
 def request_server_stop(

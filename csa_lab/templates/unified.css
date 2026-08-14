@@ -169,6 +169,18 @@ h3 { font-size: 18px; }
 }
 .metric span { display: block; color: var(--muted); font-size: 14px; }
 .metric strong { display: block; margin-top: 8px; font-size: 27px; overflow-wrap: break-word; }
+.metric small { display: block; margin-top: 5px; color: var(--muted); }
+.metric-link { color: inherit; text-decoration: none; }
+.metric-link:hover { border-color: var(--accent); }
+.primary-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.secondary-metrics { margin-top: 12px; }
+.metric.compact { padding: 12px 16px; }
+.metric.compact strong { font-size: 21px; }
+.risk-critical { color: var(--critical); }
+.risk-high { color: var(--high); }
+.risk-medium { color: var(--medium); }
+.risk-low { color: var(--low); }
+.risk-informational { color: var(--success); }
 .notice { border-left: 5px solid var(--medium); padding: 12px 16px; background: var(--surface-muted); }
 .plain-list { padding-left: 20px; }
 .risk-layout { display: grid; grid-template-columns: 250px 1fr; gap: 34px; align-items: start; }
@@ -212,8 +224,14 @@ h3 { font-size: 18px; }
 .severity-low { color: var(--low); }
 .severity-info { color: var(--info); }
 .status-pass, .status-verified { color: var(--success); }
+.status-not_evaluated, .status-partial { color: var(--muted); }
+.status-error { color: var(--critical); }
 .filter-bar { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 18px; }
-.filter-button.active { background: var(--accent); border-color: var(--accent); color: white; }
+.filter-button.active, .vulnerability-filter.active, .matrix-filter.active, .framework-filter.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
 .finding {
   border-left: 5px solid var(--border);
   background: var(--surface);
@@ -222,13 +240,26 @@ h3 { font-size: 18px; }
 }
 .finding header { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .finding h3 { margin: 0; }
+.finding-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.finding-grid .finding { margin: 0; }
+.finding-detail { scroll-margin-top: 12px; }
+.finding-detail > summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.details-content { padding: 0 16px 16px; }
+.endpoint-links a { white-space: nowrap; }
+.inline-details { display: inline; border: 0; background: transparent; }
+.inline-details summary { display: inline; padding: 0; color: var(--accent); }
 .finding[data-severity="critical"] { border-left-color: var(--critical); }
 .finding[data-severity="high"] { border-left-color: var(--high); }
 .finding[data-severity="medium"] { border-left-color: var(--medium); }
 table { width: 100%; border-collapse: collapse; background: var(--surface); }
-th, td { border-bottom: 1px solid var(--border); padding: 10px 12px; text-align: left; vertical-align: top; overflow-wrap: break-word; }
+th, td { border-bottom: 1px solid var(--border); padding: 10px 12px; text-align: left; vertical-align: top; overflow-wrap: normal; word-break: normal; }
 th { background: var(--surface-muted); font-weight: 700; }
 .table-scroll { overflow-x: auto; }
+.endpoint-overview { min-width: 1120px; }
+.vulnerability-table { min-width: 980px; }
+.cve-detail { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 8px; }
+.cve-detail h4 { margin: 0; }
+.cve-detail p { margin: 6px 0; }
 details { border: 1px solid var(--border); background: var(--surface); margin: 10px 0; }
 summary { cursor: pointer; padding: 12px 14px; font-weight: 650; }
 .endpoint > summary { display: flex; gap: 18px; justify-content: space-between; flex-wrap: wrap; }
@@ -245,6 +276,21 @@ dd { margin: 4px 0 0; font-weight: 650; overflow-wrap: break-word; }
 .remediation-table th:nth-child(3) { width: 100px; }
 .remediation-table th:nth-child(4) { width: 90px; }
 .remediation-table th:nth-child(5) { min-width: 260px; }
+.copy-status { min-height: 24px; color: var(--success); }
+.risk-layout { grid-template-columns: minmax(220px, 280px) 1fr; }
+.score-panel { border-left: 6px solid var(--accent); background: var(--surface); padding: 22px; }
+.score-panel span, .score-panel b { display: block; color: var(--muted); }
+.score-panel strong { display: block; font-size: 36px; margin: 6px 0; }
+.control-strip { display: flex; flex-wrap: wrap; gap: 8px; }
+.control-strip span { border: 1px solid var(--border); padding: 7px 9px; background: var(--surface-muted); }
+.software-matrix { min-width: 760px; }
+.software-matrix th, .software-matrix td { white-space: nowrap; }
+.sticky-column { position: sticky; left: 0; z-index: 2; background: var(--surface-muted); min-width: 190px; }
+.software-matrix td.sticky-column { background: var(--surface); font-weight: 650; }
+.compact-matrix th:not(.sticky-column) { max-width: 84px; overflow: hidden; text-overflow: ellipsis; }
+.compact-matrix td:not(.sticky-column) { max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+.framework-row { border-left: 4px solid var(--info); padding: 16px; margin: 12px 0; background: var(--surface); }
+.framework-row header { display: flex; justify-content: space-between; gap: 12px; }
 pre {
   margin: 0;
   padding: 14px;
@@ -269,7 +315,8 @@ footer { max-width: 1180px; margin: 0 auto; padding: 25px 30px 45px; color: var(
     width: 100%;
   }
   .report-header h1 { font-size: 30px; }
-  .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .summary-grid, .primary-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .finding-grid { grid-template-columns: 1fr; }
   .chart-grid, .control-grid, .risk-layout, .details-grid { grid-template-columns: 1fr; }
   .score-gauge { border-radius: 6px; }
   .bar-row { grid-template-columns: minmax(90px, 130px) 1fr 48px; }
@@ -278,7 +325,7 @@ footer { max-width: 1180px; margin: 0 auto; padding: 25px 30px 45px; color: var(
 
 @media (max-width: 520px) {
   main, .report-header { padding-left: 18px; padding-right: 18px; }
-  .summary-grid { grid-template-columns: 1fr; }
+  .summary-grid, .primary-metrics { grid-template-columns: 1fr; }
   .report-header h1 { font-size: 26px; }
   h2 { font-size: 23px; }
 }

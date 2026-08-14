@@ -52,7 +52,7 @@ Endpoint peab ilmuma tabelisse:
 - coverage ja findings on nähtavad.
 
 Genereeri üks unified report, ava see ilma CSA serverita ning kontrolli
-Executive Summary, Endpoint Details, Coverage Gaps ja Audit and Integrity
+Executive Summary, Endpoint Details, Assessment Limitations ja Audit and Integrity
 peatükke. Lõpuks vajuta **Stop Collection** ja kinnita, et firewall access ei ole
 enam aktiivne.
 

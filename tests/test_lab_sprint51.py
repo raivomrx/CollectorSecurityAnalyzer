@@ -121,7 +121,9 @@ class LabUiContractTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("CVE analysis not fully evaluated", template)
-        self.assertIn("Known / confirmed CVEs", template)
+        self.assertIn("Detected CVEs", template)
+        self.assertIn("Confirmed CVEs", template)
+        self.assertIn("Possible CVEs", template)
         self.assertIn("Assessment Overview", template)
         self.assertNotIn("Fleet Dashboard", template)
         self.assertIn("remediation-table", template)
@@ -757,8 +759,18 @@ class LabServiceTests(unittest.TestCase):
             target=admin.server.serve_forever, daemon=True
         )
         thread.start()
-        self.addCleanup(admin.server.shutdown)
-        self.addCleanup(admin.server.server_close)
+        closed = False
+
+        def close_server() -> None:
+            nonlocal closed
+            if closed:
+                return
+            admin.server.shutdown()
+            thread.join(timeout=5)
+            admin.server.server_close()
+            closed = True
+
+        self.addCleanup(close_server)
         self.assertEqual(admin.server.server_address[0], "127.0.0.1")
         page = requests.get(admin.url, timeout=5)
         self.assertEqual(page.status_code, 200)
@@ -769,9 +781,7 @@ class LabServiceTests(unittest.TestCase):
             timeout=5,
         )
         self.assertEqual(rejected.status_code, 403)
-        admin.server.shutdown()
-        thread.join(timeout=5)
-        admin.server.server_close()
+        close_server()
 
 
 class CollectorExecutableTests(unittest.TestCase):

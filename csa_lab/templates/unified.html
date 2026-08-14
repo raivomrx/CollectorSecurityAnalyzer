@@ -1,404 +1,191 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
-  <title>{{ model.assessment.name }} - CSA Assessment Report</title>
+  <title>{{ model.assessment.name }} - CSA Security Assessment</title>
   <style>{{ inline_style | safe }}</style>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to report</a>
 <header class="report-header" id="top">
   <div>
-    <p class="product-name">CSA Security Assessment</p>
+    <p class="product-name">CollectorSecurityAnalyzer</p>
     <h1>{{ model.assessment.name }}</h1>
-    <p>{{ model.assessment.organization or model.assessment.referenceNumber }}</p>
+    <p>{{ model.assessment.organization or "Security assessment" }}{% if model.assessment.referenceNumber %} &middot; {{ model.assessment.referenceNumber }}{% endif %}</p>
     <p class="classification">{{ model.dataClassification }}</p>
   </div>
   <div class="header-actions no-print">
-    <label class="search-label">
-      <span>Search report</span>
-      <input id="report-search" type="search" placeholder="Finding, endpoint, control">
-    </label>
+    <label class="search-label">Search report<input id="report-search" type="search" placeholder="Finding, endpoint, control or CVE"></label>
+    <button type="button" id="copy-remediation" title="Copy remediation list as Markdown">Copy remediation list</button>
     <button type="button" id="theme-toggle" title="Toggle display theme">Theme</button>
     <button type="button" id="print-report">Print full report</button>
   </div>
 </header>
 
-<nav class="report-nav no-print" aria-label="Report sections">
-  <strong>Contents</strong>
-  <ol>
-    <li><a href="#executive">Executive Summary</a></li>
-    <li><a href="#scope">Assessment Scope</a></li>
-    <li><a href="#risk">Overall Risk and Coverage</a></li>
-    <li><a href="#fleet">Assessment Overview</a></li>
-    <li><a href="#cve">CVE Analysis</a></li>
-    <li><a href="#priority">Priority Findings</a></li>
-    <li><a href="#systemic">Systemic Findings</a></li>
-    <li><a href="#remediation">Remediation Plan</a></li>
-    <li><a href="#comparison">Endpoint Comparison</a></li>
-    <li><a href="#endpoints">Endpoint Details</a></li>
-    <li><a href="#gaps">Coverage Gaps and Limitations</a></li>
-    <li><a href="#frameworks">Framework Mapping</a></li>
-    <li><a href="#evidence">Technical Evidence</a></li>
-    <li><a href="#methodology">Methodology</a></li>
-    <li><a href="#integrity">Audit and Integrity</a></li>
-  </ol>
-</nav>
+<nav class="report-nav no-print" aria-label="Report contents"><ol>
+  <li><a href="#executive">Executive Summary</a></li>
+  <li><a href="#scope">Assessment Scope</a></li>
+  <li><a href="#comparison">Endpoint Overview</a></li>
+  <li><a href="#fleet">Assessment Overview</a></li>
+  <li><a href="#risk">Risk Explanation</a></li>
+  <li><a href="#priority">Priority Findings</a></li>
+  <li><a href="#systemic">All Findings</a></li>
+  <li><a href="#remediation">Remediation Plan</a></li>
+  <li><a href="#cve">Vulnerability Exposure</a></li>
+  <li><a href="#software-matrix">Software Exposure Overview</a></li>
+  <li><a href="#endpoints">Endpoint Details</a></li>
+  <li><a href="#gaps">Assessment Limitations</a></li>
+  <li><a href="#frameworks">Framework &amp; Compliance Impact</a></li>
+  <li><a href="#evidence">Technical Evidence</a></li>
+  <li><a href="#methodology">Methodology</a></li>
+  <li><a href="#integrity">Audit and Integrity</a></li>
+</ol></nav>
 
 <main id="main">
   <section id="executive" class="report-section">
-    <div class="section-heading">
-      <p>01</p><h2>Executive Summary</h2>
+    <div class="section-heading"><p>01</p><h2>Executive Summary</h2></div>
+    <p class="lead">{{ model.assessment.description or "This report presents evidence-backed security results for the assessed Windows endpoints." }}</p>
+    <div class="summary-grid primary-metrics">
+      <div class="metric"><span>Overall security risk</span><strong class="risk-{{ model.risk.rating|lower }}">{{ model.risk.rating }}</strong><small>Risk score {{ "%.1f"|format(model.risk.score) }} / 100</small></div>
+      <a class="metric metric-link" href="#comparison"><span>Endpoints assessed</span><strong>{{ model.scope.endpointsAssessed }}</strong><small>View endpoints</small></a>
+      <a class="metric metric-link" href="#priority"><span>Critical / High findings</span><strong>{{ model.risk.criticalFindings }} / {{ model.risk.highFindings }}</strong><small>View priority findings</small></a>
+      <a class="metric metric-link" href="#cve"><span>Detected CVEs</span><strong>{{ model.cve.detectedCves }}</strong><small>{{ model.cve.confirmedUniqueCves }} confirmed &middot; {{ model.cve.possibleUniqueCves }} possible</small></a>
+      <a class="metric metric-link" href="#cve"><span>Known Exploited Vulnerabilities</span><strong>{{ model.cve.knownExploitedVulnerabilities }}</strong><small>CISA Known Exploited Vulnerabilities (KEV)</small></a>
+      <div class="metric"><span>Core assessment coverage</span><strong>{{ "%.1f"|format(model.coverage.corePassiveCoverage) }}%</strong><small>Passive control evidence</small></div>
     </div>
-    <div class="summary-grid">
-      <div class="metric"><span>Assessment risk rating</span><strong class="severity-{{ model.risk.assessmentRiskRating | lower }}">{{ model.risk.assessmentRiskRating }}</strong></div>
-      <div class="metric"><span>Unique endpoints</span><strong>{{ model.scope.uniqueEndpointCount }}</strong></div>
-      <div class="metric"><span>Core passive coverage</span><strong>{{ "%.1f"|format(model.coverage.corePassiveCoverage) }}%</strong></div>
-      <div class="metric"><span>Control results</span><strong>{{ model.controlResults.total }}</strong></div>
-      <div class="metric"><span>Highest finding severity</span><strong>{{ model.risk.highestFindingSeverity }}</strong></div>
-      <div class="metric"><span>Critical findings</span><strong>{{ model.risk.criticalFindings }}</strong></div>
-      <div class="metric"><span>High findings</span><strong>{{ model.risk.highFindings }}</strong></div>
-      <div class="metric"><span>Critical-risk endpoints</span><strong>{{ model.risk.criticalRiskEndpoints }}</strong></div>
-      <div class="metric"><span>Known / confirmed CVEs</span><strong>{{ model.cve.uniqueCves }} / {{ model.cve.confirmedUniqueCves }}</strong></div>
-      <div class="metric"><span>Critical CVEs</span><strong>{{ model.cve.criticalUniqueCves }}</strong></div>
-      <div class="metric"><span>CISA KEV</span><strong>{{ model.cve.cisaKevUniqueCves }}</strong></div>
+    <div class="summary-grid secondary-metrics">
+      <div class="metric compact"><span>Confirmed CVEs</span><strong>{{ model.cve.confirmedUniqueCves }}</strong></div>
+      <div class="metric compact"><span>Possible CVEs</span><strong>{{ model.cve.possibleUniqueCves }}</strong></div>
+      <div class="metric compact"><span>Unsupported software</span><strong>{{ model.software.unsupportedCount }}</strong></div>
+      <div class="metric compact"><span>Products evaluated</span><strong>{{ model.cve.successfullyEvaluatedProducts }} / {{ model.cve.cveEligibleProducts }}</strong></div>
     </div>
-    {% if model.cve.status != "COMPLETE" %}
-    <p class="notice warning"><strong>CVE analysis not fully evaluated.</strong> {{ model.cve.successfullyEvaluatedProducts }} of {{ model.cve.cveEligibleProducts }} eligible products were evaluated ({{ "%.1f"|format(model.cve.coveragePercent) }}% coverage). CVE totals must not be interpreted as proof that the remaining software is unaffected.</p>
-    {% endif %}
-    <p class="lead">{{ model.assessment.description or "This report summarizes the Windows endpoint security assessment." }}</p>
-    <p class="notice">This report may contain personal data and security-sensitive system information. Handle and distribute it according to the assessment agreement.</p>
-    {% if model.priorityActions %}
-    <h3>Top Recommended Actions</h3>
-    <div class="action-grid">
-      {% for item in model.priorityActions %}
-      <article class="action-item"><h4>{{ loop.index }}. {{ item.action }}</h4><p>{{ item.reason }}</p><p><strong>Affected:</strong> {{ item.affectedEndpoints|join(", ") }}</p><p><strong>Risk reduction / effort:</strong> {{ item.riskReduction }} / {{ item.estimatedEffort }}</p><p><strong>Verify:</strong> {{ item.verificationGuidance }}</p></article>
-      {% endfor %}
-    </div>
-    {% endif %}
-    {% if model.systemicFindings %}
-    <h3>Top systemic risks</h3>
-    <ul class="plain-list">
-      {% for item in model.systemicFindings[:5] %}
-      <li><strong>{{ item.title }}</strong> affects {{ item.affectedEndpointCount }} of {{ item.assessedEndpointCount }} endpoints.</li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <p>No finding met the systemic threshold in the assessed fleet.</p>
-    {% endif %}
-    {% if model.coverageGaps %}
-    <p class="notice warning"><strong>Important limitation:</strong> {{ model.coverageGaps|length }} coverage gap records remain. Missing evidence is not treated as a control failure.</p>
-    {% endif %}
-    {% if model.coverage.mainLimitations %}
-    <h3>Main coverage limitations</h3>
-    <ul class="plain-list">{% for item in model.coverage.mainLimitations %}<li>{{ item }}</li>{% endfor %}</ul>
-    {% endif %}
-    <a class="back-top no-print" href="#top">Back to top</a>
-  </section>
-
-  <section id="scope" class="report-section">
-    <div class="section-heading"><p>02</p><h2>Assessment Scope</h2></div>
-    <table>
-      <tbody>
-        <tr><th>Assessment</th><td>{{ model.assessment.name }}</td></tr>
-        <tr><th>Organization</th><td>{{ model.assessment.organization or "Not specified" }}</td></tr>
-        <tr><th>Reference</th><td>{{ model.assessment.referenceNumber or "Not specified" }}</td></tr>
-        <tr><th>Created</th><td>{{ model.assessment.createdAt }}</td></tr>
-        <tr><th>Expected / assessed endpoints</th><td>{{ model.assessment.expectedEndpoints }} / {{ model.scope.uniqueEndpointCount }}</td></tr>
-        <tr><th>Collection mode</th><td>{{ model.scope.collectionMode }}</td></tr>
-        <tr><th>Transports</th><td>{% for name, count in model.scope.transportCounts.items() %}{{ name }}: {{ count }}{% if not loop.last %}, {% endif %}{% endfor %}</td></tr>
-        <tr><th>Active Validation</th><td>Not performed</td></tr>
-      </tbody>
-    </table>
-    <a class="back-top no-print" href="#top">Back to top</a>
-  </section>
-
-  <section id="risk" class="report-section">
-    <div class="section-heading"><p>03</p><h2>Overall Risk and Coverage</h2></div>
-    <div class="risk-layout">
-      <div class="score-gauge severity-{{ model.risk.rating | lower }}">
-        <span>Fleet risk score</span><strong>{{ "%.1f"|format(model.risk.score) }}</strong><small>out of 100 risk</small>
-      </div>
-      <div>
-        <h3>Coverage by domain</h3>
-        {% for name, value in model.risk.coverageByDomain.items() %}
-        <div class="bar-row"><span>{{ name }}</span><div class="bar-track"><i style="width: {{ value }}%"></i></div><b>{{ "%.1f"|format(value) }}%</b></div>
-        {% endfor %}
-      </div>
-    </div>
-    <div class="summary-grid">
-      <div class="metric"><span>Core passive coverage</span><strong>{{ "%.1f"|format(model.coverage.corePassiveCoverage) }}%</strong></div>
-      <div class="metric"><span>Optional active validation</span><strong>{{ model.coverage.optionalActiveValidation }}</strong></div>
-      <div class="metric"><span>CVE coverage</span><strong>{{ model.coverage.cveCoverage }}</strong></div>
-    </div>
-    <a class="back-top no-print" href="#top">Back to top</a>
-  </section>
-
-  <section id="fleet" class="report-section">
-    <div class="section-heading"><p>04</p><h2>Assessment Overview</h2></div>
-    <div class="chart-grid">
-      <div class="chart">
-        <h3>Risk distribution</h3>
-        {% for item in model.charts.riskDistribution %}
-        <div class="bar-row"><span>{{ item.label }}</span><div class="bar-track"><i class="bar-{{ item.label|lower }}" style="width: {{ item.percentOfMaximum }}%"></i></div><b>{{ item.count }}</b></div>
-        {% endfor %}
-      </div>
-      <div class="chart">
-        <h3>Coverage distribution</h3>
-        {% for item in model.charts.coverageDistribution %}
-        <div class="bar-row"><span>{{ item.label }}</span><div class="bar-track"><i style="width: {{ item.percentOfMaximum }}%"></i></div><b>{{ item.count }}</b></div>
-        {% endfor %}
-      </div>
-    </div>
-    <div class="control-grid">
-      {% for key, values in model.charts.securityControls.items() %}
-      <div>
-        <h3>{{ key }}</h3>
-        {% for status, count in values.items() %}<span class="status status-{{ status|lower }}">{{ status }}: {{ count }}</span>{% endfor %}
-      </div>
-      {% endfor %}
-    </div>
-    <a class="back-top no-print" href="#top">Back to top</a>
-  </section>
-
-  <section id="cve" class="report-section">
-    <div class="section-heading"><p>05</p><h2>CVE Analysis</h2></div>
-    <p><strong>CVE analysis: {{ model.cve.status|replace("_", " ") }}</strong></p>
-    <div class="summary-grid">
-      <div class="metric"><span>Installed software records</span><strong>{{ model.cve.installedSoftwareRecords }}</strong></div>
-      <div class="metric"><span>Normalized products</span><strong>{{ model.cve.normalizedProducts }}</strong></div>
-      <div class="metric"><span>CVE-eligible products</span><strong>{{ model.cve.cveEligibleProducts }}</strong></div>
-      <div class="metric"><span>Successfully evaluated products</span><strong>{{ model.cve.successfullyEvaluatedProducts }}</strong></div>
-      <div class="metric"><span>Products not evaluated</span><strong>{{ model.cve.notEvaluatedProducts }}</strong></div>
-      <div class="metric"><span>Unique CVEs</span><strong>{{ model.cve.uniqueCves }}</strong></div>
-      <div class="metric"><span>Confirmed unique CVEs</span><strong>{{ model.cve.confirmedUniqueCves }}</strong></div>
-      <div class="metric"><span>Confirmed product/CVE relationships</span><strong>{{ model.cve.confirmedProductCveRelationships }}</strong></div>
-      <div class="metric"><span>Possible unique CVEs</span><strong>{{ model.cve.possibleUniqueCves }}</strong></div>
-      <div class="metric"><span>Possible product/CVE relationships</span><strong>{{ model.cve.possibleProductCveRelationships }}</strong></div>
-      <div class="metric"><span>Critical unique CVEs</span><strong>{{ model.cve.criticalUniqueCves }}</strong></div>
-      <div class="metric"><span>High unique CVEs</span><strong>{{ model.cve.highUniqueCves }}</strong></div>
-      <div class="metric"><span>CISA KEV unique CVEs</span><strong>{{ model.cve.cisaKevUniqueCves }}</strong></div>
-      <div class="metric"><span>Software/CVE matches</span><strong>{{ model.cve.softwareCveMatches }}</strong></div>
-      <div class="metric"><span>Affected endpoints</span><strong>{{ model.cve.affectedEndpoints }}</strong></div>
-      <div class="metric"><span>Unsupported software</span><strong>{{ model.software.unsupportedCount }}</strong></div>
-      <div class="metric"><span>CVE coverage</span><strong>{{ "%.1f"|format(model.cve.coveragePercent) }}%</strong></div>
-    </div>
-    <p>CVE analysis timestamp: {{ model.cve.timestamp or "Not performed" }}</p>
-    {% if model.cve.providerCoverage %}
-    <table><thead><tr><th>Endpoint</th><th>Provider</th><th>Status</th><th>Records</th><th>Stale cache</th></tr></thead>
-    <tbody>{% for item in model.cve.providerCoverage %}<tr><td>{{ item.endpoint }}</td><td>{{ item.provider }}</td><td>{{ item.status }}</td><td>{{ item.recordsLoaded }}</td><td>{{ "YES" if item.usedStaleCache else "NO" }}</td></tr>{% endfor %}</tbody></table>
-    {% endif %}
-    <a class="back-top no-print" href="#top">Back to top</a>
-  </section>
-
-  <section id="priority" class="report-section searchable-group">
-    <div class="section-heading"><p>06</p><h2>Priority Findings</h2></div>
-    <div class="filter-bar no-print" role="group" aria-label="Finding filters">
-      {% for filter in ["All", "Critical", "High", "Medium", "Low", "Coverage Gaps", "Endpoints"] %}
-      <button type="button" class="filter-button{% if loop.first %} active{% endif %}" data-filter="{{ filter|lower|replace(' ', '-') }}">{{ filter }}</button>
-      {% endfor %}
-    </div>
-    {% for item in model.priorityFindings %}
-    <article class="finding searchable" data-kind="finding" data-severity="{{ item.severity|lower }}">
-      <header><span class="severity severity-{{ item.severity|lower }}">{{ item.severity }}</span><span>{{ item.ruleId }}</span><h3>{{ item.title }}</h3></header>
-      <p><strong>Affected:</strong> {{ item.affectedEndpointCount }}/{{ item.assessedEndpointCount }} ({{ item.affectedPercent }}%)</p>
-      <p><strong>Recommendation:</strong> {{ item.recommendation }}</p>
-      <details><summary>Show affected endpoints and mappings</summary>
-        <p>{{ item.endpointReferences|join(", ") }}</p>
-        <p>{% for framework, controls in item.frameworkMappings.items() %}<strong>{{ framework }}:</strong> {{ controls|join(", ") }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
-      </details>
-    </article>
-    {% else %}<p>No priority failures were identified.</p>{% endfor %}
-    <a class="back-top no-print" href="#top">Back to top</a>
-  </section>
-
-  <section id="systemic" class="report-section">
-    <div class="section-heading"><p>07</p><h2>Systemic Findings</h2></div>
-    {% for item in model.systemicFindings %}
-    <article class="finding searchable" data-kind="finding" data-severity="{{ item.severity|lower }}">
-      <header><span class="severity severity-{{ item.severity|lower }}">{{ item.severity }}</span><span>{{ item.ruleId }}</span><h3>{{ item.title }}</h3></header>
-      <p>{{ item.affectedPercent }}% prevalence across assessed endpoints. {{ item.recommendation }}</p>
-    </article>
-    {% else %}<p>No finding met the systemic fleet threshold.</p>{% endfor %}
-    <a class="back-top no-print" href="#top">Back to top</a>
-  </section>
-
-  <section id="remediation" class="report-section">
-    <div class="section-heading"><p>08</p><h2>Remediation Plan</h2></div>
-    <div class="table-scroll"><table class="remediation-table">
-      <thead><tr><th>Priority</th><th>Finding</th><th>Severity</th><th>Affected</th><th>Recommended action</th></tr></thead>
-      <tbody>{% for item in model.remediationPlan %}
-        <tr><td>{{ item.priority }}</td><td>{{ item.ruleId }} - {{ item.title }}</td><td><span class="severity severity-{{ item.severity|lower }}">{{ item.severity }}</span></td><td>{{ item.affectedPercent }}%</td><td>{{ item.recommendation }}</td></tr>
-      {% endfor %}</tbody>
-    </table></div>
-    <a class="back-top no-print" href="#top">Back to top</a>
+    <p class="notice{% if not model.cve.coverageComplete %} warning{% endif %}"><strong>CVE analysis: {{ model.cve.status|replace("_", " ") }}</strong>. {{ model.cve.coverageStatement }}</p>
+    <details class="explainability"><summary>Why this rating?</summary>
+      <dl class="details-grid">
+        <div><dt>Highest finding severity</dt><dd>{{ model.risk.highestFindingSeverity }}</dd></div>
+        <div><dt>Systemic high-risk findings</dt><dd>{{ model.risk.systemicHighRiskFindings }}</dd></div>
+        <div><dt>Critical findings</dt><dd>{{ model.risk.criticalFindings }}</dd></div>
+        <div><dt>Confirmed Critical CVEs</dt><dd>{{ model.risk.confirmedCriticalCves }}</dd></div>
+        <div><dt>Known exploited vulnerabilities</dt><dd>{{ model.risk.knownExploitedVulnerabilities }}</dd></div>
+        <div><dt>Final rating</dt><dd>{{ model.risk.rating }}</dd></div>
+      </dl>
+      <p><strong>Rating basis:</strong> {{ model.risk.reason }}</p>
+      <p><strong>Coverage modifier:</strong> {{ model.risk.coverageModifier }}</p>
+    </details>
   </section>
 
   <section id="comparison" class="report-section">
-    <div class="section-heading"><p>09</p><h2>Endpoint Comparison</h2></div>
-    <div class="table-scroll">
-    <table>
-      <thead><tr><th>Endpoint</th><th>User</th><th>OS</th><th>Risk</th><th>Coverage</th><th>BitLocker</th><th>Confirmed CVEs</th><th>Unsupported software</th></tr></thead>
-      <tbody>{% for item in model.endpoints %}
-        <tr class="searchable" data-kind="endpoint"><td>{{ item.displayName }}</td><td>{{ item.primaryUser }}</td><td>{{ item.identity.operatingSystem.get("name", "Unknown") }}</td><td>{{ item.score }}</td><td>{{ item.coverage }}%</td><td>{{ item.bitLocker.status }}</td><td>{{ item.cveSummary.get("confirmedUniqueCves", 0) }}</td><td>{{ item.unsupportedSoftwareCount }}</td></tr>
-      {% endfor %}</tbody>
-    </table>
+    <div class="section-heading"><p>02</p><h2>Endpoint Overview</h2></div>
+    <div class="table-scroll"><table class="sortable endpoint-overview">
+      <thead><tr><th>Endpoint</th><th>User</th><th>OS</th><th>Endpoint risk</th><th>Findings</th><th>CVEs</th><th>BitLocker</th><th>TPM</th><th>AV / EDR</th><th>Firewall</th><th>Coverage</th><th>Details</th></tr></thead>
+      <tbody>{% for endpoint in model.endpoints %}<tr class="searchable" data-kind="endpoint" data-endpoint="{{ endpoint.displayName }}">
+        <td><a href="#{{ endpoint.anchorId }}">{{ endpoint.displayName }}</a></td><td>{{ endpoint.primaryUser }}</td><td>{{ endpoint.identity.operatingSystem.get("name", "Unknown") }}</td>
+        <td><span class="severity severity-{{ endpoint.risk.rating|lower }}">{{ endpoint.risk.rating }}</span></td><td>{{ endpoint.findingCount }}</td>
+        <td>{% if endpoint.cveAnalysisStatus != "COMPLETE" %}Not fully evaluated{% elif endpoint.cveSummary.get("confirmedUniqueCves", 0) or endpoint.cveSummary.get("possibleUniqueCves", 0) %}{{ endpoint.cveSummary.get("confirmedUniqueCves", 0) }} confirmed<br>{{ endpoint.cveSummary.get("possibleUniqueCves", 0) }} possible{% else %}0{% endif %}</td>
+        {% for control in ["BitLocker", "TPM", "AV / EDR", "Firewall"] %}<td><span class="status status-{{ endpoint.securityControls[control]|lower }}" title="{{ control }}: {{ endpoint.securityControls[control]|replace('_', ' ') }}">{{ endpoint.securityControls[control]|replace("_", " ") }}</span></td>{% endfor %}
+        <td>{{ endpoint.coverage }}%</td><td><a href="#{{ endpoint.anchorId }}">View</a></td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+
+  <section id="risk" class="report-section">
+    <div class="section-heading"><p>03</p><h2>Risk Explanation</h2></div>
+    <div class="risk-layout"><div class="score-panel"><span>Overall security risk</span><strong class="risk-{{ model.risk.rating|lower }}">{{ model.risk.rating }}</strong><b>{{ "%.1f"|format(model.risk.score) }} / 100</b></div><div>
+      <p>Finding severity, endpoint risk, assessment risk and numeric risk score are separate measures. The numeric score ranks exposure; it cannot by itself create a CRITICAL assessment.</p>
+      {% if model.risk.criticalTriggers %}<h3>Critical-risk triggers</h3><ul>{% for trigger in model.risk.criticalTriggers %}<li>{{ trigger }}</li>{% endfor %}</ul>{% else %}<p><strong>No critical-risk trigger was met.</strong></p>{% endif %}
+      <p>{{ model.risk.coverageModifier }}</p>
+    </div></div>
+  </section>
+
+  <section id="priority" class="report-section searchable-group">
+    <div class="section-heading"><p>04</p><h2>Priority Findings</h2></div>
+    <div class="filter-bar no-print" role="group" aria-label="Finding filters">{% for filter in ["All", "Critical", "High", "Medium", "Low"] %}<button type="button" class="filter-button{% if loop.first %} active{% endif %}" data-filter="{{ filter|lower }}">{{ filter }}</button>{% endfor %}</div>
+    <div class="finding-grid">{% for item in model.priorityFindings %}<article id="{{ item.anchorId }}" class="finding searchable" data-kind="finding" data-severity="{{ item.severity|lower }}" data-endpoints="{{ item.endpointReferences|join('|') }}">
+      <header><span class="severity severity-{{ item.severity|lower }}">{{ item.severity }}</span><span>{{ item.ruleId }}</span></header><h3>{{ item.title }}</h3>
+      <p><strong>{{ item.affectedEndpointCount }} / {{ item.assessedEndpointCount }} endpoints ({{ item.affectedPercent }}%)</strong></p>
+      <p class="endpoint-links">{% for endpoint in item.endpointLinks[:5] %}<a href="#{{ endpoint.anchor }}">{{ endpoint.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}{% if item.endpointLinks|length > 5 %}<details class="inline-details"><summary>+{{ item.endpointLinks|length - 5 }} more</summary>{% for endpoint in item.endpointLinks[5:] %}<a href="#{{ endpoint.anchor }}">{{ endpoint.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</details>{% endif %}</p>
+      <p><strong>Recommendation:</strong> {{ item.recommendation }}</p><p><strong>Verification:</strong> {{ item.verification }}</p>
+      <a href="#finding-details-{{ item.ruleId|lower|replace('_', '-') }}">View finding details</a>
+    </article>{% else %}<p>No priority failures were identified.</p>{% endfor %}</div>
+  </section>
+
+  <section id="systemic" class="report-section">
+    <div class="section-heading"><p>05</p><h2>All Findings</h2></div>
+    {% for item in model.findings %}<details id="finding-details-{{ item.ruleId|lower|replace('_', '-') }}" class="finding-detail searchable" data-kind="finding" data-severity="{{ item.severity|lower }}" data-endpoints="{{ item.endpointReferences|join('|') }}"><summary><span class="severity severity-{{ item.severity|lower }}">{{ item.severity }}</span> {{ item.ruleId }} &middot; {{ item.title }} &middot; {{ item.affectedEndpointCount }}/{{ item.assessedEndpointCount }} endpoints</summary><div class="details-content">
+      <p><strong>Affected endpoints:</strong> {% for endpoint in item.endpointLinks %}<a href="#{{ endpoint.anchor }}">{{ endpoint.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p><p><strong>Prevalence:</strong> {{ item.affectedPercent }}%</p><p><strong>Recommendation:</strong> {{ item.recommendation }}</p><p><strong>Verification:</strong> {{ item.verification }}</p>
+    </div></details>{% endfor %}
+  </section>
+
+  <section id="remediation" class="report-section">
+    <div class="section-heading"><p>06</p><h2>Remediation Plan</h2></div>
+    <p>Actions are deduplicated across related findings and ordered by expected risk reduction.</p>
+    <div class="table-scroll"><table class="remediation-table"><thead><tr><th>Priority</th><th>Action</th><th>Why</th><th>Affected endpoints</th><th>Related findings</th><th>Verification</th></tr></thead><tbody>
+      {% for item in model.remediationPlan %}<tr class="searchable remediation-row" data-kind="remediation" data-endpoints="{{ item.affectedEndpoints|join('|') }}" data-action="{{ item.action }}" data-reason="{{ item.reason }}" data-verification="{{ item.verificationGuidance }}"><td><strong>{{ item.priority }}</strong></td><td>{{ item.action }}</td><td>{{ item.reason }}</td><td>{% for endpoint in item.affectedEndpointLinks %}<a href="#{{ endpoint.anchor }}">{{ endpoint.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</td><td>{{ item.relatedFindings|join(", ") }}</td><td>{{ item.verificationGuidance }}</td></tr>{% else %}<tr><td colspan="6">No remediation action was generated.</td></tr>{% endfor %}
+    </tbody></table></div><p id="copy-status" class="copy-status" aria-live="polite"></p>
+  </section>
+
+  <section id="cve" class="report-section">
+    <div class="section-heading"><p>07</p><h2>Vulnerability Exposure</h2></div>
+    <div class="summary-grid cve-metrics">
+      <div class="metric"><span>Detected CVEs</span><strong>{{ model.cve.detectedCves }}</strong></div><div class="metric"><span>Confirmed CVEs</span><strong>{{ model.cve.confirmedUniqueCves }}</strong></div><div class="metric"><span>Possible CVEs</span><strong>{{ model.cve.possibleUniqueCves }}</strong></div><div class="metric"><span>Critical CVEs</span><strong>{{ model.cve.confirmedCriticalCves }}</strong></div><div class="metric"><span>Known Exploited Vulnerabilities</span><strong>{{ model.cve.knownExploitedVulnerabilities }}</strong></div><div class="metric"><span>CVE coverage</span><strong>{{ "%.1f"|format(model.cve.coveragePercent) }}%</strong></div>
     </div>
-    <a class="back-top no-print" href="#top">Back to top</a>
+    <p><strong>Products eligible:</strong> {{ model.cve.cveEligibleProducts }} &middot; <strong>Products evaluated:</strong> {{ model.cve.successfullyEvaluatedProducts }} &middot; <strong>Products not evaluated:</strong> {{ model.cve.notEvaluatedProducts }}</p>
+    <p class="notice{% if not model.cve.coverageComplete %} warning{% endif %}">{% if not model.cve.coverageComplete %}<strong>CVE analysis not fully evaluated.</strong> {% endif %}{{ model.cve.coverageStatement }}</p>
+    <div class="filter-bar no-print" role="group" aria-label="Vulnerability filters">{% for filter in ["All", "Confirmed", "Possible", "Critical", "High", "Known exploited"] %}<button type="button" class="vulnerability-filter{% if loop.first %} active{% endif %}" data-vulnerability-filter="{{ filter|lower|replace(' ', '-') }}">{{ filter }}</button>{% endfor %}</div>
+    <div class="table-scroll"><table class="sortable vulnerability-table"><thead><tr><th>Software</th><th>Installed version</th><th>Endpoints</th><th>Detected CVEs</th><th>Confirmed</th><th>Possible</th><th>Highest CVSS</th><th>Known exploited</th></tr></thead><tbody>
+      {% for item in model.vulnerabilityExposure %}<tr data-vulnerability-row data-confirmed="{{ item.confirmed }}" data-possible="{{ item.possible }}" data-critical="{{ 1 if item.highestCvss is not none and item.highestCvss >= 9 else 0 }}" data-high="{{ 1 if item.highestCvss is not none and item.highestCvss >= 7 else 0 }}" data-kev="{{ item.knownExploited }}"><td><details><summary><a href="#{{ item.detailAnchor }}">{{ item.software }}</a></summary>{% for cve in item.cves %}<article class="cve-detail"><h4><a href="{{ cve.nvdUrl }}">{{ cve.cveId }}</a></h4><p>CVSS: {{ cve.cvss if cve.cvss is not none else "N/A" }} &middot; Severity: {{ cve.severity }} &middot; Applicability: {{ cve.applicability }}</p><p>Affected software: {{ cve.software }} {{ cve.installedVersion }} &middot; Affected endpoint: <a href="#{{ cve.endpointAnchor }}">{{ cve.endpoint }}</a></p><p>Known exploited in real-world attacks: <strong>{{ "YES" if cve.knownExploited else "NO" }}</strong>{% if cve.knownExploited %} &middot; Source: <a href="{{ cve.cisaUrl }}">CISA KEV</a>{% endif %}</p><p>{{ cve.rationale }}</p>{% if cve.affectedVersionRange %}<p>Affected range: {{ cve.affectedVersionRange }}</p>{% endif %}</article>{% endfor %}</details></td><td>{{ item.installedVersion }}</td><td>{% for endpoint in item.endpointLinks %}<a href="#{{ endpoint.anchor }}">{{ endpoint.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</td><td>{{ item.detected }}</td><td>{{ item.confirmed }}</td><td>{{ item.possible }}</td><td>{{ item.highestCvss if item.highestCvss is not none else "N/A" }}</td><td>{{ "YES" if item.knownExploited else "NO" }}</td></tr>
+      {% else %}<tr><td colspan="8">No CVE relationships are available for the evaluated products.</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% if model.cve.providerCoverage %}<details><summary>Provider coverage details</summary><table><thead><tr><th>Endpoint</th><th>Provider</th><th>Status</th><th>Records</th><th>Stale cache</th></tr></thead><tbody>{% for item in model.cve.providerCoverage %}<tr><td>{{ item.endpoint }}</td><td>{{ item.provider }}</td><td>{{ item.status }}</td><td>{{ item.recordsLoaded }}</td><td>{{ "YES" if item.usedStaleCache else "NO" }}</td></tr>{% endfor %}</tbody></table></details>{% endif %}
+  </section>
+
+  <section id="software-matrix" class="report-section">
+    <div class="section-heading"><p>08</p><h2>Software Exposure Overview</h2></div>
+    <div class="filter-bar no-print">{% for filter in ["All software", "Vulnerable", "End of support", "Remote access", "Only differences"] %}<button type="button" class="matrix-filter{% if loop.first %} active{% endif %}" data-matrix-filter="{{ filter|lower|replace(' ', '-') }}">{{ filter }}</button>{% endfor %}</div>
+    <div class="table-scroll matrix-scroll"><table class="software-matrix{% if model.softwareMatrix.compact %} compact-matrix{% endif %}"><thead><tr><th class="sticky-column">Software</th>{% for endpoint in model.softwareMatrix.endpointNames %}<th title="{{ endpoint }}">{{ endpoint }}</th>{% endfor %}<th>Installed on</th><th>Risk</th></tr></thead><tbody>{% for item in model.softwareMatrix.rows %}<tr data-matrix-row data-vulnerable="{{ 1 if item.vulnerable else 0 }}" data-eol="{{ 1 if item.endOfSupport else 0 }}" data-remote="{{ 1 if item.remoteAccess else 0 }}" data-different="{{ 1 if item.different else 0 }}"><td class="sticky-column">{{ item.software }}</td>{% for version in item.versions %}<td title="{{ version }}">{{ version }}</td>{% endfor %}<td>{{ item.installedCount }}/{{ model.scope.endpointsAssessed }}</td><td>{{ item.risk }}</td></tr>{% else %}<tr><td colspan="{{ model.scope.endpointsAssessed + 3 }}">No software inventory records are available.</td></tr>{% endfor %}</tbody></table></div>
   </section>
 
   <section id="endpoints" class="report-section">
-    <div class="section-heading"><p>10</p><h2>Endpoint Details</h2></div>
-    {% if model.options.includeEndpointDetails %}
-    {% for endpoint in model.endpoints %}
-    <details class="endpoint searchable" data-kind="endpoint">
-      <summary><span>{{ endpoint.displayName }}</span><span>{{ endpoint.coverage }}% core coverage</span><span>{{ endpoint.controlResultCount }} control results</span></summary>
-      <div class="endpoint-body">
-        <h3>Endpoint Identity</h3>
-        <dl class="details-grid">
-          <div><dt>Computer name</dt><dd>{{ endpoint.displayName }}</dd></div>
-          <div><dt>FQDN</dt><dd>{{ endpoint.identity.fqdn or "Not available" }}</dd></div>
-          <div><dt>Domain / workgroup</dt><dd>{{ endpoint.identity.domainOrWorkgroup or "Not available" }}</dd></div>
-          <div><dt>Operating system</dt><dd>{{ endpoint.identity.operatingSystem.get("name", "Unknown") }} {{ endpoint.identity.operatingSystem.get("version", "") }}</dd></div>
-          <div><dt>Submission</dt><dd>{{ endpoint.submissionId }}</dd></div>
-          <div><dt>Transport</dt><dd>{{ endpoint.transport }}</dd></div>
-          <div><dt>Received</dt><dd>{{ endpoint.receivedAt }}</dd></div>
-          <div><dt>Collector</dt><dd>{{ endpoint.collectorVersion }}</dd></div>
-          <div><dt>CVE analysis</dt><dd>{{ endpoint.cveAnalysisStatus|replace("_", " ") }}</dd></div>
-          <div><dt>Confirmed / possible CVEs</dt><dd>{{ endpoint.cveSummary.get("confirmedUniqueCves", 0) }} / {{ endpoint.cveSummary.get("possibleUniqueCves", 0) }}</dd></div>
-          <div><dt>Products not evaluated</dt><dd>{{ endpoint.cveSummary.get("notEvaluatedProducts", 0) }}</dd></div>
-          <div><dt>Execution mode</dt><dd>{{ endpoint.privilegeContext.executionMode }}</dd></div>
-          <div><dt>Integrity level</dt><dd>{{ endpoint.privilegeContext.integrityLevel }}</dd></div>
-          <div><dt>Elevated</dt><dd>{{ "YES" if endpoint.privilegeContext.isElevated else "NO" }}</dd></div>
-        </dl>
-        <h3>Users and Access</h3>
-        <p class="notice">User names may contain personal data and are included for the authorized professional assessment.</p>
-        <dl class="details-grid"><div><dt>Current execution user</dt><dd>{{ endpoint.users.currentUser.get("name", "Unknown") }}</dd></div><div><dt>Execution integrity</dt><dd>{{ endpoint.privilegeContext.integrityLevel }}</dd></div></dl>
-        <h4>Local administrators</h4>
-        <table><thead><tr><th>Name</th><th>Type</th><th>Object</th><th>Resolved</th></tr></thead><tbody>{% for user in endpoint.users.localAdministrators %}<tr><td>{{ user.get("name", "Unknown") }}</td><td>{{ user.get("classification", "UNKNOWN") }}</td><td>{{ user.get("objectClass", "UNKNOWN") }}</td><td>{{ user.get("resolved", "UNKNOWN") }}</td></tr>{% else %}<tr><td colspan="4">Local administrator evidence was not available.</td></tr>{% endfor %}</tbody></table>
-        <h4>Local user accounts</h4>
-        <table><thead><tr><th>Name</th><th>Enabled</th><th>Password required</th><th>Last logon</th></tr></thead><tbody>{% for user in endpoint.users.localUsers %}<tr><td>{{ user.get("name", "Unknown") }}</td><td>{{ user.get("enabled", "UNKNOWN") }}</td><td>{{ user.get("passwordRequired", "UNKNOWN") }}</td><td>{{ user.get("lastLogon") or "Not available" }}</td></tr>{% else %}<tr><td colspan="4">Local user evidence was not available.</td></tr>{% endfor %}</tbody></table>
-        <h4>User profiles</h4>
-        <p>{% for profile in endpoint.users.userProfiles %}{{ profile.get("profileName", "Unknown") }}{% if not loop.last %}, {% endif %}{% else %}User profile evidence was not available.{% endfor %}</p>
-
-        <h3>Security Posture</h3>
-        <p>Security score: <strong>{{ endpoint.score }}</strong>. Core passive coverage: <strong>{{ endpoint.coverage }}%</strong>.</p>
-        <h3>Priority Findings</h3>
-        {% for audit_finding in endpoint.findings if audit_finding.finding.status in ["FAIL", "WARNING", "PARTIAL", "ERROR"] %}<p><strong>{{ audit_finding.finding.rule_id }}:</strong> {{ audit_finding.knowledge.title }} ({{ audit_finding.finding.status }})</p>{% else %}<p>No endpoint priority finding was recorded.</p>{% endfor %}
-
-        <h3>BitLocker and Device Security</h3>
-        <dl class="details-grid"><div><dt>BitLocker status</dt><dd>{{ endpoint.bitLocker.status }}</dd></div><div><dt>OS volume</dt><dd>{{ endpoint.bitLocker.mountPoint }}</dd></div><div><dt>Provider</dt><dd>{{ endpoint.bitLocker.provider }}</dd></div><div><dt>Confidence</dt><dd>{{ endpoint.bitLocker.confidence }}%</dd></div><div><dt>Protection enabled</dt><dd>{{ endpoint.bitLocker.protectionEnabled if endpoint.bitLocker.protectionEnabled is not none else "Not verified" }}</dd></div><div><dt>Encryption state</dt><dd>{{ endpoint.bitLocker.encryptionState }}</dd></div><div><dt>Encryption percentage</dt><dd>{{ endpoint.bitLocker.encryptionPercentage if endpoint.bitLocker.encryptionPercentage is not none else "Not available" }}</dd></div></dl>
-        {% if endpoint.bitLocker.volumes %}<table><thead><tr><th>Volume</th><th>Type</th><th>Protection</th><th>State</th><th>Provider</th></tr></thead><tbody>{% for volume in endpoint.bitLocker.volumes %}<tr><td>{{ volume.mountPoint }}</td><td>{{ volume.volumeType }}</td><td>{{ volume.protectionEnabled if volume.protectionEnabled is not none else "Unknown" }}</td><td>{{ volume.encryptionState }}</td><td>{{ volume.provider }}</td></tr>{% endfor %}</tbody></table>{% endif %}
-
-        <h3>Installed Software</h3>
-        <p><strong>Collection status:</strong> {{ endpoint.softwareCollection.get("status", endpoint.cveSummary.get("softwareCollectionStatus", "NOT_EVALUATED")) }}. Installed records: {{ endpoint.softwareResults|length }}.</p>
-        {% if endpoint.softwareResults %}
-        <div class="inventory-controls">
-          <label>Search software<input type="search" data-inventory-search placeholder="Name, vendor, version or CVE"></label>
-          <label>Security status<select data-inventory-status><option value="">All statuses</option>{% for status in endpoint.softwareResults|map(attribute="securityStatus")|unique|sort %}<option value="{{ status }}">{{ status }}</option>{% endfor %}</select></label>
-        </div>
-        <div class="table-scroll"><table class="sortable inventory-table"><thead><tr><th>Software</th><th>Version</th><th>Publisher</th><th>Architecture</th><th>Scope</th><th>Security status</th><th>Lifecycle</th></tr></thead><tbody>{% for software in endpoint.softwareResults %}<tr data-inventory-row data-security-status="{{ software.securityStatus }}"><td><details><summary>{{ software.displayName }}</summary><p>Normalized: {{ software.normalizedVendor }} / {{ software.normalizedProduct }} / {{ software.normalizedVersion }}</p><p>Confidence: {{ software.normalizationConfidence }}%. Source: {{ software.source }}.</p>{% set pipeline = software.cvePipeline %}<dl class="pipeline-details"><div><dt>Eligibility</dt><dd>{{ pipeline.eligibilityStatus }}</dd></div><div><dt>Product mapping</dt><dd>{{ pipeline.productMappingStatus }}</dd></div><div><dt>CPE candidates</dt><dd>{{ pipeline.cpeCandidateCount }}</dd></div><div><dt>Provider query</dt><dd>{{ pipeline.providerQueryStatus }}</dd></div><div><dt>Version evaluation</dt><dd>{{ pipeline.versionEvaluationStatus }}</dd></div><div><dt>CVE result</dt><dd>{{ pipeline.cveResultStatus }}</dd></div></dl>{% if pipeline.providerReason %}<p><strong>Evaluation reason:</strong> {{ pipeline.providerReason }}</p>{% endif %}<p>Lifecycle source: {{ software.lifecycleSource or "Not available" }} ({{ software.lifecycleDataVersion }}).</p>{% if software.cveDetails %}<table><thead><tr><th>CVE</th><th>Severity</th><th>CVSS</th><th>Match</th><th>KEV</th></tr></thead><tbody>{% for cve in software.cveDetails %}<tr><td>{{ cve.cveId }}</td><td>{{ cve.severity }}</td><td>{{ cve.cvssScore if cve.cvssScore is not none else "N/A" }}</td><td>{{ cve.matchStatus }} - {{ cve.matchRationale }}</td><td>{{ "YES" if cve.cisaKev else "NO" }}</td></tr>{% endfor %}</tbody></table>{% endif %}</details></td><td>{{ software.displayVersion or "Unknown" }}</td><td>{{ software.publisher or "Unknown" }}</td><td>{{ software.architecture }}</td><td>{{ software.scope }}</td><td>{{ software.securityStatus }}</td><td>{{ software.lifecycleStatus }}</td></tr>{% endfor %}</tbody></table></div>
-        {% elif endpoint.softwareCollection.get("status") == "SUCCESS" %}<p>No installed software detected.</p>{% else %}<p class="notice warning">Software inventory collection failed or was not evaluated.</p>{% endif %}
-
-        <h3>Known Vulnerabilities</h3>
-        <p>Confirmed: {{ endpoint.cveSummary.get("confirmedUniqueCves", 0) }}. Possible: {{ endpoint.cveSummary.get("possibleUniqueCves", 0) }}. CISA KEV: {{ endpoint.cveSummary.get("cisaKevUniqueCves", 0) }}. A missing match is not proof that software is secure.</p>
-        <h3>Software Lifecycle</h3>
-        <p>Unsupported software: {{ endpoint.unsupportedSoftwareCount }}. OS lifecycle: {{ endpoint.cveSummary.get("operatingSystemLifecycle", {}).get("status", "NOT_EVALUATED") }}.</p>
-
-        <h3>Control Results</h3>
-        {% for audit_finding in endpoint.findings %}
-        {% set finding = audit_finding.finding %}{% set knowledge = audit_finding.knowledge %}
-        <article class="endpoint-finding">
-          <h4><span class="severity severity-{{ finding.severity|lower }}">{{ finding.severity }}</span> {{ finding.rule_id }} - {{ knowledge.title }}</h4>
-          <p><strong>Status:</strong> {{ finding.status }}. {{ knowledge.description }}</p>
-          <p><strong>Risk:</strong> {{ knowledge.risk }}</p>
-          <p><strong>Recommendation:</strong> {{ knowledge.recommendation }}</p>
-          <details><summary>Show technical evidence</summary><pre>{{ finding.evidence|json_pretty }}</pre></details>
-        </article>
-        {% endfor %}
-        <h3>Coverage Limitations</h3>
-        {% for item in endpoint.coverageLimitations %}<p>{{ item.capabilityId }}: {{ item.reason }}</p>{% else %}<p>No capability limitation was recorded.</p>{% endfor %}
-      </div>
-    </details>
-    {% endfor %}
-    {% else %}<p>Endpoint detail pages were excluded by the report options.</p>{% endif %}
-    <a class="back-top no-print" href="#top">Back to top</a>
+    <div class="section-heading"><p>09</p><h2>Endpoint Details</h2></div>
+    {% if model.options.includeEndpointDetails %}{% for endpoint in model.endpoints %}<details id="{{ endpoint.anchorId }}" class="endpoint searchable" data-kind="endpoint" data-endpoint="{{ endpoint.displayName }}"><summary><span>{{ endpoint.displayName }}</span><span>{{ endpoint.risk.rating }} endpoint risk</span><span>{{ endpoint.coverage }}% core coverage</span></summary><div class="endpoint-body">
+      <h3>Endpoint Identity</h3><dl class="details-grid"><div><dt>Computer name</dt><dd>{{ endpoint.displayName }}</dd></div><div><dt>FQDN</dt><dd>{{ endpoint.identity.fqdn or "Not available" }}</dd></div><div><dt>Domain / workgroup</dt><dd>{{ endpoint.identity.domainOrWorkgroup or "Not available" }}</dd></div><div><dt>Operating system</dt><dd>{{ endpoint.identity.operatingSystem.get("name", "Unknown") }} {{ endpoint.identity.operatingSystem.get("version", "") }}</dd></div><div><dt>Current user</dt><dd>{{ endpoint.primaryUser }}</dd></div><div><dt>Collector version</dt><dd>{{ endpoint.collectorVersion }}</dd></div></dl>
+      <h3>Security Summary</h3><p>Endpoint risk: <strong>{{ endpoint.risk.rating }}</strong>. Risk score: <strong>{{ endpoint.risk.score }}</strong>. Core assessment coverage: <strong>{{ endpoint.coverage }}%</strong>.</p><div class="control-strip">{% for name, status in endpoint.securityControls.items() %}<span title="{{ name }}: {{ status|replace('_', ' ') }}"><b>{{ name }}</b> {{ status|replace("_", " ") }}</span>{% endfor %}</div>
+      <h3>Findings</h3>{% for audit_finding in endpoint.findings %}{% set finding = audit_finding.finding %}{% set knowledge = audit_finding.knowledge %}<article class="endpoint-finding"><h4><span class="severity severity-{{ finding.severity|lower }}">{{ finding.severity }}</span> <a href="#finding-details-{{ finding.rule_id|lower|replace('_', '-') }}">{{ finding.rule_id }} &middot; {{ knowledge.title }}</a></h4><p><strong>Status:</strong> {{ finding.status }}. {{ knowledge.description }}</p><p><strong>Risk:</strong> {{ knowledge.risk }}</p><p><strong>Recommendation:</strong> {{ knowledge.recommendation }}</p><details><summary>Evidence for this result</summary><pre>{{ finding.evidence|json_pretty }}</pre></details></article>{% endfor %}
+      <h3>Known Vulnerabilities</h3><p>Detected: {{ endpoint.cveSummary.get("uniqueCves", 0) }} &middot; Confirmed: {{ endpoint.cveSummary.get("confirmedUniqueCves", 0) }} &middot; Possible: {{ endpoint.cveSummary.get("possibleUniqueCves", 0) }} &middot; Known Exploited Vulnerabilities: {{ endpoint.cveSummary.get("cisaKevUniqueCves", 0) }}.</p>
+      <h3>Users &amp; Access</h3><p class="notice">User names may contain personal data and are included for this authorized assessment.</p><dl class="details-grid"><div><dt>Current execution user</dt><dd>{{ endpoint.users.currentUser.get("name", "Unknown") }}</dd></div><div><dt>Execution integrity</dt><dd>{{ endpoint.privilegeContext.integrityLevel }}</dd></div><div><dt>Local administrators</dt><dd>{% for user in endpoint.users.localAdministrators %}{{ user.get("name", "Unknown") }}{% if not loop.last %}, {% endif %}{% else %}Not available{% endfor %}</dd></div></dl>
+      <h3>Software</h3>{% if endpoint.softwareResults %}<div class="inventory-controls"><label>Search software<input type="search" data-inventory-search placeholder="Name, vendor, version or CVE"></label><label>Security status<select data-inventory-status><option value="">All statuses</option>{% for status in endpoint.softwareResults|map(attribute="securityStatus")|unique|sort %}<option value="{{ status }}">{{ status }}</option>{% endfor %}</select></label></div><div class="table-scroll"><table class="sortable inventory-table"><thead><tr><th>Software</th><th>Version</th><th>Publisher</th><th>Security status</th><th>Lifecycle</th></tr></thead><tbody>{% for software in endpoint.softwareResults %}<tr id="{{ software.anchorId }}" data-inventory-row data-security-status="{{ software.securityStatus }}"><td><details><summary>{{ software.displayName }}</summary><p>Normalized: {{ software.normalizedVendor }} / {{ software.normalizedProduct }} / {{ software.normalizedVersion }}. Confidence: {{ software.normalizationConfidence }}%.</p>{% set pipeline = software.cvePipeline %}<dl class="pipeline-details"><div><dt>Normalization</dt><dd>{{ pipeline.normalizationStatus or "NOT AVAILABLE" }}</dd></div><div><dt>Product mapping</dt><dd>{{ pipeline.productMappingStatus }}</dd></div><div><dt>CPE candidates</dt><dd>{{ pipeline.cpeCandidateCount }}</dd></div><div><dt>Provider query</dt><dd>{{ pipeline.providerQueryStatus }}</dd></div><div><dt>Version evaluation</dt><dd>{{ pipeline.versionEvaluationStatus }}</dd></div><div><dt>CVE result</dt><dd>{{ pipeline.cveResultStatus }}</dd></div></dl>{% if pipeline.providerReason %}<p><strong>Reason:</strong> {{ pipeline.providerReason }}</p>{% endif %}</details></td><td>{{ software.displayVersion or "Unknown" }}</td><td>{{ software.publisher or "Unknown" }}</td><td>{{ software.securityStatus }}</td><td>{{ software.lifecycleStatus }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p>Software inventory was not available.</p>{% endif %}
+      <h3>Security Controls</h3><dl class="details-grid"><div><dt>BitLocker</dt><dd>{{ endpoint.bitLocker.status }} &middot; {{ endpoint.bitLocker.encryptionState }} &middot; {{ endpoint.bitLocker.provider }} ({{ endpoint.bitLocker.confidence }}% confidence)</dd></div>{% for name, status in endpoint.securityControls.items() if name != "BitLocker" %}<div><dt>{{ name }}</dt><dd>{{ status|replace("_", " ") }}</dd></div>{% endfor %}</dl>
+      <h3>Assessment Limitations</h3>{% for item in endpoint.coverageLimitations %}<p>{{ item.reason|replace("_", " ") }}. This missing evidence is not reported as a security failure.</p>{% else %}<p>No assessment limitation was recorded.</p>{% endfor %}
+      <h3>Collected System Information</h3>{% for group, values in endpoint.collectedInformation.items() %}<details><summary>{{ group|replace("_", " ")|title }}</summary><dl class="details-grid">{% for label, value in values.items() %}<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endfor %}</dl></details>{% endfor %}
+      {% if model.options.includeTechnicalEvidence %}<h3>Advanced Evidence</h3><details class="technical-evidence"><summary>Normalized evidence, providers, confidence and raw states</summary><pre>{{ endpoint.technicalEvidence|json_pretty }}</pre></details><details><summary>Hashes and audit metadata</summary><dl class="details-grid"><div><dt>Submission</dt><dd class="digest">{{ endpoint.submissionId }}</dd></div><div><dt>Evidence set digest</dt><dd class="digest">{{ endpoint.evidenceSetDigest }}</dd></div><div><dt>Collector build digest</dt><dd class="digest">{{ endpoint.collectorBuildDigest }}</dd></div></dl></details>{% endif %}
+    </div></details>{% endfor %}{% else %}<p>Endpoint details were excluded by report options.</p>{% endif %}
   </section>
 
   <section id="gaps" class="report-section">
-    <div class="section-heading"><p>11</p><h2>Coverage Gaps and Limitations</h2></div>
-    <p>Coverage gaps represent controls that could not be evaluated. They are not failures.</p>
-    <table>
-      <thead><tr><th>Endpoint</th><th>Capability</th><th>Domain</th><th>Reason</th></tr></thead>
-      <tbody>{% for gap in model.coverageGaps %}
-        <tr class="searchable" data-kind="coverage-gap"><td>{{ gap.deviceId }}</td><td>{{ gap.capabilityId }}</td><td>{{ gap.domain }}</td><td>{{ gap.reason }}</td></tr>
-      {% else %}<tr><td colspan="4">No coverage gaps were recorded.</td></tr>{% endfor %}</tbody>
-    </table>
-    <a class="back-top no-print" href="#top">Back to top</a>
+    <div class="section-heading"><p>10</p><h2>Assessment Limitations</h2></div><p>Unavailable evidence reduces assessment coverage. It is not converted into a security finding.</p>
+    <div class="table-scroll"><table><thead><tr><th>Check</th><th>Status</th><th>Reason</th><th>Affected endpoints</th><th>Assessment mode</th></tr></thead><tbody>{% for item in model.assessmentLimitations %}<tr class="searchable" data-kind="limitation" data-endpoints="{{ item.endpoint }}"><td>{{ item.check }}<details><summary>Technical details</summary><span class="digest">Capability ID: {{ item.capabilityId }}</span><br>Domain: {{ item.domain }}</details></td><td>{{ item.status|replace("_", " ") }}</td><td>{{ item.reason }}</td><td><a href="#{{ item.endpointAnchor }}">{{ item.endpoint }}</a></td><td>{{ item.scopeNote }}</td></tr>{% else %}<tr><td colspan="5">No assessment limitations were recorded.</td></tr>{% endfor %}</tbody></table></div>
   </section>
 
   <section id="frameworks" class="report-section">
-    <div class="section-heading"><p>12</p><h2>Framework Mapping</h2></div>
-    <p>Mappings provide traceability and do not by themselves claim certification or full compliance.</p>
-    <table>
-      <thead><tr><th>Framework</th><th>Control ID</th><th>Related findings</th></tr></thead>
-      <tbody>{% for row in model.frameworkRows %}
-        <tr><td>{{ row.framework }}</td><td>{{ row.controlId }}</td><td>{{ row.findingIds|join(", ") }}</td></tr>
-      {% endfor %}</tbody>
-    </table>
-    <a class="back-top no-print" href="#top">Back to top</a>
+    <div class="section-heading"><p>11</p><h2>Framework &amp; Compliance Impact</h2></div>
+    <p class="notice">CSA framework mappings support technical traceability. They do not constitute formal certification or legal compliance determination unless explicitly validated.</p>
+    <div class="filter-bar no-print">{% for filter in ["All", "E-ITS", "NIS2", "Microsoft", "CIS"] %}<button type="button" class="framework-filter{% if loop.first %} active{% endif %}" data-framework-filter="{{ filter|lower }}">{{ filter }}</button>{% endfor %}</div>
+    {% for row in model.frameworkRows %}<article class="framework-row" data-framework-row data-framework="{{ row.framework|lower }}"><header><strong>{{ row.framework }}</strong><span class="status status-warning">{{ row.mappingStatus }}</span></header><dl class="details-grid"><div><dt>Control / Requirement</dt><dd>{{ row.controlId }}</dd></div><div><dt>Assessment result</dt><dd>Attention required</dd></div><div><dt>Related finding</dt><dd>{% for finding in row.findingLinks %}<a href="#{{ finding.anchor }}">{{ finding.id }} &middot; {{ finding.title }}</a>{% if not loop.last %}<br>{% endif %}{% endfor %}</dd></div><div><dt>Affected endpoints</dt><dd>{% for endpoint in row.affectedEndpointLinks %}<a href="#{{ endpoint.anchor }}">{{ endpoint.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</dd></div><div><dt>Recommended action</dt><dd>{{ row.recommendedAction }}</dd></div><div><dt>Mapping confidence / review</dt><dd>{{ row.mappingConfidence }}% &middot; {{ row.mappingStatus }}</dd></div></dl></article>{% else %}<p>No framework traceability mapping was available.</p>{% endfor %}
   </section>
 
   <section id="evidence" class="report-section">
-    <div class="section-heading"><p>13</p><h2>Technical Evidence</h2></div>
-    {% if model.options.includeTechnicalEvidence %}
-    <p>Normalized evidence is collapsed by default. Sensitive material prohibited by the CSA privacy policy is not included.</p>
-    {% for endpoint in model.endpoints %}
-    <details class="technical-evidence">
-      <summary>{{ endpoint.displayName }} normalized evidence</summary>
-      <pre>{{ endpoint.technicalEvidence|json_pretty }}</pre>
-    </details>
-    {% endfor %}
-    {% else %}<p>Technical evidence was excluded by the report options.</p>{% endif %}
-    <a class="back-top no-print" href="#top">Back to top</a>
+    <div class="section-heading"><p>12</p><h2>Technical Evidence</h2></div>
+    <h3>Collected System Information</h3><p>Human-readable system, access, security, update and network evidence is available in each <a href="#endpoints">Endpoint Detail</a>. Primary conclusions do not require reading raw JSON.</p>
+    <h3>Advanced Technical Evidence</h3><p>Normalized evidence, providers, confidence, raw state, capability IDs, hashes and audit metadata are collapsed by default in each endpoint. Sensitive credentials and tokens are excluded.</p>
   </section>
 
-  <section id="methodology" class="report-section">
-    <div class="section-heading"><p>14</p><h2>Methodology</h2></div>
-    <p>{{ model.methodology.summary }}</p>
-    <p>{{ model.methodology.limitations }}</p>
-    <p>Fleet findings are grouped by rule ID and affected endpoint. The latest accepted submission per device is selected deterministically. Security score and collection coverage are distinct measures.</p>
-    <a class="back-top no-print" href="#top">Back to top</a>
-  </section>
-
-  <section id="integrity" class="report-section">
-    <div class="section-heading"><p>15</p><h2>Audit and Integrity</h2></div>
-    <dl class="details-grid">
-      <div><dt>Report integrity</dt><dd>{{ model.integrity.reportIntegrity }}</dd></div>
-      <div><dt>Evidence package integrity</dt><dd>{{ model.integrity.evidencePackageIntegrity }}</dd></div>
-      <div><dt>Collector build trusted</dt><dd>{{ model.integrity.collectorBuildTrusted }}</dd></div>
-      <div><dt>Audit chain</dt><dd>{{ model.integrity.auditChain }}</dd></div>
-      <div><dt>Offline package paths normalized</dt><dd>{{ model.integrity.offlinePackagePathsNormalized }}</dd></div>
-      <div><dt>Audit status</dt><dd class="status status-verified">{{ model.integrity.auditVerificationStatus }}</dd></div>
-      <div><dt>Audit entries</dt><dd>{{ model.integrity.auditEntryCount }}</dd></div>
-      <div><dt>Evidence set digest</dt><dd class="digest">{{ model.integrity.evidenceSetDigest }}</dd></div>
-      <div><dt>Report model digest</dt><dd class="digest">{{ model.integrity.reportModelDigest }}</dd></div>
-      <div><dt>Audit final hash</dt><dd class="digest">{{ model.integrity.auditHashAtGeneration }}</dd></div>
-    </dl>
-    {% if model.options.includeAudit %}
-    <details><summary>Show audit event index</summary>
-      <table><thead><tr><th>Time</th><th>Event</th><th>Entry hash</th></tr></thead>
-      <tbody>{% for event in model.integrity.auditEvents %}<tr><td>{{ event.timestamp }}</td><td>{{ event.eventType }}</td><td class="digest">{{ event.entryHash }}</td></tr>{% endfor %}</tbody></table>
-    </details>
-    {% endif %}
-    <a class="back-top no-print" href="#top">Back to top</a>
-  </section>
+  <section id="scope" class="report-section"><div class="section-heading"><p>13</p><h2>Assessment Scope</h2></div><dl class="details-grid"><div><dt>Expected / assessed endpoints</dt><dd>{{ model.assessment.expectedEndpoints }} / {{ model.scope.endpointsAssessed }}</dd></div><div><dt>Collection mode</dt><dd>{{ model.scope.collectionMode }}</dd></div><div><dt>Control results</dt><dd>{{ model.controlResults.total }}</dd></div><div><dt>Submissions</dt><dd>{{ model.scope.submissionCount }}</dd></div><div><dt>Duplicate submissions</dt><dd>{{ model.scope.duplicateSubmissionCount }}</dd></div><div><dt>Analysis pending</dt><dd>{{ model.scope.analysisPendingCount }}</dd></div></dl></section>
+  <section id="fleet" class="report-section"><div class="section-heading"><p>14</p><h2>Assessment Overview</h2></div><p>The latest accepted submission for each endpoint is used. {{ model.scope.endpointsAssessed }} endpoints produced {{ model.controlResults.total }} control results.</p></section>
+  <section id="methodology" class="report-section"><div class="section-heading"><p>15</p><h2>Methodology</h2></div><p>{{ model.methodology.summary }}</p><p>{{ model.methodology.limitations }}</p><p>Findings are grouped by rule and affected endpoint. Risk score, finding severity, endpoint risk, overall security risk and collection coverage remain distinct measures.</p></section>
+  <section id="integrity" class="report-section"><div class="section-heading"><p>16</p><h2>Audit and Integrity</h2></div><dl class="details-grid"><div><dt>Report integrity</dt><dd>{{ model.integrity.reportIntegrity }}</dd></div><div><dt>Evidence package integrity</dt><dd>{{ model.integrity.evidencePackageIntegrity }}</dd></div><div><dt>Collector build trusted</dt><dd>{{ model.integrity.collectorBuildTrusted }}</dd></div><div><dt>Audit chain</dt><dd>{{ model.integrity.auditChain }}</dd></div><div><dt>Evidence set digest</dt><dd class="digest">{{ model.integrity.evidenceSetDigest }}</dd></div><div><dt>Report model digest</dt><dd class="digest">{{ model.integrity.reportModelDigest }}</dd></div><div><dt>Audit final hash</dt><dd class="digest">{{ model.integrity.auditHashAtGeneration }}</dd></div></dl>{% if model.options.includeAudit %}<details><summary>Advanced audit event index</summary><table><thead><tr><th>Time</th><th>Event</th><th>Entry hash</th></tr></thead><tbody>{% for event in model.integrity.auditEvents %}<tr><td>{{ event.timestamp }}</td><td>{{ event.eventType }}</td><td class="digest">{{ event.entryHash }}</td></tr>{% endfor %}</tbody></table></details>{% endif %}</section>
 </main>
-<footer>
-  <p>Generated by CSA {{ model.reportVersion }}. Report timestamp: {{ model.generatedAt }}.</p>
-</footer>
+<footer><p>Generated by CSA {{ model.reportVersion }}. Report timestamp: {{ model.generatedAt }}.</p></footer>
 <script>{{ inline_script | safe }}</script>
 </body>
 </html>
