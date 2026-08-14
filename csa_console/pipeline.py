@@ -162,7 +162,29 @@ class ConsoleAnalysisPipeline:
         run_cve: bool = False,
         cve_progress_callback: Callable[[dict], None] | None = None,
     ) -> EndpointAnalysis:
-        """Rerun analysis from accepted evidence after any analysis failure."""
+        """Rerun analysis and persist failure after any pipeline exception."""
+
+        try:
+            return self._retry_analysis(
+                assessment_id,
+                submission_id,
+                run_cve=run_cve,
+                cve_progress_callback=cve_progress_callback,
+            )
+        except Exception:
+            if run_cve:
+                self.mark_cve_analysis_failed(assessment_id, submission_id)
+            raise
+
+    def _retry_analysis(
+        self,
+        assessment_id: str,
+        submission_id: str,
+        *,
+        run_cve: bool = False,
+        cve_progress_callback: Callable[[dict], None] | None = None,
+    ) -> EndpointAnalysis:
+        """Implement endpoint reanalysis after accepted evidence validation."""
 
         finding_path = self.storage.path(
             assessment_id, "findings", f"{submission_id}.json"
@@ -229,22 +251,8 @@ class ConsoleAnalysisPipeline:
                 cve_progress_callback=cve_progress_callback,
             )
         except Exception:
-            if run_cve and existing:
-                failed = dict(existing)
-                failed["cveAnalysisStatus"] = "FAILED"
-                failed["cveSummary"] = {
-                    **dict(existing.get("cveSummary", {})),
-                    "status": "FAILED",
-                }
-                self.storage.write_json(
-                    assessment_id,
-                    ("findings", f"{submission_id}.json"),
-                    failed,
-                )
-                audit.append(
-                    "cve_analysis_failed",
-                    {"submissionId": submission_id},
-                )
+            if run_cve:
+                self.mark_cve_analysis_failed(assessment_id, submission_id)
             raise
         finding_values = [item.to_dict() for item in findings]
         finding_values.sort(
@@ -342,6 +350,39 @@ class ConsoleAnalysisPipeline:
             assessment_id, submission_id, "COMPLETE"
         )
         return analysis
+
+    def mark_cve_analysis_failed(
+        self,
+        assessment_id: str,
+        submission_id: str,
+    ) -> None:
+        """Persist an idempotent failed state after any CVE pipeline error."""
+
+        finding_path = self.storage.path(
+            assessment_id, "findings", f"{submission_id}.json"
+        )
+        if not finding_path.exists():
+            return
+        existing = self.load_analysis(assessment_id, submission_id)
+        if existing.get("cveAnalysisStatus") == "FAILED":
+            return
+        failed = dict(existing)
+        failed["cveAnalysisStatus"] = "FAILED"
+        failed["cveSummary"] = {
+            **dict(existing.get("cveSummary", {})),
+            "status": "FAILED",
+        }
+        self.storage.write_json(
+            assessment_id,
+            ("findings", f"{submission_id}.json"),
+            failed,
+        )
+        ConsoleAuditLog(
+            self.storage.path(assessment_id, "audit", "audit.jsonl")
+        ).append(
+            "cve_analysis_failed",
+            {"submissionId": submission_id},
+        )
 
     def _package_digest(
         self, assessment_id: str, submission_id: str

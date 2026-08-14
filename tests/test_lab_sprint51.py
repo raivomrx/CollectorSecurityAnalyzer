@@ -1141,6 +1141,34 @@ class UnifiedReportTests(Sprint5TestCase):
         )
         self.assertEqual(stored["cveAnalysisStatus"], "COMPLETE")
 
+    def test_cve_retry_persists_failed_state_after_post_analysis_error(
+        self,
+    ) -> None:
+        """No CVE pipeline exception may leave an endpoint running forever."""
+
+        submission_id = "SUB-CVE-FAILED-STATE-01"
+        self._accept_and_analyze(submission_id)
+        pipeline = ConsoleAnalysisPipeline(self.storage)
+
+        with mock.patch.object(
+            pipeline,
+            "_retry_analysis",
+            side_effect=TypeError("provider date is not serializable"),
+        ), self.assertRaises(TypeError):
+            pipeline.retry_analysis(
+                self.assessment.assessment_id,
+                submission_id,
+                run_cve=True,
+            )
+
+        stored = self.storage.read_json(
+            self.assessment.assessment_id,
+            "findings",
+            f"{submission_id}.json",
+        )
+        self.assertEqual(stored["cveAnalysisStatus"], "FAILED")
+        self.assertEqual(stored["cveSummary"]["status"], "FAILED")
+
     def test_failed_first_analysis_can_be_retried_from_normalized_data(
         self,
     ) -> None:
