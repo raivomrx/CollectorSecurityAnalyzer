@@ -207,12 +207,15 @@ class LabApplicationService:
         """Return newest-first GUI summaries without secret material."""
 
         values: list[dict[str, Any]] = []
-        for path in sorted(
-            self.storage.root.glob("*/lab-state.json"),
-            key=lambda item: item.parent.name,
+        states = [
+            self.load_state(path.parent.name)
+            for path in self.storage.root.glob("*/lab-state.json")
+        ]
+        for state in sorted(
+            states,
+            key=lambda item: (item.created_at, item.assessment_id),
             reverse=True,
         ):
-            state = self.load_state(path.parent.name)
             submissions = self.submissions.list_submissions(state.assessment_id)
             latest, all_items, _index = FleetAnalyzer(
                 self.storage

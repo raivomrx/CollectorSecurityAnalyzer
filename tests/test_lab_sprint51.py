@@ -187,6 +187,27 @@ class LabServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.request(active_validation=True).validate()
 
+    def test_assessment_list_is_sorted_by_creation_time_newest_first(
+        self,
+    ) -> None:
+        older = self.service.create_assessment(
+            self.request(name="Older", listener_port=_free_port())
+        )
+        newer = self.service.create_assessment(
+            self.request(name="Newer", listener_port=_free_port())
+        )
+        older.created_at = "2026-01-01T08:00:00Z"
+        newer.created_at = "2026-01-02T08:00:00Z"
+        self.service._write_state(older)
+        self.service._write_state(newer)
+
+        assessments = self.service.list_assessments()
+
+        self.assertEqual(
+            [item["assessmentId"] for item in assessments],
+            [newer.assessment_id, older.assessment_id],
+        )
+
     def test_cve_background_job_publishes_real_progress(self) -> None:
         """The Lab should expose running and terminal CVE job states."""
 
