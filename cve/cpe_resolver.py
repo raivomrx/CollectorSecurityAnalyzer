@@ -237,6 +237,21 @@ def parse_cpe23_components(cpe_name: str) -> ParsedCpe23 | None:
     )
 
 
+def replace_cpe23_version(cpe_name: str, version: str) -> str | None:
+    """Return a CPE 2.3 name with its version component replaced safely."""
+
+    parts = _split_cpe23(cpe_name)
+    if parts is None or len(parts) != 13:
+        return None
+    if parts[0] != "cpe" or parts[1] != "2.3":
+        return None
+    cleaned_version = version.strip()
+    if not cleaned_version:
+        return None
+    parts[5] = _escape(cleaned_version)
+    return ":".join(parts)
+
+
 def _split_cpe23(cpe_name: str) -> list[str] | None:
     """Split CPE fields on unescaped colons only."""
 

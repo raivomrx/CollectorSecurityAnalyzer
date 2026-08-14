@@ -393,7 +393,11 @@
     const current = progress.currentProduct
       ? `${progress.currentProduct} ${progress.currentVersion || ""}`.trim()
       : "";
-    $("cve-progress-details").textContent = [endpoint, products, current].filter(Boolean).join(" | ");
+    const cves = progress.cvesTotal
+      ? `CVEs ${progress.cvesProcessed || 0}/${progress.cvesTotal}`
+      : "";
+    const currentCve = progress.currentCve || "";
+    $("cve-progress-details").textContent = [endpoint, products, current, cves, currentCve].filter(Boolean).join(" | ");
     const completed = state.current?.endpoints?.filter((item) => item.status === "COMPLETE").length || 0;
     $("run-cve-analysis").disabled = running || completed === 0;
   }

@@ -145,6 +145,7 @@ def analyze_file(
         skip_cve_program=skip_cve_program,
         refresh_enrichment_cache=refresh_enrichment_cache,
         cvelist_path=cvelist_path,
+        progress_callback=cve_progress_callback,
     )
     _emit_cve_progress(
         cve_progress_callback,
@@ -819,6 +820,7 @@ def _run_cve_enrichment(
     skip_cve_program: bool,
     refresh_enrichment_cache: bool,
     cvelist_path: str | Path | None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> None:
     """Run multi-source CVE enrichment when enabled."""
 
@@ -874,7 +876,16 @@ def _run_cve_enrichment(
             providers=providers,
             prioritization_weights=priority_config,
             enrich_not_affected=bool(enrichment_config.get("EnrichNotAffected", False)),
-        ).enrich_summary(context.cve_summary)
+        ).enrich_summary(
+            context.cve_summary,
+            progress_callback=lambda details: _emit_cve_progress(
+                progress_callback,
+                phase="ENRICHING",
+                products_processed=context.cve_summary.eligible_products,
+                products_total=context.cve_summary.eligible_products,
+                **details,
+            ),
+        )
     except Exception:
         LOGGER.exception("CVE enrichment failed")
         context.cve_enrichment = None

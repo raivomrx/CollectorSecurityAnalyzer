@@ -290,6 +290,28 @@ class EnrichmentServiceTests(unittest.TestCase):
         self.assertEqual(enriched.assessments[0].conflicts[0].conflict_type, ConflictType.AFFECTED_VERSION_DISAGREEMENT)
         self.assertTrue(enriched.assessments[0].provenance)
 
+    def test_enrichment_reports_unique_cve_progress(self) -> None:
+        """Progress should advance once per unique enriched CVE."""
+
+        progress = []
+        provider = _Provider(
+            SourceEnrichment(
+                cve_id="CVE-2026-0001",
+                source=SourceType.CISA_KEV,
+                raw_available=True,
+            )
+        )
+
+        VulnerabilityEnrichmentService([provider]).enrich_summary(
+            _summary([_assessment(), _assessment(product="Chrome Beta")]),
+            progress_callback=progress.append,
+        )
+
+        self.assertEqual(provider.calls, 1)
+        self.assertEqual(progress[0]["cves_total"], 1)
+        self.assertEqual(progress[-1]["cves_processed"], 1)
+        self.assertEqual(progress[-1]["current_cve"], "CVE-2026-0001")
+
     def test_provider_failures_do_not_block_other_providers(self) -> None:
         """Provider errors should be isolated."""
 

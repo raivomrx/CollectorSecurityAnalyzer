@@ -8,7 +8,7 @@ from typing import Any
 
 from cve.applicability import evaluate_applicability
 from cve.client import NvdClient
-from cve.cpe_resolver import CpeResolver
+from cve.cpe_resolver import CpeResolver, replace_cpe23_version
 from cve.exceptions import NvdRequestError
 from cve.models import (
     ApplicabilityStatus,
@@ -24,6 +24,7 @@ from software.models import SoftwareInventory, SoftwareProduct
 
 LOGGER = logging.getLogger(__name__)
 CveProgressCallback = Callable[[dict[str, Any]], None]
+MINIMUM_SOFTWARE_CONFIDENCE = 80
 
 
 class CveService:
@@ -144,7 +145,9 @@ class CveService:
                     current_product=software.product,
                     current_version=software.version,
                 )
-                cve_items = self.client.get_cves(_cve_query(cpe.cpe_name))
+                cve_items = self.client.get_cves(
+                    _cve_query(cpe.cpe_name, software.normalized_version)
+                )
                 evaluation.provider_query_status = "SUCCESS"
                 evaluation.provider_reason = None
                 evaluated_products += 1
@@ -328,9 +331,12 @@ def _summary(
     )
 
 
-def _cve_query(cpe_name: str) -> dict[str, str]:
-    """Use the NVD virtual match parameter for wildcard product CPEs."""
+def _cve_query(cpe_name: str, installed_version: str = "") -> dict[str, str]:
+    """Build the narrowest valid NVD query for an installed product."""
 
+    versioned_cpe = replace_cpe23_version(cpe_name, installed_version)
+    if versioned_cpe is not None:
+        return {"cpeName": versioned_cpe}
     if "*" in cpe_name:
         return {"virtualMatchString": cpe_name}
     return {"cpeName": cpe_name}
@@ -384,7 +390,7 @@ def _complete_evaluation(
 def _ineligible_reason(software: SoftwareProduct) -> str:
     """Explain why a normalized inventory row cannot enter CVE matching."""
 
-    if software.confidence < 60:
+    if software.confidence < MINIMUM_SOFTWARE_CONFIDENCE:
         return "Normalization confidence is below the CVE eligibility threshold"
     if not software.version:
         return "Installed version is missing"
@@ -450,7 +456,7 @@ def _is_eligible(software: SoftwareProduct) -> bool:
     return bool(
         software.normalized_product
         and software.version
-        and software.confidence >= 60
+        and software.confidence >= MINIMUM_SOFTWARE_CONFIDENCE
     )
 
 

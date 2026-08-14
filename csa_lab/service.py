@@ -6,6 +6,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import secrets
@@ -50,6 +51,8 @@ from csa_lab.models import (
     LabAssessmentState,
     LabAssessmentStatus,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 
 class LabApplicationService:
@@ -740,11 +743,27 @@ class LabApplicationService:
                     if products_total
                     else 0.0
                 )
+                phase = str(details.get("phase", "SCANNING"))
+                cves_total = int(details.get("cves_total", 0) or 0)
+                cves_processed = int(
+                    details.get("cves_processed", 0) or 0
+                )
+                if phase == "ENRICHING":
+                    enrichment_fraction = (
+                        min(cves_processed / cves_total, 1.0)
+                        if cves_total
+                        else 1.0
+                    )
+                    endpoint_fraction = 0.7 + 0.29 * enrichment_fraction
+                elif phase == "FINALIZING":
+                    endpoint_fraction = 0.99
+                else:
+                    endpoint_fraction = 0.7 * product_fraction
                 overall = min(
                     99,
                     int(
                         (
-                            (current_index - 1 + product_fraction)
+                            (current_index - 1 + endpoint_fraction)
                             / endpoint_total
                         )
                         * 100
@@ -754,7 +773,7 @@ class LabApplicationService:
                     progress_callback,
                     {
                         "state": "RUNNING",
-                        "phase": str(details.get("phase", "SCANNING")),
+                        "phase": phase,
                         "percent": overall,
                         "endpointIndex": current_index,
                         "endpointTotal": endpoint_total,
@@ -766,6 +785,11 @@ class LabApplicationService:
                         ),
                         "currentVersion": str(
                             details.get("current_version", "")
+                        ),
+                        "cvesProcessed": cves_processed,
+                        "cvesTotal": cves_total,
+                        "currentCve": str(
+                            details.get("current_cve", "")
                         ),
                     },
                 )
@@ -907,13 +931,25 @@ class LabApplicationService:
                 }
             )
         except Exception as error:
+            with self._lock:
+                failed_phase = str(
+                    self._cve_jobs.get(assessment_id, {}).get(
+                        "phase", "UNKNOWN"
+                    )
+                )
+            LOGGER.exception(
+                "CVE analysis job failed: assessment=%s phase=%s",
+                assessment_id,
+                failed_phase,
+            )
             update(
                 {
                     "state": "FAILED",
                     "result": "FAILED",
                     "phase": "FAILED",
                     "message": (
-                        f"CVE analysis failed ({type(error).__name__})"
+                        "CVE analysis failed during "
+                        f"{failed_phase} ({type(error).__name__})"
                     ),
                 }
             )
@@ -1294,6 +1330,9 @@ def _cve_progress_message(progress: dict[str, Any]) -> str:
     products_processed = int(progress.get("productsProcessed", 0) or 0)
     products_total = int(progress.get("productsTotal", 0) or 0)
     product = str(progress.get("currentProduct", "") or "")
+    cves_processed = int(progress.get("cvesProcessed", 0) or 0)
+    cves_total = int(progress.get("cvesTotal", 0) or 0)
+    current_cve = str(progress.get("currentCve", "") or "")
     endpoint_text = (
         f"Endpoint {endpoint_index}/{endpoint_total}"
         if endpoint_index and endpoint_total
@@ -1305,7 +1344,13 @@ def _cve_progress_message(progress: dict[str, Any]) -> str:
         if products_total and product
         else ""
     )
-    return f"{endpoint_text}{product_text}"
+    cve_text = (
+        f", CVE {min(cves_processed + 1, cves_total)}/{cves_total}: "
+        f"{current_cve}"
+        if cves_total and current_cve and state == "RUNNING"
+        else ""
+    )
+    return f"{endpoint_text}{product_text}{cve_text}"
 
 
 def _default_collector_bootstrap() -> Path:

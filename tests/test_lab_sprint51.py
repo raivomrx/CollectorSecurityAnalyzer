@@ -82,6 +82,8 @@ class LabUiContractTests(unittest.TestCase):
         self.assertIn("cveAnalysisStatus", script)
         self.assertIn("cve-analysis-status", script)
         self.assertIn("productsProcessed", script)
+        self.assertIn("cvesProcessed", script)
+        self.assertIn("currentCve", script)
         self.assertIn("CVE product evaluation pipeline", script)
         self.assertIn("Run CVE Analysis", (
             ROOT / "csa_lab" / "templates" / "lab.html"
@@ -256,6 +258,31 @@ class LabServiceTests(unittest.TestCase):
         self.assertEqual(progress["state"], "COMPLETED")
         self.assertEqual(progress["result"], "COMPLETE")
         self.assertEqual(progress["percent"], 100)
+
+    def test_cve_background_failure_logs_traceback_and_phase(self) -> None:
+        """Background failures should be diagnosable without exposing data."""
+
+        state = self.service.create_assessment(self.request())
+        with mock.patch(
+            "csa_lab.service.FleetAnalyzer.load_latest_endpoint_data",
+            return_value=([{"submissionId": "SUB-01"}], [], []),
+        ), mock.patch.object(
+            self.service,
+            "run_cve_analysis",
+            side_effect=TypeError("provider date is not serializable"),
+        ), self.assertLogs("csa_lab.service", level="ERROR") as captured:
+            self.service.start_cve_analysis(state.assessment_id)
+            for _ in range(100):
+                progress = self.service.cve_analysis_progress(
+                    state.assessment_id
+                )
+                if progress["state"] != "RUNNING":
+                    break
+                time.sleep(0.01)
+
+        self.assertEqual(progress["state"], "FAILED")
+        self.assertIn("during PREPARING", progress["message"])
+        self.assertIn("TypeError", "\n".join(captured.output))
 
     def test_interface_selection_prefers_physical_private_network(self) -> None:
         interfaces = [

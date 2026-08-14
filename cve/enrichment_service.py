@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from cve.cna_applicability import evaluate_cna_applicability
@@ -31,6 +32,7 @@ ENRICHED_STATUSES = {
     ApplicabilityStatus.POSSIBLY_AFFECTED,
     ApplicabilityStatus.NOT_EVALUATED,
 }
+EnrichmentProgressCallback = Callable[[dict[str, Any]], None]
 
 
 class VulnerabilityEnrichmentService:
@@ -48,7 +50,11 @@ class VulnerabilityEnrichmentService:
         self.prioritization_weights = prioritization_weights or {}
         self.enrich_not_affected = enrich_not_affected
 
-    def enrich_summary(self, summary: CveScanSummary) -> EnrichedCveScanSummary:
+    def enrich_summary(
+        self,
+        summary: CveScanSummary,
+        progress_callback: EnrichmentProgressCallback | None = None,
+    ) -> EnrichedCveScanSummary:
         """Enrich a CVE scan summary."""
 
         cache: dict[str, list[SourceEnrichment]] = {}
@@ -59,13 +65,42 @@ class VulnerabilityEnrichmentService:
         enriched: list[EnrichedCveAssessment] = []
         eligible_ids: set[str] = set()
         enriched_ids: set[str] = set()
+        ordered_eligible_ids = list(
+            dict.fromkeys(
+                assessment.cve.cve_id
+                for assessment in summary.assessments
+                if self.enrich_not_affected
+                or assessment.applicability in ENRICHED_STATUSES
+            )
+        )
+        cves_total = len(ordered_eligible_ids)
+        cves_processed = 0
+        _notify_progress(
+            progress_callback,
+            cves_processed=0,
+            cves_total=cves_total,
+            current_cve="",
+        )
         for assessment in summary.assessments:
             if not self.enrich_not_affected and assessment.applicability not in ENRICHED_STATUSES:
                 continue
             cve_id = assessment.cve.cve_id
             eligible_ids.add(cve_id)
             if cve_id not in cache:
+                _notify_progress(
+                    progress_callback,
+                    cves_processed=cves_processed,
+                    cves_total=cves_total,
+                    current_cve=cve_id,
+                )
                 cache[cve_id] = self._load_enrichments(cve_id, execution_states)
+                cves_processed += 1
+                _notify_progress(
+                    progress_callback,
+                    cves_processed=cves_processed,
+                    cves_total=cves_total,
+                    current_cve=cve_id,
+                )
             if cache[cve_id]:
                 enriched_ids.add(cve_id)
             enriched.append(self._enrich_assessment(assessment, cache[cve_id]))
@@ -208,6 +243,20 @@ class VulnerabilityEnrichmentService:
             provenance=provenance,
             enrichment_complete=all(enrichment.data_quality.value != "UNKNOWN" for enrichment in source_enrichments),
         )
+
+
+def _notify_progress(
+    callback: EnrichmentProgressCallback | None,
+    **details: Any,
+) -> None:
+    """Publish enrichment progress without coupling providers to the UI."""
+
+    if callback is None:
+        return
+    try:
+        callback(details)
+    except Exception:
+        LOGGER.exception("CVE enrichment progress callback failed")
 
 
 def _first_kev(enrichments: list[SourceEnrichment]) -> KevRecord | None:

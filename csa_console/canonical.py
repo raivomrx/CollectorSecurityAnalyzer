@@ -8,6 +8,7 @@ import os
 import threading
 import uuid
 from dataclasses import asdict, is_dataclass
+from datetime import date, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,8 @@ def normalize(value: Any) -> Any:
         return value.value
     if isinstance(value, Path):
         return str(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
     if isinstance(value, dict):
         return {
             str(key): normalize(item)

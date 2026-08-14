@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from dataclasses import replace
+from datetime import date, datetime, timezone
 from pathlib import Path
 import gc
 import json
@@ -13,9 +14,16 @@ import warnings
 
 from analysis_context import AnalysisContext
 from analyzer import _cve_analysis_metadata
+from csa_console.canonical import canonical_json
+from csa_console.serde import model_to_dict
 from cve.applicability import evaluate_applicability
 from cve.cache import NvdCache
-from cve.cpe_resolver import CpeResolver, build_cpe23, parse_cpe23_components
+from cve.cpe_resolver import (
+    CpeResolver,
+    build_cpe23,
+    parse_cpe23_components,
+    replace_cpe23_version,
+)
 from cve.models import (
     ApplicabilityStatus,
     CpeCandidate,
@@ -68,6 +76,19 @@ class CveEngineTests(unittest.TestCase):
         assert candidate is not None
         self.assertEqual(candidate.confidence, 100)
         self.assertIn("microsoft:edge_chromium", candidate.cpe_name)
+
+    def test_cpe_version_replacement_preserves_environment_components(
+        self,
+    ) -> None:
+        """Installed versions should narrow CPEs without losing environment."""
+
+        cpe = "cpe:2.3:a:vendor:product:*:stable:pro:en_us:*:windows:x64:*"
+
+        self.assertEqual(
+            replace_cpe23_version(cpe, "25.01.0"),
+            "cpe:2.3:a:vendor:product:25.01.0:stable:pro:en_us:*:windows:x64:*",
+        )
+        self.assertIsNone(replace_cpe23_version("invalid", "25.01.0"))
 
     def test_unvalidated_local_mapping_caps_confidence(self) -> None:
         """Unvalidated local mappings should not produce automatic 100 confidence."""
@@ -560,10 +581,10 @@ class CveEngineTests(unittest.TestCase):
         self.assertEqual(summary.coverage_percent, 100.0)
         self.assertEqual(summary.confirmed_vulnerabilities, 1)
 
-    def test_service_uses_virtual_match_for_wildcard_cpe_and_traces_stages(
+    def test_service_queries_nvd_with_the_exact_installed_version(
         self,
     ) -> None:
-        """Wildcard CPE scans should use the NVD virtual match contract."""
+        """A mapped product CPE should be narrowed to the installed version."""
 
         queries = []
         progress = []
@@ -586,7 +607,14 @@ class CveEngineTests(unittest.TestCase):
 
         self.assertEqual(
             queries,
-            [{"virtualMatchString": _cpe().cpe_name}],
+            [
+                {
+                    "cpeName": (
+                        "cpe:2.3:a:google:chrome:144.0.7559.60:"
+                        "*:*:*:*:*:*:*"
+                    )
+                }
+            ],
         )
         evaluation = summary.product_evaluations[0]
         self.assertEqual(evaluation.product_mapping_status, "SUCCESS")
@@ -599,6 +627,29 @@ class CveEngineTests(unittest.TestCase):
         self.assertIn(
             "QUERYING_PROVIDER",
             {item["phase"] for item in progress},
+        )
+
+    def test_console_serializers_support_cve_provider_dates(self) -> None:
+        """KEV dates must remain JSON-safe when endpoint results are saved."""
+
+        value = {
+            "date": date(2026, 8, 14),
+            "timestamp": datetime(2026, 8, 14, 10, 30, tzinfo=timezone.utc),
+        }
+
+        self.assertEqual(
+            json.loads(canonical_json(value)),
+            {
+                "date": "2026-08-14",
+                "timestamp": "2026-08-14T10:30:00+00:00",
+            },
+        )
+        self.assertEqual(
+            model_to_dict(value),
+            {
+                "date": "2026-08-14",
+                "timestamp": "2026-08-14T10:30:00+00:00",
+            },
         )
 
     def test_service_reports_incomplete_coverage(self) -> None:
@@ -618,6 +669,24 @@ class CveEngineTests(unittest.TestCase):
         self.assertEqual(summary.evaluated_products, 0)
         self.assertEqual(summary.coverage_percent, 0.0)
         self.assertFalse(summary.coverage_complete)
+
+    def test_vendor_only_normalization_is_not_cve_eligible(self) -> None:
+        """Vendor-only confidence must not trigger unreliable CPE queries."""
+
+        class Client:
+            def get_cves(self, params):
+                raise AssertionError("CVE provider must not be queried")
+
+        software = _software()
+        software.confidence = 60
+        summary = CveService(client=Client()).scan_inventory(
+            SoftwareInventory(products=[software], product_count=1)
+        )
+
+        self.assertEqual(summary.eligible_products, 0)
+        evaluation = summary.product_evaluations[0]
+        self.assertEqual(evaluation.eligibility_status, "NOT_ELIGIBLE")
+        self.assertIn("confidence", evaluation.provider_reason.lower())
 
     def test_empty_summary_for_skipped_or_failed_scan_has_no_coverage(self) -> None:
         """Skipped or fatal CVE scans should not claim complete coverage."""
