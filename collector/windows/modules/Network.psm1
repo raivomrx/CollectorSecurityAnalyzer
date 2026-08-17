@@ -22,10 +22,10 @@ function Get-CSANetworkEvidence {
                 IPv6Connectivity = [string]$_.IPv6Connectivity
             }
         })
-        $categories = @($profiles | ForEach-Object { [string]$_.NetworkCategory } | Sort-Object -Unique)
-        $profileNames = @($profiles | ForEach-Object { Protect-CSAIdentifier $_.Name $PrivacyMode })
-        $settings += New-CSASetting "ACTIVE_NETWORK_PROFILE" "Network" $profileNames "RUNTIME_STATE" "SUCCESS" 90 "Get-NetConnectionProfile" "Name"
-        $settings += New-CSASetting "ACTIVE_NETWORK_CATEGORY" "Network" $categories "RUNTIME_STATE" "SUCCESS" 90 "Get-NetConnectionProfile" "NetworkCategory"
+        [string[]]$categories = @($profiles | ForEach-Object { [string]$_.NetworkCategory } | Sort-Object -Unique)
+        [string[]]$profileNames = @($profiles | ForEach-Object { [string](Protect-CSAIdentifier $_.Name $PrivacyMode) })
+        $settings += New-CSASetting -SettingId "ACTIVE_NETWORK_PROFILE" -Category "Network" -Value $profileNames -Source "RUNTIME_STATE" -Status "SUCCESS" -Confidence 90 -Provider "Get-NetConnectionProfile" -SourcePath "Name"
+        $settings += New-CSASetting -SettingId "ACTIVE_NETWORK_CATEGORY" -Category "Network" -Value $categories -Source "RUNTIME_STATE" -Status "SUCCESS" -Confidence 90 -Provider "Get-NetConnectionProfile" -SourcePath "NetworkCategory"
         $settings += New-CSASetting "ACTIVE_NETWORK_ADAPTERS" "Network" $activeAdapters "RUNTIME_STATE" "SUCCESS" 90 "Get-NetConnectionProfile" "Interfaces"
         $settings += New-CSASetting "PUBLIC_NETWORK_ADAPTER_COUNT" "Network" (@($profiles | Where-Object { [string]$_.NetworkCategory -eq "Public" }).Count) "RUNTIME_STATE" "SUCCESS" 90 "Get-NetConnectionProfile" "Public.Count"
 

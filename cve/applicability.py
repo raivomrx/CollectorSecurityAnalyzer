@@ -39,9 +39,9 @@ def evaluate_applicability(
     """Evaluate whether an installed software version is affected by a CVE."""
 
     if cpe.match_status in {CpeMatchStatus.AMBIGUOUS, CpeMatchStatus.NOT_FOUND}:
-        return ApplicabilityStatus.POSSIBLY_AFFECTED, "CPE match is uncertain", 40, []
+        return ApplicabilityStatus.NOT_EVALUATED, "CPE match is uncertain", 30, []
     if cpe.confidence < 80:
-        return ApplicabilityStatus.POSSIBLY_AFFECTED, "CPE confidence is below threshold", 40, []
+        return ApplicabilityStatus.NOT_EVALUATED, "CPE confidence is below threshold", 30, []
     if not cve.configurations:
         return ApplicabilityStatus.NOT_EVALUATED, "NVD record has no applicability configuration", 30, []
     if not parse_version(software.version).parts:
@@ -144,10 +144,8 @@ def _evaluate_cpe_match(
         return _evaluate_range(software, match, criteria)
 
     if parsed.version == "*":
-        return EvaluationResult(
-            ApplicabilityStatus.POSSIBLY_AFFECTED,
-            "Wildcard CPE version requires range confirmation",
-            50,
+        return _not_evaluated(
+            "Wildcard CPE version has no reliable affected-version range",
             [criteria],
         )
     if parsed.version == "-":
@@ -179,10 +177,8 @@ def _evaluate_range(
         if "versionEndExcluding" in match and compare_versions(software.version, match["versionEndExcluding"]) >= 0:
             return _not_affected("Installed version above vulnerable range")
     except Exception:
-        return EvaluationResult(
-            ApplicabilityStatus.POSSIBLY_AFFECTED,
+        return _not_evaluated(
             "Installed version could not be compared reliably",
-            45,
             [criteria],
         )
     return EvaluationResult(

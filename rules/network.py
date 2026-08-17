@@ -62,6 +62,14 @@ class NetworkRule(BaseRule):
                     if isinstance(setting.effective_value, list)
                     else [setting.effective_value]
                 )
+                categories = _network_categories(
+                    categories, context.evidence_registry
+                )
+                if not categories:
+                    return self.not_evaluated(
+                        ["ACTIVE_NETWORK_CATEGORY"],
+                        "NETWORK_CATEGORY_INVALID",
+                    )
                 is_public = any(str(item).casefold() == "public" for item in categories)
                 return [
                     Finding(
@@ -90,3 +98,29 @@ class NetworkRule(BaseRule):
         except Exception as error:
             LOGGER.exception("NetworkRule failed")
             return self.error(str(error))
+
+
+def _network_categories(values: list[Any], registry: Any) -> list[str]:
+    """Normalize categories and recover legacy string-length artifacts safely."""
+
+    categories: list[str] = []
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            categories.append(value.strip().title())
+        elif isinstance(value, dict):
+            for key in ("NetworkCategory", "Category", "Value"):
+                candidate = value.get(key)
+                if isinstance(candidate, str) and candidate.strip():
+                    categories.append(candidate.strip().title())
+                    break
+    if categories:
+        return sorted(set(categories))
+
+    public_count = registry.get("PUBLIC_NETWORK_ADAPTER_COUNT")
+    if public_count is not None:
+        try:
+            if int(public_count.effective_value) > 0:
+                return ["Public"]
+        except (TypeError, ValueError):
+            pass
+    return []

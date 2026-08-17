@@ -312,7 +312,7 @@ class ConsoleAnalysisPipeline:
                     }
                 )
             ),
-            analysis_engine_version="CSA-5.2.0",
+            analysis_engine_version="CSA-5.2.2",
             cve_analysis_status=str(
                 cve_metadata.get("status", "NOT_PERFORMED")
             ),
@@ -469,18 +469,22 @@ def _append_intelligence_audit(
             {
                 "submissionId": submission_id,
                 "productKey": str(evaluation.get("productKey", "")),
+                "product": str(evaluation.get("displayName", "")),
+                "installedVersion": str(evaluation.get("version", "")),
                 "normalizationStatus": str(
                     evaluation.get("normalizationStatus", "UNKNOWN")
                 ),
                 "eligibilityStatus": str(
                     evaluation.get("eligibilityStatus", "NOT_EVALUATED")
                 ),
+                "provider": str(evaluation.get("provider", "NVD")),
                 "productMappingStatus": str(
                     evaluation.get("productMappingStatus", "NOT_RUN")
                 ),
                 "cpeCandidateCount": int(
                     evaluation.get("cpeCandidateCount", 0) or 0
                 ),
+                "cpe": str(evaluation.get("cpe", "") or ""),
                 "providerQueryStatus": str(
                     evaluation.get("providerQueryStatus", "NOT_RUN")
                 ),
@@ -497,6 +501,16 @@ def _append_intelligence_audit(
                 "confirmedCves": int(
                     evaluation.get("confirmedCves", 0) or 0
                 ),
+                "terminalStatus": str(
+                    evaluation.get("terminalStatus", "NOT_EVALUATED")
+                ),
+                "failureStage": str(
+                    evaluation.get("failureStage", "") or ""
+                ),
+                "failureReason": str(
+                    evaluation.get("failureReason", "") or ""
+                ),
+                "retryable": bool(evaluation.get("retryable", False)),
             },
         )
 

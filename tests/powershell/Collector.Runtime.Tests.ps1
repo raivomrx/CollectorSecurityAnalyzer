@@ -445,4 +445,34 @@ Describe "CSA Windows Collector runtime evidence contracts" {
             $names[0] | Should -Be "Visible App"
         }
     }
+
+    Context "Network" {
+        BeforeAll {
+            Get-Module Network -All | Remove-Module -Force -ErrorAction SilentlyContinue
+            Import-Module (Join-Path $moduleRoot "Network.psm1") -Force
+        }
+
+        It "serializes active profile names and categories as strings" {
+            Mock Get-NetConnectionProfile {
+                @([pscustomobject]@{
+                    Name = "HomeLab"
+                    InterfaceAlias = "Ethernet"
+                    InterfaceIndex = 12
+                    NetworkCategory = "Public"
+                    IPv4Connectivity = "Internet"
+                    IPv6Connectivity = "NoTraffic"
+                })
+            } -ModuleName Network
+            Mock Get-CimInstance { @() } -ModuleName Network
+
+            $result = Get-CSANetworkEvidence -PrivacyMode Standard
+            $category = @($result.Settings | Where-Object { $_.settingId -eq "ACTIVE_NETWORK_CATEGORY" })[0]
+            $profile = @($result.Settings | Where-Object { $_.settingId -eq "ACTIVE_NETWORK_PROFILE" })[0]
+
+            ($category.effectiveValue -is [string[]]) | Should -BeTrue
+            ($profile.effectiveValue -is [string[]]) | Should -BeTrue
+            (ConvertTo-Json -InputObject $category.effectiveValue -Compress) | Should -Be '["Public"]'
+            (ConvertTo-Json -InputObject $profile.effectiveValue -Compress) | Should -Be '["HomeLab"]'
+        }
+    }
 }

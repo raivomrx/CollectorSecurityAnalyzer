@@ -106,6 +106,7 @@ class CveProductEvaluation:
     normalization_status: str
     normalization_confidence: int
     eligibility_status: str
+    provider: str = "NVD"
     product_mapping_status: str = "NOT_RUN"
     cpe_candidate_count: int = 0
     cpe: str | None = None
@@ -117,6 +118,10 @@ class CveProductEvaluation:
     confirmed_cves: int = 0
     possible_cves: int = 0
     not_affected_cves: int = 0
+    terminal_status: str = "PENDING"
+    failure_stage: str | None = None
+    failure_reason: str | None = None
+    retryable: bool = False
 
 
 @dataclass(slots=True)

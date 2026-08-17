@@ -88,6 +88,9 @@ class CveService:
             )
             product_evaluations.append(evaluation)
             if not eligible:
+                evaluation.terminal_status = "NOT_ELIGIBLE"
+                evaluation.failure_stage = "ELIGIBILITY"
+                evaluation.failure_reason = evaluation.provider_reason
                 products_without_cpe += 1
                 continue
 
@@ -117,12 +120,28 @@ class CveService:
                         "SUCCESS" if cpe else "NO_RELIABLE_MAPPING"
                     )
                 if cpe is None:
+                    _mark_terminal_failure(
+                        evaluation,
+                        stage="PRODUCT_MAPPING",
+                        reason=(
+                            evaluation.provider_reason
+                            or "No reliable CPE mapping was found"
+                        ),
+                    )
                     products_without_cpe += 1
                     continue
                 if cpe.match_status == CpeMatchStatus.AMBIGUOUS:
                     ambiguous += 1
                     products_without_cpe += 1
                     evaluation.product_mapping_status = "AMBIGUOUS"
+                    _mark_terminal_failure(
+                        evaluation,
+                        stage="PRODUCT_MAPPING",
+                        reason=(
+                            evaluation.provider_reason
+                            or "CPE mapping is ambiguous"
+                        ),
+                    )
                     continue
                 if cpe.confidence < self.minimum_cpe_confidence:
                     products_without_cpe += 1
@@ -130,6 +149,11 @@ class CveService:
                     evaluation.provider_reason = (
                         f"CPE confidence {cpe.confidence} is below "
                         f"{self.minimum_cpe_confidence}"
+                    )
+                    _mark_terminal_failure(
+                        evaluation,
+                        stage="PRODUCT_MAPPING",
+                        reason=evaluation.provider_reason,
                     )
                     continue
 
@@ -172,9 +196,19 @@ class CveService:
                 endpoint = getattr(error, "endpoint_label", None)
                 if endpoint == "CPES" or evaluation.product_mapping_status == "NOT_RUN":
                     evaluation.product_mapping_status = "FAILED"
+                    failure_stage = "PRODUCT_MAPPING"
                 else:
                     evaluation.provider_query_status = "FAILED"
-                evaluation.provider_reason = _safe_error_reason(error)
+                    failure_stage = "PROVIDER_QUERY"
+                error_reason = _safe_error_reason(error)
+                evaluation.provider_reason = error_reason
+                _mark_terminal_failure(
+                    evaluation,
+                    stage=failure_stage,
+                    reason=error_reason,
+                    retryable=bool(getattr(error, "retryable", False)),
+                    terminal_status="FAILED",
+                )
                 errors.append(
                     CveScanError(
                         product_key=product_key,
@@ -385,6 +419,37 @@ def _complete_evaluation(
         evaluation.cve_result_status = "NOT_EVALUATED"
     else:
         evaluation.cve_result_status = "NO_KNOWN_VULNERABILITIES"
+    if evaluation.version_evaluation_status == "PARTIAL":
+        unresolved = next(
+            (
+                item.reason
+                for item in assessments
+                if item.applicability == ApplicabilityStatus.NOT_EVALUATED
+            ),
+            "At least one CVE record could not be evaluated reliably",
+        )
+        evaluation.terminal_status = "PARTIAL"
+        evaluation.failure_stage = "VERSION_EVALUATION"
+        evaluation.failure_reason = unresolved
+    else:
+        evaluation.terminal_status = "COMPLETED"
+
+
+def _mark_terminal_failure(
+    evaluation: CveProductEvaluation,
+    *,
+    stage: str,
+    reason: str,
+    retryable: bool = False,
+    terminal_status: str = "NOT_EVALUATED",
+) -> None:
+    """Finalize an auditable product outcome that did not reach evaluation."""
+
+    evaluation.cve_result_status = "NOT_EVALUATED"
+    evaluation.terminal_status = terminal_status
+    evaluation.failure_stage = stage
+    evaluation.failure_reason = reason
+    evaluation.retryable = retryable
 
 
 def _ineligible_reason(software: SoftwareProduct) -> str:

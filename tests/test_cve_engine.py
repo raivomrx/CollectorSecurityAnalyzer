@@ -13,7 +13,7 @@ import sqlite3
 import warnings
 
 from analysis_context import AnalysisContext
-from analyzer import _cve_analysis_metadata
+from analyzer import _cve_analysis_metadata, _product_evaluation_dict
 from csa_console.canonical import canonical_json
 from csa_console.serde import model_to_dict
 from cve.applicability import evaluate_applicability
@@ -24,6 +24,7 @@ from cve.cpe_resolver import (
     parse_cpe23_components,
     replace_cpe23_version,
 )
+from cve.exceptions import NvdRequestError
 from cve.models import (
     ApplicabilityStatus,
     CpeCandidate,
@@ -201,6 +202,26 @@ class CveEngineTests(unittest.TestCase):
         self.assertGreaterEqual(confidence, 90)
         self.assertTrue(matched)
         self.assertIn("vulnerable", reason)
+
+    def test_wildcard_cpe_without_range_is_not_a_possible_vulnerability(
+        self,
+    ) -> None:
+        """Historical wildcard records need an affected-version range."""
+
+        status, reason, _, _ = evaluate_applicability(
+            _software(version="151.0.7922.138"),
+            _cpe(),
+            _cve_record(
+                configurations=[
+                    _configuration_for_criteria(
+                        "cpe:2.3:a:google:chrome:*:*:*:*:*:*:*:*"
+                    )
+                ]
+            ),
+        )
+
+        self.assertEqual(status, ApplicabilityStatus.NOT_EVALUATED)
+        self.assertIn("affected-version range", reason)
 
     def test_applicability_respects_configuration_or(self) -> None:
         """A configuration-level OR may match any reliable vulnerable branch."""
@@ -669,6 +690,50 @@ class CveEngineTests(unittest.TestCase):
         self.assertEqual(summary.evaluated_products, 0)
         self.assertEqual(summary.coverage_percent, 0.0)
         self.assertFalse(summary.coverage_complete)
+        evaluation = summary.product_evaluations[0]
+        self.assertEqual(evaluation.provider, "NVD")
+        self.assertEqual(evaluation.terminal_status, "NOT_EVALUATED")
+        self.assertEqual(evaluation.failure_stage, "PRODUCT_MAPPING")
+        self.assertFalse(evaluation.retryable)
+        self.assertTrue(evaluation.failure_reason)
+        serialized = _product_evaluation_dict(evaluation)
+        self.assertEqual(serialized["provider"], "NVD")
+        self.assertEqual(serialized["terminalStatus"], "NOT_EVALUATED")
+        self.assertEqual(serialized["failureStage"], "PRODUCT_MAPPING")
+        self.assertTrue(serialized["failureReason"])
+        self.assertFalse(serialized["retryable"])
+
+    def test_provider_failure_has_auditable_retryable_terminal_state(
+        self,
+    ) -> None:
+        """Provider failures must preserve stage, safe reason, and retryability."""
+
+        class Client:
+            def get_cves(self, params):
+                raise NvdRequestError(
+                    "safe",
+                    retryable=True,
+                    status_code=429,
+                    endpoint_label="CVES",
+                )
+
+        class Resolver:
+            def resolve(self, software):
+                return _cpe()
+
+        summary = CveService(
+            client=Client(), resolver=Resolver()
+        ).scan_inventory(
+            SoftwareInventory(products=[_software()], product_count=1)
+        )
+        evaluation = summary.product_evaluations[0]
+
+        self.assertEqual(evaluation.provider, "NVD")
+        self.assertEqual(evaluation.provider_query_status, "FAILED")
+        self.assertEqual(evaluation.terminal_status, "FAILED")
+        self.assertEqual(evaluation.failure_stage, "PROVIDER_QUERY")
+        self.assertEqual(evaluation.failure_reason, "NVD CVES HTTP 429")
+        self.assertTrue(evaluation.retryable)
 
     def test_vendor_only_normalization_is_not_cve_eligible(self) -> None:
         """Vendor-only confidence must not trigger unreliable CPE queries."""

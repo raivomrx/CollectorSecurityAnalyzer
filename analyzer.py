@@ -536,6 +536,7 @@ def _software_results(
                         "normalizationStatus": product.normalization_status,
                         "normalizationConfidence": product.confidence,
                         "eligibilityStatus": "NOT_EVALUATED",
+                        "provider": "NVD",
                         "productMappingStatus": "NOT_RUN",
                         "cpeCandidateCount": 0,
                         "providerQueryStatus": "NOT_RUN",
@@ -543,6 +544,10 @@ def _software_results(
                         "reason": "CVE analysis was not performed",
                         "versionEvaluationStatus": "NOT_RUN",
                         "cveResultStatus": "NOT_EVALUATED",
+                        "terminalStatus": "NOT_EVALUATED",
+                        "failureStage": "CVE_SCAN",
+                        "failureReason": "CVE analysis was not performed",
+                        "retryable": False,
                     }
                 ),
                 "securityStatus": security_status,
@@ -661,6 +666,7 @@ def _product_evaluation_dict(evaluation: Any) -> dict[str, Any]:
         "normalizationStatus": evaluation.normalization_status,
         "normalizationConfidence": evaluation.normalization_confidence,
         "eligibilityStatus": evaluation.eligibility_status,
+        "provider": evaluation.provider,
         "productMappingStatus": evaluation.product_mapping_status,
         "cpeCandidateCount": evaluation.cpe_candidate_count,
         "cpe": evaluation.cpe,
@@ -673,6 +679,10 @@ def _product_evaluation_dict(evaluation: Any) -> dict[str, Any]:
         "confirmedCves": evaluation.confirmed_cves,
         "possibleCves": evaluation.possible_cves,
         "notAffectedCves": evaluation.not_affected_cves,
+        "terminalStatus": evaluation.terminal_status,
+        "failureStage": evaluation.failure_stage,
+        "failureReason": evaluation.failure_reason,
+        "retryable": evaluation.retryable,
     }
 
 

@@ -1,0 +1,152 @@
+{
+  "identity": {
+    "computerName": "LAB-HOME-01",
+    "hostName": "LAB-HOME-01",
+    "currentUser": "LAB-HOME-01\\standard.user",
+    "currentUserSid": "S-1-5-21-1111111111-2222222222-3333333333-1001",
+    "domainJoined": false,
+    "domainOrWorkgroup": "WORKGROUP",
+    "workgroup": "WORKGROUP"
+  },
+  "privilegeContext": {
+    "executionMode": "ADMIN_MEMBER_NOT_ELEVATED",
+    "integrityLevel": "MEDIUM",
+    "isElevated": false,
+    "isLocalAdministratorMember": true
+  },
+  "securityPolicies": {
+    "settings": [
+      {
+        "settingId": "CURRENT_EXECUTION_USER",
+        "category": "Accounts",
+        "configuredValue": {
+          "Classification": "UNKNOWN",
+          "Name": "LAB-HOME-01\\standard.user",
+          "Sid": "S-1-5-21-1111111111-2222222222-3333333333-1001"
+        },
+        "effectiveValue": {
+          "Classification": "UNKNOWN",
+          "Name": "LAB-HOME-01\\standard.user",
+          "Sid": "S-1-5-21-1111111111-2222222222-3333333333-1001"
+        },
+        "source": "RUNTIME_STATE",
+        "collectionStatus": "SUCCESS",
+        "confidence": 100,
+        "provider": "WindowsIdentity",
+        "sourcePath": "Current"
+      },
+      {
+        "settingId": "LOCAL_ADMINISTRATORS",
+        "category": "Accounts",
+        "configuredValue": [
+          {
+            "Classification": "LOCAL",
+            "Name": "LAB-HOME-01\\Administrator",
+            "ObjectClass": "User",
+            "Resolved": true,
+            "Sid": "S-1-5-21-1111111111-2222222222-3333333333-500"
+          },
+          {
+            "Classification": "UNKNOWN",
+            "Name": "LAB-HOME-01\\standard.user",
+            "ObjectClass": "User",
+            "Resolved": true,
+            "Sid": "S-1-5-21-1111111111-2222222222-3333333333-1001"
+          }
+        ],
+        "effectiveValue": [
+          {
+            "Classification": "LOCAL",
+            "Name": "LAB-HOME-01\\Administrator",
+            "ObjectClass": "User",
+            "Resolved": true,
+            "Sid": "S-1-5-21-1111111111-2222222222-3333333333-500"
+          },
+          {
+            "Classification": "UNKNOWN",
+            "Name": "LAB-HOME-01\\standard.user",
+            "ObjectClass": "User",
+            "Resolved": true,
+            "Sid": "S-1-5-21-1111111111-2222222222-3333333333-1001"
+          }
+        ],
+        "source": "RUNTIME_STATE",
+        "collectionStatus": "SUCCESS",
+        "confidence": 90,
+        "provider": "Get-LocalGroupMember",
+        "sourcePath": "S-1-5-32-544"
+      },
+      {
+        "settingId": "UNRESOLVED_LOCAL_ADMINISTRATOR_COUNT",
+        "category": "Accounts",
+        "configuredValue": 1,
+        "effectiveValue": 1,
+        "source": "RUNTIME_STATE",
+        "collectionStatus": "SUCCESS",
+        "confidence": 90,
+        "provider": "Get-LocalGroupMember",
+        "sourcePath": "Unresolved.Count"
+      },
+      {
+        "settingId": "ACTIVE_NETWORK_CATEGORY",
+        "category": "Network",
+        "configuredValue": [{"Length": 6}],
+        "effectiveValue": [{"Length": 6}],
+        "source": "RUNTIME_STATE",
+        "collectionStatus": "SUCCESS",
+        "confidence": 90,
+        "provider": "Get-NetConnectionProfile",
+        "sourcePath": "NetworkCategory"
+      },
+      {
+        "settingId": "PUBLIC_NETWORK_ADAPTER_COUNT",
+        "category": "Network",
+        "configuredValue": 1,
+        "effectiveValue": 1,
+        "source": "RUNTIME_STATE",
+        "collectionStatus": "SUCCESS",
+        "confidence": 90,
+        "provider": "Get-NetConnectionProfile",
+        "sourcePath": "Public.Count"
+      }
+    ]
+  },
+  "networkConfiguration": {
+    "settings": [
+      {
+        "settingId": "ACTIVE_NETWORK_CATEGORY",
+        "collectionStatus": "SUCCESS",
+        "effectiveValue": [{"Length": 6}]
+      },
+      {
+        "settingId": "PUBLIC_NETWORK_ADAPTER_COUNT",
+        "collectionStatus": "SUCCESS",
+        "effectiveValue": 1
+      }
+    ]
+  },
+  "cveSummary": {
+    "status": "PARTIAL",
+    "coveragePercent": 66.7,
+    "successfullyEvaluatedProducts": 2,
+    "notEvaluatedProducts": 1,
+    "productEvaluations": [
+      {
+        "displayName": "Example Archiver",
+        "version": "26.00",
+        "eligibilityStatus": "ELIGIBLE",
+        "productMappingStatus": "NO_RELIABLE_MAPPING",
+        "cpeCandidateCount": 0,
+        "cpe": null,
+        "provider": "NVD",
+        "providerQueryStatus": "NOT_RUN",
+        "versionEvaluationStatus": "NOT_RUN",
+        "cveResultStatus": "NOT_EVALUATED",
+        "terminalStatus": "NOT_EVALUATED",
+        "failureStage": "PRODUCT_MAPPING",
+        "failureReason": "NVD CPE search returned no reliable candidate",
+        "retryable": false
+      }
+    ]
+  }
+}

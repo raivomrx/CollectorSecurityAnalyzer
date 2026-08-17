@@ -136,6 +136,15 @@
     "ACC-008": {"title": "Multiple active local administrator accounts require review", "category": "Accounts"},
     "ACC-009": {"title": "An enabled local account does not require a password", "category": "Accounts"},
     "ACC-010": {"title": "An unresolved principal is present in local Administrators", "category": "Accounts"},
+    "ACC-011": {
+      "title": "Daily user has local administrator privileges",
+      "category": "Accounts",
+      "description": "The current interactive user's SID is a member of the endpoint's local Administrators group.",
+      "risk": "Routine work performed with local administrator rights increases the impact of malicious code, credential theft, and user error.",
+      "impact": "A compromise of the daily user session can immediately gain local administrative control of the endpoint.",
+      "recommendation": "Use a standard account for daily work and a separate approved account for administrative tasks.",
+      "remediation": "Remove the daily user from local Administrators and provide a separate controlled administrator account where required."
+    },
     "PS-001": {"title": "PowerShell 2.0 is enabled", "category": "PowerShell"},
     "PS-002": {"title": "PowerShell Script Block Logging is disabled", "category": "PowerShell"},
     "PS-003": {"title": "PowerShell Module Logging is disabled", "category": "PowerShell"},

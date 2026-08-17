@@ -215,7 +215,7 @@
     const table = document.createElement("table");
     const head = document.createElement("thead");
     const headerRow = document.createElement("tr");
-    ["Product", "Normalization", "Mapping", "Candidates", "Provider", "Version", "CVE result", "Reason"].forEach((label) => {
+    ["Product", "Installed version", "Normalization", "Mapping / CPE", "Provider", "Failure stage", "Failure reason", "Retryable", "Terminal state"].forEach((label) => {
       const cell = document.createElement("th");
       cell.textContent = label;
       headerRow.append(cell);
@@ -225,14 +225,15 @@
     evaluations.forEach((evaluation) => {
       const row = document.createElement("tr");
       const values = [
-        `${evaluation.displayName || "Unknown"} ${evaluation.version || ""}`.trim(),
+        evaluation.displayName || "Unknown",
+        evaluation.version || "Unknown",
         `${evaluation.normalizationStatus} (${evaluation.normalizationConfidence}%)`,
-        evaluation.productMappingStatus,
-        String(evaluation.cpeCandidateCount),
-        evaluation.providerQueryStatus,
-        evaluation.versionEvaluationStatus,
-        `${evaluation.cveResultStatus} (${evaluation.confirmedCves || 0} confirmed)`,
-        evaluation.reason || evaluation.providerReason || "-",
+        `${evaluation.productMappingStatus}; ${evaluation.cpe || `${evaluation.cpeCandidateCount || 0} candidate(s)`}`,
+        `${evaluation.provider || "NVD"}: ${evaluation.providerQueryStatus}`,
+        evaluation.failureStage || "-",
+        evaluation.failureReason || evaluation.reason || evaluation.providerReason || "-",
+        evaluation.retryable ? "YES" : "NO",
+        `${evaluation.terminalStatus || evaluation.cveResultStatus} (${evaluation.confirmedCves || 0} confirmed)`,
       ];
       values.forEach((value) => {
         const cell = document.createElement("td");

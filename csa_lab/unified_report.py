@@ -261,7 +261,7 @@ class UnifiedReportGenerator:
         framework_rows = _framework_rows(fleet_findings)
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.2.1",
+            "reportVersion": "CSA-5.2.2",
             "generatedAt": generated_at,
             "dataClassification": "Confidential - Security Assessment Data",
             "containsPersonalData": True,
@@ -537,6 +537,7 @@ class UnifiedReportGenerator:
                 "cvePipeline",
                 {
                     "eligibilityStatus": "NOT_EVALUATED",
+                    "provider": "NVD",
                     "productMappingStatus": "NOT_RUN",
                     "cpeCandidateCount": 0,
                     "providerQueryStatus": "NOT_RUN",
@@ -544,6 +545,10 @@ class UnifiedReportGenerator:
                     "reason": "Detailed CVE pipeline data is unavailable",
                     "versionEvaluationStatus": "NOT_RUN",
                     "cveResultStatus": "NOT_EVALUATED",
+                    "terminalStatus": "NOT_EVALUATED",
+                    "failureStage": "CVE_SCAN",
+                    "failureReason": "Detailed CVE pipeline data is unavailable",
+                    "retryable": False,
                 },
             )
         unsupported_count = sum(
@@ -1342,7 +1347,7 @@ def _collected_system_information(evidence: dict[str, Any]) -> dict[str, Any]:
             "Recent updates": value("RECENT_WINDOWS_UPDATES", "Not available"),
         },
         "network": {
-            "Active network category": value("ACTIVE_NETWORK_CATEGORY"),
+            "Active network category": _network_category_display(settings),
             "Active interfaces": value("ACTIVE_NETWORK_ADAPTERS", "Not available"),
             "DNS configuration": value("DNS_SERVERS", "Not available"),
             "LLMNR": _setting_display(settings.get("LLMNR_ENABLED")),
@@ -1380,6 +1385,36 @@ def _display_value(value: Any) -> str:
     if isinstance(value, dict):
         return f"{len(value)} values"
     return str(value)
+
+
+def _network_category_display(settings: dict[str, dict[str, Any]]) -> str:
+    """Render a network category without exposing PowerShell object artifacts."""
+
+    setting = settings.get("ACTIVE_NETWORK_CATEGORY", {})
+    raw_value = setting.get("effectiveValue")
+    values = raw_value if isinstance(raw_value, list) else [raw_value]
+    categories: list[str] = []
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            categories.append(value.strip().title())
+        elif isinstance(value, dict):
+            for key in ("NetworkCategory", "Category", "Value"):
+                candidate = value.get(key)
+                if isinstance(candidate, str) and candidate.strip():
+                    categories.append(candidate.strip().title())
+                    break
+    if categories:
+        return ", ".join(sorted(set(categories)))
+
+    public_count = settings.get("PUBLIC_NETWORK_ADAPTER_COUNT", {}).get(
+        "effectiveValue"
+    )
+    try:
+        if int(public_count) > 0:
+            return "Public"
+    except (TypeError, ValueError):
+        pass
+    return "Not evaluated"
 
 
 def _relevant_services(evidence: dict[str, Any]) -> str:
@@ -1831,6 +1866,11 @@ def _verification_for_finding(finding: dict[str, Any]) -> str:
         return "Rerun CSA and verify the related Microsoft Defender control passes."
     if rule_id.startswith("FW-"):
         return "Rerun CSA and verify all applicable Windows Firewall profiles pass."
+    if rule_id == "ACC-011":
+        return (
+            "Rerun CSA and verify the daily user SID is no longer present in "
+            "local Administrators and ACC-011 reports PASS."
+        )
     return f"Rerun CSA and verify {rule_id or 'the related control'} reports PASS."
 
 

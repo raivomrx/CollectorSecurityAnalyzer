@@ -22,7 +22,7 @@ from csa_console.models import AssessmentSession
 
 ROOT = Path(__file__).resolve().parents[1]
 COLLECTOR_SOURCE = ROOT / "collector" / "windows"
-COLLECTOR_VERSION = "5.2.1"
+COLLECTOR_VERSION = "5.2.2"
 
 
 class CollectorPackageError(ValueError):
