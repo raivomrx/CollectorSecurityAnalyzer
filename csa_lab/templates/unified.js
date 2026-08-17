@@ -16,6 +16,37 @@
   let searchTimer = 0;
   const detailsOpenedBySearch = new Set();
   const elementsRevealedBySearch = new Set();
+  const collapsibleSections = Array.from(
+    document.querySelectorAll("details.collapsible-section"),
+  );
+
+  const synchronizeSectionState = (section) => {
+    const summary = section.querySelector(":scope > summary");
+    if (summary) summary.setAttribute("aria-expanded", String(section.open));
+  };
+  collapsibleSections.forEach((section) => {
+    synchronizeSectionState(section);
+    section.addEventListener("toggle", () => synchronizeSectionState(section));
+    const summary = section.querySelector(":scope > summary");
+    summary?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      section.open = !section.open;
+      synchronizeSectionState(section);
+    });
+  });
+  document.getElementById("expand-all").addEventListener("click", () => {
+    collapsibleSections.forEach((section) => {
+      section.open = true;
+      synchronizeSectionState(section);
+    });
+  });
+  document.getElementById("collapse-all").addEventListener("click", () => {
+    collapsibleSections.forEach((section) => {
+      section.open = false;
+      synchronizeSectionState(section);
+    });
+  });
 
   const applyFindingFilters = () => {
     searchable.forEach((item) => {
@@ -354,23 +385,55 @@
     }
   });
 
-  const openFragment = () => {
-    if (!location.hash) return;
-    let target;
-    try {
-      target = document.querySelector(location.hash);
-    } catch (_error) {
-      return;
+  const openDetailsChain = (target) => {
+    const ancestors = [];
+    let current = target;
+    while (current) {
+      if (current.tagName === "DETAILS") ancestors.push(current);
+      current = current.parentElement;
     }
+    ancestors.reverse().forEach((detailsElement) => {
+      detailsElement.open = true;
+      if (detailsElement.classList.contains("collapsible-section")) {
+        synchronizeSectionState(detailsElement);
+      }
+    });
+  };
+
+  const fragmentTarget = (hash) => {
+    if (!hash) return null;
+    try {
+      return document.querySelector(hash);
+    } catch (_error) {
+      return null;
+    }
+  };
+
+  const openFragment = () => {
+    const target = fragmentTarget(location.hash);
     if (!target) return;
-    if (target.tagName === "DETAILS") target.open = true;
-    const parent = target.closest("details");
-    if (parent) parent.open = true;
+    openDetailsChain(target);
+    requestAnimationFrame(() => {
+      target.scrollIntoView({ block: "start", behavior: "auto" });
+    });
   };
   window.addEventListener("hashchange", openFragment);
   openFragment();
 
   const navigation = Array.from(document.querySelectorAll(".report-nav a"));
+  navigation.forEach((link) => {
+    link.addEventListener("click", (event) => {
+      const hash = link.getAttribute("href");
+      const target = fragmentTarget(hash);
+      if (!target) return;
+      event.preventDefault();
+      openDetailsChain(target);
+      history.pushState(null, "", hash);
+      requestAnimationFrame(() => {
+        target.scrollIntoView({ block: "start", behavior: "smooth" });
+      });
+    });
+  });
   const sections = navigation
     .map((link) => document.querySelector(link.getAttribute("href")))
     .filter(Boolean);

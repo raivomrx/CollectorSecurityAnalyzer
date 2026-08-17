@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter, defaultdict
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -16,8 +17,12 @@ from csa_console.fleet import FleetAnalyzer
 from csa_console.identifiers import utc_text
 from csa_console.sessions import AssessmentSessionService
 from csa_console.storage import AssessmentStorage
+from frameworks.loader import load_pack
+from frameworks.models import FrameworkPack
+from knowledge.repository import KnowledgeRepository
 
 TEMPLATE_ROOT = Path(__file__).resolve().parent / "templates"
+FRAMEWORK_ROOT = Path(__file__).resolve().parents[1] / "frameworks"
 SEVERITY_ORDER = {
     "CRITICAL": 0,
     "HIGH": 1,
@@ -117,6 +122,29 @@ class UnifiedReportGenerator:
                 endpoint_labels.get(value, "Endpoint")
                 for value in item["endpointReferences"]
             ]
+        software_findings = _software_security_findings(endpoints)
+        fleet_findings.extend(software_findings)
+        for endpoint in endpoints:
+            endpoint_findings = [
+                item
+                for item in software_findings
+                if endpoint["displayName"] in item["endpointReferences"]
+            ]
+            endpoint["softwareSecurityFindings"] = endpoint_findings
+            endpoint["securityFindingCount"] += len(endpoint_findings)
+            endpoint["findingCount"] = endpoint["securityFindingCount"]
+            for finding in endpoint_findings:
+                severity = finding["severity"]
+                endpoint["severityCounts"][severity] = (
+                    endpoint["severityCounts"].get(severity, 0) + 1
+                )
+            endpoint["risk"] = _endpoint_risk_model(endpoint)
+        fleet_findings.sort(
+            key=lambda item: (
+                SEVERITY_ORDER.get(item["severity"], 9),
+                item.get("findingKey", item["ruleId"]),
+            )
+        )
         priority = [
             item
             for item in fleet_findings
@@ -214,7 +242,14 @@ class UnifiedReportGenerator:
                 for name in action["affectedEndpoints"]
             ]
         for finding in fleet_findings:
-            finding["anchorId"] = f"finding-{_slug(finding['ruleId'])}"
+            anchor_source = (
+                finding.get("fleetFindingId")
+                if finding.get("kind") == "SOFTWARE_CVE"
+                else finding.get("findingKey") or finding["ruleId"]
+            )
+            finding["anchorId"] = (
+                f"finding-{_slug(str(anchor_source))}"
+            )
             finding["endpointLinks"] = [
                 {
                     "name": name,
@@ -847,6 +882,9 @@ def _cve_relationships(
                         "normalizedProduct": str(
                             software.get("normalizedProduct") or "Unknown"
                         ),
+                        "normalizedVendor": str(
+                            software.get("normalizedVendor") or "Unknown"
+                        ),
                         "endpoint": endpoint["displayName"],
                         "endpointAnchor": endpoint["anchorId"],
                         "softwareAnchor": software_anchor,
@@ -855,6 +893,10 @@ def _cve_relationships(
                             "https://www.cisa.gov/known-exploited-vulnerabilities-catalog"
                             if cve.get("cisaKev") else ""
                         ),
+                        "fixedVersions": _string_values(
+                            cve.get("fixedVersions", cve.get("fixedVersion"))
+                        ),
+                        "vendorAdvisoryUrls": _vendor_advisory_urls(cve),
                     }
                 )
     return sorted(
@@ -865,6 +907,162 @@ def _cve_relationships(
             item["endpoint"],
             item["software"],
         ),
+    )
+
+
+def _software_security_findings(
+    endpoints: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Group confirmed CVEs into one security finding per software version."""
+
+    grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for relationship in _cve_relationships(endpoints):
+        if relationship["applicability"] != "CONFIRMED":
+            continue
+        key = (
+            relationship["normalizedVendor"],
+            relationship["normalizedProduct"],
+            relationship["installedVersion"],
+        )
+        row = grouped.setdefault(
+            key,
+            {
+                "software": relationship["software"],
+                "normalizedVendor": relationship["normalizedVendor"],
+                "normalizedProduct": relationship["normalizedProduct"],
+                "installedVersion": relationship["installedVersion"],
+                "endpoints": set(),
+                "cveIds": set(),
+                "severities": set(),
+                "knownExploited": set(),
+                "cvssScores": [],
+                "fixedVersions": set(),
+                "vendorAdvisoryUrls": set(),
+            },
+        )
+        row["endpoints"].add(relationship["endpoint"])
+        row["cveIds"].add(relationship["cveId"])
+        row["severities"].add(relationship["severity"])
+        if relationship["knownExploited"]:
+            row["knownExploited"].add(relationship["cveId"])
+        if relationship.get("cvss") is not None:
+            row["cvssScores"].append(float(relationship["cvss"]))
+        row["fixedVersions"].update(relationship["fixedVersions"])
+        row["vendorAdvisoryUrls"].update(
+            relationship["vendorAdvisoryUrls"]
+        )
+
+    knowledge = KnowledgeRepository().get("CVE-001")
+    findings = []
+    assessed_count = len(endpoints)
+    for key, row in grouped.items():
+        endpoints_affected = sorted(row["endpoints"])
+        cve_ids = sorted(row["cveIds"])
+        severity = min(
+            row["severities"],
+            key=lambda value: SEVERITY_ORDER.get(value, 9),
+            default="MEDIUM",
+        )
+        if severity not in SEVERITY_ORDER:
+            severity = "MEDIUM"
+        software = row["software"]
+        version = row["installedVersion"]
+        finding_key = "CVE-001:" + ":".join(key)
+        recommendation = (
+            f"Update {software} to a vendor-supported non-affected version."
+        )
+        verification = (
+            f"Rerun CVE analysis and confirm that {software} {version} is no "
+            "longer affected by the listed CVEs."
+        )
+        affected_count = len(endpoints_affected)
+        findings.append(
+            {
+                "fleetFindingId": (
+                    f"CVE-001-{sha256_value(finding_key)[:12]}"
+                ),
+                "findingKey": finding_key,
+                "kind": "SOFTWARE_CVE",
+                "ruleId": "CVE-001",
+                "title": (
+                    f"Confirmed vulnerabilities affect {software} {version}"
+                ),
+                "severity": severity,
+                "affectedEndpointCount": affected_count,
+                "assessedEndpointCount": assessed_count,
+                "affectedPercent": round(
+                    affected_count * 100.0 / assessed_count, 1
+                ) if assessed_count else 0.0,
+                "endpointReferences": endpoints_affected,
+                "systemic": affected_count > 1 and (
+                    affected_count * 100.0 / assessed_count >= 50.0
+                ) if assessed_count else False,
+                "frameworkMappings": {
+                    name: list(controls)
+                    for name, controls in knowledge.frameworks.items()
+                },
+                "recommendation": recommendation,
+                "verification": verification,
+                "confidence": 95,
+                "riskScore": max(row["cvssScores"], default=0.0) * 10.0,
+                "software": software,
+                "normalizedVendor": row["normalizedVendor"],
+                "normalizedProduct": row["normalizedProduct"],
+                "installedVersion": version,
+                "cveIds": cve_ids,
+                "cveCount": len(cve_ids),
+                "knownExploitedCveIds": sorted(row["knownExploited"]),
+                "highestCvss": max(row["cvssScores"], default=None),
+                "fixedVersions": sorted(row["fixedVersions"]),
+                "vendorAdvisoryUrls": sorted(
+                    row["vendorAdvisoryUrls"]
+                ),
+            }
+        )
+    return sorted(
+        findings,
+        key=lambda item: (
+            SEVERITY_ORDER.get(item["severity"], 9),
+            item["software"],
+            item["installedVersion"],
+        ),
+    )
+
+
+def _string_values(value: Any) -> list[str]:
+    """Return unique non-empty strings from a scalar or list value."""
+
+    values = value if isinstance(value, list) else [value]
+    return sorted(
+        {
+            str(item).strip()
+            for item in values
+            if item is not None and str(item).strip()
+        }
+    )
+
+
+def _vendor_advisory_urls(cve: dict[str, Any]) -> list[str]:
+    """Preserve explicitly identified vendor advisory URLs when available."""
+
+    urls = _string_values(
+        cve.get("vendorAdvisoryUrls", cve.get("vendorAdvisoryUrl"))
+    )
+    for reference in cve.get("references", []):
+        if not isinstance(reference, dict):
+            continue
+        tags = {
+            str(tag).casefold().replace("_", "-")
+            for tag in reference.get("tags", [])
+        }
+        if "vendor-advisory" in tags and reference.get("url"):
+            urls.append(str(reference["url"]).strip())
+    return sorted(
+        {
+            url
+            for url in urls
+            if url.casefold().startswith("https://")
+        }
     )
 
 
@@ -1529,18 +1727,32 @@ def _priority_actions(
     """Rank and deduplicate up to five concrete remediation actions."""
 
     candidates: list[tuple[int, str, dict[str, Any]]] = []
-    kev = [
-        item["displayName"] for item in endpoints
-        if int(item.get("cveSummary", {}).get("cisaKevUniqueCves", 0) or 0)
-    ]
-    if kev:
-        candidates.append((100, "kev", _action("Remediate known exploited vulnerabilities", "CISA KEV vulnerabilities were confirmed against installed software.", kev, "High", "Immediate", ["CVE"], "Update or remove each affected product, then rerun CVE analysis.")))
-    critical = [
-        item["displayName"] for item in endpoints
-        if int(item.get("cveSummary", {}).get("criticalUniqueCves", 0) or 0)
-    ]
-    if critical:
-        candidates.append((90, "critical", _action("Remediate confirmed critical vulnerabilities", "Critical CVEs require urgent product-specific remediation.", critical, "High", "Medium", ["CVE"], "Confirm each installed version is outside the affected range.")))
+    for finding in findings:
+        if finding.get("kind") != "SOFTWARE_CVE":
+            continue
+        known_exploited = bool(finding.get("knownExploitedCveIds"))
+        score = 100 if known_exploited else (
+            90 if finding["severity"] == "CRITICAL" else 85
+        )
+        candidates.append(
+            (
+                score,
+                str(finding.get("findingKey", finding["title"])),
+                _action(
+                    finding["recommendation"],
+                    (
+                        f"{finding['cveCount']} confirmed CVE(s) affect "
+                        f"{finding['software']} {finding['installedVersion']}"
+                        + ("; at least one is in CISA KEV." if known_exploited else ".")
+                    ),
+                    finding["endpointReferences"],
+                    finding["severity"].title(),
+                    "Medium",
+                    [finding["ruleId"]],
+                    finding["verification"],
+                ),
+            )
+        )
     unsupported = [item["displayName"] for item in endpoints if item.get("unsupportedSoftwareCount", 0)]
     if unsupported:
         candidates.append((80, "unsupported", _action("Upgrade or remove unsupported software", "Vendor support has ended for installed software.", unsupported, "High", "Medium", ["LIFECYCLE"], "Verify the replacement release is supported by the vendor.")))
@@ -1609,6 +1821,9 @@ def _remediation_plan(
 def _verification_for_finding(finding: dict[str, Any]) -> str:
     """Return deterministic post-remediation verification guidance."""
 
+    explicit = str(finding.get("verification", "")).strip()
+    if explicit:
+        return explicit
     rule_id = str(finding.get("ruleId", ""))
     if rule_id == "BIT-001":
         return "Rerun CSA and verify BitLocker protection is enabled on the OS volume."
@@ -1700,13 +1915,25 @@ def _rule_status(findings: list[dict[str, Any]], rule_id: str) -> str:
 def _framework_rows(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Build action-oriented traceability rows without claiming compliance."""
 
-    grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    grouped: dict[
+        tuple[str, str], dict[str, Any]
+    ] = {}
     for finding in findings:
         for framework, controls in finding["frameworkMappings"].items():
             for control in controls:
-                grouped[(str(framework), str(control))].append(finding)
+                for mapping in _framework_mapping_metadata(
+                    str(framework), str(control), finding["ruleId"]
+                ):
+                    key = (mapping["framework"], mapping["controlId"])
+                    row = grouped.setdefault(
+                        key,
+                        {"metadata": mapping, "findings": []},
+                    )
+                    row["findings"].append(finding)
     rows = []
-    for key, mapped_findings in sorted(grouped.items()):
+    for key, grouped_row in sorted(grouped.items()):
+        mapped_findings = grouped_row["findings"]
+        metadata = grouped_row["metadata"]
         endpoints = sorted(
             {
                 endpoint
@@ -1723,7 +1950,11 @@ def _framework_rows(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
             {
                 "framework": key[0],
                 "controlId": key[1],
-                "controlTitle": key[1],
+                "controlTitle": metadata["controlTitle"],
+                "controlSourceTitle": metadata["controlSourceTitle"],
+                "controlSourceUrl": metadata["controlSourceUrl"],
+                "sourceVersion": metadata["sourceVersion"],
+                "contentNotice": metadata["contentNotice"],
                 "assessmentStatus": "ATTENTION_REQUIRED",
                 "findingIds": sorted(
                     {finding["ruleId"] for finding in mapped_findings}
@@ -1732,10 +1963,13 @@ def _framework_rows(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     {
                         "id": finding["ruleId"],
                         "title": finding["title"],
-                        "anchor": finding["anchorId"],
+                        "anchor": f"finding-details-{finding['anchorId']}",
                     }
                     for finding in sorted(
-                        mapped_findings, key=lambda item: item["ruleId"]
+                        mapped_findings,
+                        key=lambda item: str(
+                            item.get("findingKey", item["ruleId"])
+                        ),
                     )
                 ],
                 "affectedEndpoints": endpoints,
@@ -1755,7 +1989,7 @@ def _framework_rows(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         }
                     )
                 ) or "Review the related technical finding.",
-                "mappingStatus": "PROVISIONAL",
+                "mappingStatus": metadata["mappingStatus"],
                 "mappingConfidence": min(
                     (int(finding.get("confidence", 0)) for finding in mapped_findings),
                     default=0,
@@ -1763,6 +1997,91 @@ def _framework_rows(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def _framework_mapping_metadata(
+    framework: str,
+    control_id: str,
+    rule_id: str,
+) -> list[dict[str, str]]:
+    """Resolve report-safe source metadata for one knowledge mapping."""
+
+    packs = _report_framework_packs()
+    if framework == "E-ITS" and "EITS" in packs:
+        pack = packs["EITS"]
+        mappings = []
+        for control in pack.controls:
+            for mapping in control.mappings:
+                if mapping.rule_id != rule_id:
+                    continue
+                mappings.append(
+                    {
+                        "framework": "E-ITS",
+                        "controlId": control.control_id,
+                        "controlTitle": control.title,
+                        "controlSourceTitle": (
+                            f"E-ITS {pack.version} official measure"
+                        ),
+                        "controlSourceUrl": (
+                            mapping.source_reference or pack.source.reference
+                        ),
+                        "sourceVersion": pack.version,
+                        "contentNotice": (
+                            "Official wording is not reproduced; use the "
+                            "linked E-ITS source as authoritative content."
+                        ),
+                        "mappingStatus": mapping.status.value,
+                    }
+                )
+        if mappings:
+            return mappings
+        return []
+    if framework == "CIS" and "CIS" in packs:
+        pack = packs["CIS"]
+        return [{
+            "framework": "CIS",
+            "controlId": control_id,
+            "controlTitle": control_id,
+            "controlSourceTitle": pack.name,
+            "controlSourceUrl": pack.source.reference,
+            "sourceVersion": pack.version,
+            "contentNotice": (
+                "Licensed CIS Benchmark content is not embedded. Import an "
+                "authorized content pack to display control titles and text."
+            ),
+            "mappingStatus": "PROVISIONAL",
+        }]
+    return [{
+        "framework": framework,
+        "controlId": control_id,
+        "controlTitle": control_id,
+        "controlSourceTitle": "Knowledge Base mapping identifier",
+        "controlSourceUrl": "",
+        "sourceVersion": "",
+        "contentNotice": "",
+        "mappingStatus": "PROVISIONAL",
+    }]
+
+
+@lru_cache(maxsize=1)
+def _report_framework_packs() -> dict[str, FrameworkPack]:
+    """Load immutable framework source metadata once per report process."""
+
+    paths = {
+        "EITS": FRAMEWORK_ROOT / "eits" / "2026" / "pack.json",
+        "CIS": (
+            FRAMEWORK_ROOT
+            / "cis"
+            / "windows-11-enterprise"
+            / "5.0.1"
+            / "pack.json"
+        ),
+    }
+    return {
+        name: load_pack(path)
+        for name, path in paths.items()
+        if path.exists()
+    }
 
 
 def _safe_audit_events(path: Path) -> list[dict[str, Any]]:

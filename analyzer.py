@@ -475,6 +475,9 @@ def _software_results(
                 "matchRationale": item.reason,
                 "affectedVersionRange": ", ".join(item.matched_criteria),
                 "cisaKev": item.cve.cve_id in kev_ids,
+                "fixedVersions": [],
+                "vendorAdvisoryUrls": [],
+                "references": list(item.cve.references),
                 "publishedDate": (
                     item.cve.published.isoformat()
                     if item.cve.published

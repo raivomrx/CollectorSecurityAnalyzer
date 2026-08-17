@@ -13,6 +13,7 @@ from csa_lab.unified_report import (
     _limitation_reason,
     _limitation_scope_note,
     _security_finding_count,
+    _software_security_findings,
     _software_matrix,
     _vulnerability_exposure,
 )
@@ -220,6 +221,99 @@ class CveSemanticsTests(unittest.TestCase):
         self.assertEqual(rows[0]["endpointLinks"][0]["anchor"], "endpoint-sub-01")
         self.assertIn("nvd.nist.gov", rows[0]["cves"][0]["nvdUrl"])
 
+    def test_confirmed_cves_create_one_finding_per_software_version(self) -> None:
+        endpoint = _endpoint(cves=[
+            {
+                "cveId": "CVE-2026-0101",
+                "matchStatus": "AFFECTED",
+                "severity": "MEDIUM",
+                "cvssScore": 6.5,
+            },
+            {
+                "cveId": "CVE-2026-0102",
+                "matchStatus": "AFFECTED",
+                "severity": "HIGH",
+                "cvssScore": 8.1,
+            },
+        ])
+        findings = _software_security_findings([endpoint])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "HIGH")
+        self.assertEqual(findings[0]["cveCount"], 2)
+        self.assertEqual(findings[0]["ruleId"], "CVE-001")
+        self.assertIn(
+            "vendor-supported non-affected version",
+            findings[0]["recommendation"],
+        )
+
+    def test_same_product_version_is_grouped_across_endpoints(self) -> None:
+        first = _endpoint(cves=[{
+            "cveId": "CVE-2026-0201",
+            "matchStatus": "AFFECTED",
+            "severity": "LOW",
+        }])
+        second = _endpoint(cves=[{
+            "cveId": "CVE-2026-0201",
+            "matchStatus": "AFFECTED",
+            "severity": "LOW",
+        }])
+        second["displayName"] = "PC-02"
+        second["submissionId"] = "SUB-02"
+        second["anchorId"] = "endpoint-sub-02"
+        findings = _software_security_findings([first, second])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["endpointReferences"], ["PC-01", "PC-02"])
+
+    def test_different_installed_versions_create_separate_findings(self) -> None:
+        first = _endpoint(cves=[{
+            "cveId": "CVE-2026-0301",
+            "matchStatus": "AFFECTED",
+            "severity": "MEDIUM",
+        }])
+        second = _endpoint(cves=[{
+            "cveId": "CVE-2026-0301",
+            "matchStatus": "AFFECTED",
+            "severity": "MEDIUM",
+        }])
+        second["displayName"] = "PC-02"
+        second["submissionId"] = "SUB-02"
+        second["anchorId"] = "endpoint-sub-02"
+        second["softwareResults"][0]["displayVersion"] = "2.0"
+        self.assertEqual(len(_software_security_findings([first, second])), 2)
+
+    def test_possible_cve_does_not_create_security_finding(self) -> None:
+        endpoint = _endpoint(cves=[{
+            "cveId": "CVE-2026-0401",
+            "matchStatus": "POSSIBLY_AFFECTED",
+            "severity": "CRITICAL",
+        }])
+        self.assertEqual(_software_security_findings([endpoint]), [])
+
+    def test_fixed_version_and_vendor_advisory_are_preserved(self) -> None:
+        endpoint = _endpoint(cves=[{
+            "cveId": "CVE-2026-0501",
+            "matchStatus": "AFFECTED",
+            "severity": "MEDIUM",
+            "fixedVersions": ["1.2.4"],
+            "vendorAdvisoryUrl": "https://vendor.example/advisory/0501",
+        }])
+        finding = _software_security_findings([endpoint])[0]
+        self.assertEqual(finding["fixedVersions"], ["1.2.4"])
+        self.assertEqual(
+            finding["vendorAdvisoryUrls"],
+            ["https://vendor.example/advisory/0501"],
+        )
+
+    def test_unsafe_vendor_advisory_scheme_is_not_rendered(self) -> None:
+        endpoint = _endpoint(cves=[{
+            "cveId": "CVE-2026-0502",
+            "matchStatus": "AFFECTED",
+            "severity": "MEDIUM",
+            "vendorAdvisoryUrl": "javascript:alert(1)",
+        }])
+        finding = _software_security_findings([endpoint])[0]
+        self.assertEqual(finding["vendorAdvisoryUrls"], [])
+
 
 class ReportStructureTests(unittest.TestCase):
     """Verify report navigation, limitations, framework and offline constraints."""
@@ -242,7 +336,7 @@ class ReportStructureTests(unittest.TestCase):
             "Affected endpoints",
             "Security Findings",
             "Control Results",
-            "Vulnerability Exposure",
+            "Vulnerability Exposure (CVE)",
             "Assessment Limitations",
             "Framework &amp; Compliance Impact",
             "Collected System Information",
@@ -268,9 +362,26 @@ class ReportStructureTests(unittest.TestCase):
     def test_framework_mapping_is_provisional_and_actionable(self) -> None:
         row = _framework_rows([_finding("DEF-001", "HIGH")])[0]
         self.assertEqual(row["mappingStatus"], "PROVISIONAL")
-        self.assertEqual(row["findingLinks"][0]["anchor"], "finding-def-001")
+        self.assertEqual(
+            row["findingLinks"][0]["anchor"],
+            "finding-details-finding-def-001",
+        )
         self.assertEqual(row["affectedEndpointLinks"][0]["anchor"], "endpoint-pc-01")
         self.assertIn("baseline", row["recommendedAction"])
+
+    def test_eits_mapping_has_measure_title_and_official_source(self) -> None:
+        finding = _finding("CVE-001", "HIGH")
+        finding["frameworkMappings"] = {"E-ITS": ["EITS-VULN-001"]}
+        row = _framework_rows([finding])[0]
+        self.assertEqual(row["controlId"], "SYS.2.1.M3")
+        self.assertEqual(row["controlTitle"], "Maintain current endpoint software")
+        self.assertTrue(row["controlSourceUrl"].startswith("https://eits.ria.ee/"))
+
+    def test_cis_mapping_exposes_source_metadata_without_licensed_text(self) -> None:
+        row = _framework_rows([_finding("DEF-001", "HIGH")])[0]
+        self.assertEqual(row["controlTitle"], "CIS-4.1")
+        self.assertIn("cisecurity.org/benchmark", row["controlSourceUrl"])
+        self.assertIn("Licensed CIS Benchmark content is not embedded", row["contentNotice"])
 
     def test_large_software_matrix_uses_compact_mode(self) -> None:
         endpoints = []
@@ -282,6 +393,19 @@ class ReportStructureTests(unittest.TestCase):
         matrix = _software_matrix(endpoints)
         self.assertTrue(matrix["compact"])
         self.assertEqual(len(matrix["endpointNames"]), 100)
+
+    def test_report_scale_contract_for_1_10_50_and_100_endpoints(self) -> None:
+        for count in (1, 10, 50, 100):
+            with self.subTest(count=count):
+                endpoints = []
+                for index in range(count):
+                    endpoint = _endpoint(cves=[])
+                    endpoint["displayName"] = f"PC-{index:03d}"
+                    endpoint["submissionId"] = f"SUB-{index:03d}"
+                    endpoints.append(endpoint)
+                matrix = _software_matrix(endpoints)
+                self.assertEqual(len(matrix["endpointNames"]), count)
+                self.assertEqual(matrix["compact"], count > 12)
 
     def test_endpoint_findings_exclude_pass_and_info_control_results(self) -> None:
         controls = [
@@ -313,6 +437,18 @@ class ReportStructureTests(unittest.TestCase):
         self.assertIn("0 matches", self.script)
         self.assertIn("event.shiftKey", self.script)
         self.assertIn('event.key === "Escape"', self.script)
+
+    def test_collapsible_section_navigation_contract_is_present(self) -> None:
+        self.assertEqual(self.template.count("collapsible-section"), 15)
+        self.assertIn('id="expand-all"', self.template)
+        self.assertIn('id="collapse-all"', self.template)
+        self.assertIn('aria-expanded="true"', self.template)
+        self.assertIn("section-chevron", self.template)
+        self.assertIn("openDetailsChain", self.script)
+        self.assertIn("history.pushState", self.script)
+        self.assertIn("beforeprint", self.script)
+        self.assertIn("detailsOpenedBySearch", self.script)
+        self.assertNotIn('id="executive" class="report-section collapsible-section"', self.template)
 
     def test_risk_score_is_explicitly_non_severity_metric(self) -> None:
         risk = _assessment_risk(

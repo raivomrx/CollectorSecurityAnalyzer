@@ -151,13 +151,31 @@ class Sprint52IntelligenceTests(unittest.TestCase):
             "unsupportedSoftwareCount": 1,
         }]
         findings = [{
+            "findingKey": "CVE-001:Microsoft:Edge:142.0",
+            "kind": "SOFTWARE_CVE",
+            "ruleId": "CVE-001",
+            "severity": "HIGH",
+            "title": "Confirmed vulnerabilities affect Microsoft Edge 142.0",
+            "recommendation": (
+                "Update Microsoft Edge to a vendor-supported non-affected version."
+            ),
+            "verification": "Rerun CVE analysis for Microsoft Edge 142.0.",
+            "endpointReferences": ["DELL-MINI"],
+            "software": "Microsoft Edge",
+            "installedVersion": "142.0",
+            "cveCount": 2,
+            "knownExploitedCveIds": ["CVE-2026-0001"],
+        }, {
             "ruleId": "BIT-001",
             "severity": "HIGH",
             "title": "BitLocker disabled",
             "endpointReferences": ["DELL-MINI"],
         }]
         actions = _priority_actions(endpoints, findings)
-        self.assertEqual(actions[0]["action"], "Remediate known exploited vulnerabilities")
+        self.assertEqual(
+            actions[0]["action"],
+            "Update Microsoft Edge to a vendor-supported non-affected version.",
+        )
         self.assertLessEqual(len(actions), 5)
         self.assertEqual(len({item["action"] for item in actions}), len(actions))
 
