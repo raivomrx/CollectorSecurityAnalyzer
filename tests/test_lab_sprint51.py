@@ -899,6 +899,26 @@ class UnifiedReportTests(Sprint5TestCase):
         )
         self.assertNotIn("enrollmentToken", html)
         self.assertNotIn("tokenHash", html)
+        endpoint = first_model["endpoints"][0]
+        self.assertEqual(
+            endpoint["findingCount"],
+            endpoint["securityFindingCount"],
+        )
+        self.assertLess(
+            endpoint["securityFindingCount"],
+            endpoint["controlResultCount"],
+        )
+        self.assertEqual(
+            len(endpoint["securityFindings"]),
+            endpoint["securityFindingCount"],
+        )
+        self.assertTrue(
+            all(
+                item["finding"]["status"] in {"FAIL", "WARNING"}
+                for item in endpoint["securityFindings"]
+            )
+        )
+        self.assertEqual(first_model["cve"]["primaryDisplay"], "NOT EVALUATED")
 
     def test_sprint52_report_preserves_endpoint_intelligence(self) -> None:
         """Real identities and version-bound intelligence reach the report."""

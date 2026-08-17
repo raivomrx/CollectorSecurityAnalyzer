@@ -12,6 +12,7 @@ from csa_lab.unified_report import (
     _framework_rows,
     _limitation_reason,
     _limitation_scope_note,
+    _security_finding_count,
     _software_matrix,
     _vulnerability_exposure,
 )
@@ -109,6 +110,25 @@ class RiskCorrectnessTests(unittest.TestCase):
         )
         self.assertEqual(risk["rating"], "HIGH")
 
+    def test_any_count_of_systemic_high_findings_remains_high(self) -> None:
+        cve = _aggregate_cve([_endpoint(eligible=0, evaluated=0)])
+        for count in (3, 10):
+            with self.subTest(count=count):
+                risk = _assessment_risk(
+                    100.0,
+                    [
+                        _finding(f"HIGH-{index}", "HIGH", systemic=True)
+                        for index in range(count)
+                    ],
+                    cve,
+                )
+                self.assertEqual(risk["rating"], "HIGH")
+                self.assertEqual(risk["criticalTriggers"], [])
+                self.assertIn(
+                    "No Critical-risk condition was confirmed",
+                    risk["reason"],
+                )
+
     def test_confirmed_critical_finding_allows_critical(self) -> None:
         risk = _assessment_risk(
             40.0,
@@ -176,7 +196,17 @@ class CveSemanticsTests(unittest.TestCase):
             _endpoint(status="NOT_EVALUATED", eligible=1, evaluated=0)
         ])
         self.assertEqual(cve["coveragePercent"], 0.0)
-        self.assertEqual(cve["coverageStatement"], "Vulnerability status was not evaluated.")
+        self.assertEqual(cve["primaryDisplay"], "NOT EVALUATED")
+        self.assertFalse(cve["evaluated"])
+        self.assertEqual(
+            cve["coverageStatement"],
+            "Vulnerability status was not evaluated.",
+        )
+
+    def test_zero_cves_with_full_coverage_displays_evaluated_zero(self) -> None:
+        cve = _aggregate_cve([_endpoint(cves=[])])
+        self.assertEqual(cve["primaryDisplay"], "0")
+        self.assertTrue(cve["evaluated"])
 
     def test_vulnerability_exposure_links_product_cve_and_endpoint(self) -> None:
         rows = _vulnerability_exposure([_endpoint(cves=[{
@@ -210,6 +240,8 @@ class ReportStructureTests(unittest.TestCase):
         for text in (
             "Endpoint Overview",
             "Affected endpoints",
+            "Security Findings",
+            "Control Results",
             "Vulnerability Exposure",
             "Assessment Limitations",
             "Framework &amp; Compliance Impact",
@@ -250,6 +282,52 @@ class ReportStructureTests(unittest.TestCase):
         matrix = _software_matrix(endpoints)
         self.assertTrue(matrix["compact"])
         self.assertEqual(len(matrix["endpointNames"]), 100)
+
+    def test_endpoint_findings_exclude_pass_and_info_control_results(self) -> None:
+        controls = [
+            {"finding": {"status": "FAIL"}},
+            {"finding": {"status": "WARNING"}},
+            {"finding": {"status": "PASS"}},
+            {"finding": {"status": "INFO"}},
+        ]
+        self.assertEqual(_security_finding_count(controls), 2)
+
+    def test_full_report_search_contract_is_present(self) -> None:
+        for element_id in (
+            "report-search",
+            "search-status",
+            "search-previous",
+            "search-next",
+            "search-clear",
+        ):
+            self.assertIn(f'id="{element_id}"', self.template)
+        for implementation in (
+            "createTreeWalker",
+            "toLocaleLowerCase",
+            "data-report-search-match",
+            "detailsOpenedBySearch",
+            "scrollIntoView",
+            "window.CSAReportSearch",
+        ):
+            self.assertIn(implementation, self.script)
+        self.assertIn("0 matches", self.script)
+        self.assertIn("event.shiftKey", self.script)
+        self.assertIn('event.key === "Escape"', self.script)
+
+    def test_risk_score_is_explicitly_non_severity_metric(self) -> None:
+        risk = _assessment_risk(
+            100.0,
+            [_finding("A", "HIGH", systemic=True)],
+            _aggregate_cve([_endpoint(eligible=0, evaluated=0)]),
+        )
+        self.assertEqual(
+            risk["scoreLabel"],
+            "Prioritization and exposure score",
+        )
+        self.assertIn(
+            "does not independently determine",
+            risk["scoreExplanation"],
+        )
 
 
 if __name__ == "__main__":

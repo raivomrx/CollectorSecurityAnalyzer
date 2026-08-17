@@ -2,12 +2,22 @@
   "use strict";
 
   const search = document.getElementById("report-search");
+  const searchRoot = document.getElementById("main");
+  const searchStatus = document.getElementById("search-status");
+  const searchPrevious = document.getElementById("search-previous");
+  const searchNext = document.getElementById("search-next");
+  const searchClear = document.getElementById("search-clear");
   const filterButtons = Array.from(document.querySelectorAll(".filter-button"));
   const searchable = Array.from(document.querySelectorAll(".searchable"));
   let activeFilter = "all";
+  let searchMatches = [];
+  let activeSearchIndex = -1;
+  let lastSearchQuery = "";
+  let searchTimer = 0;
+  const detailsOpenedBySearch = new Set();
+  const elementsRevealedBySearch = new Set();
 
-  const applyFilters = () => {
-    const query = (search.value || "").trim().toLocaleLowerCase();
+  const applyFindingFilters = () => {
     searchable.forEach((item) => {
       const severity = item.dataset.severity || "";
       const kind = item.dataset.kind || "";
@@ -16,8 +26,7 @@
         activeFilter === severity ||
         (activeFilter === "coverage-gaps" && kind === "coverage-gap") ||
         (activeFilter === "endpoints" && kind === "endpoint");
-      const textMatch = !query || item.textContent.toLocaleLowerCase().includes(query);
-      item.classList.toggle("hidden", !(filterMatch && textMatch));
+      item.classList.toggle("hidden", !filterMatch);
     });
   };
 
@@ -25,10 +34,195 @@
     button.addEventListener("click", () => {
       activeFilter = button.dataset.filter;
       filterButtons.forEach((item) => item.classList.toggle("active", item === button));
-      applyFilters();
+      applyFindingFilters();
     });
   });
-  search.addEventListener("input", applyFilters);
+
+  const restoreSearchContext = () => {
+    detailsOpenedBySearch.forEach((item) => {
+      item.open = false;
+    });
+    detailsOpenedBySearch.clear();
+    elementsRevealedBySearch.forEach((item) => {
+      item.classList.add("hidden");
+    });
+    elementsRevealedBySearch.clear();
+  };
+
+  const removeSearchHighlights = () => {
+    const parents = new Set();
+    document.querySelectorAll("mark[data-report-search-match]").forEach((mark) => {
+      const parent = mark.parentNode;
+      if (!parent) return;
+      parent.replaceChild(document.createTextNode(mark.textContent || ""), mark);
+      parents.add(parent);
+    });
+    parents.forEach((parent) => parent.normalize());
+    searchMatches = [];
+    activeSearchIndex = -1;
+  };
+
+  const updateSearchStatus = () => {
+    const hasQuery = Boolean(lastSearchQuery);
+    const hasMatches = searchMatches.length > 0;
+    searchPrevious.disabled = !hasMatches;
+    searchNext.disabled = !hasMatches;
+    searchClear.disabled = !hasQuery;
+    if (!hasQuery) {
+      searchStatus.textContent = "No active search";
+    } else if (!hasMatches) {
+      searchStatus.textContent = "0 matches";
+    } else {
+      searchStatus.textContent = `${activeSearchIndex + 1} of ${searchMatches.length} matches`;
+    }
+  };
+
+  const revealSearchMatch = (mark) => {
+    let current = mark.parentElement;
+    while (current && current !== searchRoot) {
+      if (current.tagName === "DETAILS" && !current.open) {
+        current.open = true;
+        detailsOpenedBySearch.add(current);
+      }
+      if (current.classList.contains("hidden")) {
+        current.classList.remove("hidden");
+        elementsRevealedBySearch.add(current);
+      }
+      current = current.parentElement;
+    }
+  };
+
+  const activateSearchMatch = (index) => {
+    if (!searchMatches.length) {
+      activeSearchIndex = -1;
+      updateSearchStatus();
+      return;
+    }
+    activeSearchIndex = (index + searchMatches.length) % searchMatches.length;
+    searchMatches.forEach((mark, position) => {
+      mark.classList.toggle("active", position === activeSearchIndex);
+    });
+    const active = searchMatches[activeSearchIndex];
+    revealSearchMatch(active);
+    active.scrollIntoView({ block: "center", behavior: "auto" });
+    updateSearchStatus();
+  };
+
+  const searchableTextNodes = () => {
+    const nodes = [];
+    const walker = document.createTreeWalker(
+      searchRoot,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode(node) {
+          const parent = node.parentElement;
+          if (!parent || !node.nodeValue || !node.nodeValue.trim()) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          if (parent.closest("script, style, noscript, button, input, select, option, textarea, [data-search-ignore]")) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          return NodeFilter.FILTER_ACCEPT;
+        },
+      },
+    );
+    let node = walker.nextNode();
+    while (node) {
+      nodes.push(node);
+      node = walker.nextNode();
+    }
+    return nodes;
+  };
+
+  const highlightNodeMatches = (node, query) => {
+    const value = node.nodeValue || "";
+    const normalized = value.toLocaleLowerCase();
+    let cursor = 0;
+    let matchAt = normalized.indexOf(query, cursor);
+    if (matchAt < 0) return;
+    const fragment = document.createDocumentFragment();
+    while (matchAt >= 0) {
+      fragment.append(document.createTextNode(value.slice(cursor, matchAt)));
+      const mark = document.createElement("mark");
+      mark.dataset.reportSearchMatch = String(searchMatches.length);
+      mark.textContent = value.slice(matchAt, matchAt + query.length);
+      fragment.append(mark);
+      searchMatches.push(mark);
+      cursor = matchAt + query.length;
+      matchAt = normalized.indexOf(query, cursor);
+    }
+    fragment.append(document.createTextNode(value.slice(cursor)));
+    node.replaceWith(fragment);
+  };
+
+  const performReportSearch = () => {
+    restoreSearchContext();
+    removeSearchHighlights();
+    lastSearchQuery = (search.value || "").trim().toLocaleLowerCase();
+    if (!lastSearchQuery) {
+      updateSearchStatus();
+      return 0;
+    }
+    searchableTextNodes().forEach((node) => {
+      highlightNodeMatches(node, lastSearchQuery);
+    });
+    if (searchMatches.length) activateSearchMatch(0);
+    else updateSearchStatus();
+    return searchMatches.length;
+  };
+
+  const clearReportSearch = () => {
+    window.clearTimeout(searchTimer);
+    search.value = "";
+    performReportSearch();
+  };
+
+  search.addEventListener("input", () => {
+    window.clearTimeout(searchTimer);
+    searchTimer = window.setTimeout(performReportSearch, 120);
+  });
+  search.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      clearReportSearch();
+      return;
+    }
+    if (event.key !== "Enter" || !search.value.trim()) return;
+    event.preventDefault();
+    window.clearTimeout(searchTimer);
+    const query = search.value.trim().toLocaleLowerCase();
+    if (query !== lastSearchQuery) performReportSearch();
+    else activateSearchMatch(activeSearchIndex + (event.shiftKey ? -1 : 1));
+  });
+  searchPrevious.addEventListener("click", () => activateSearchMatch(activeSearchIndex - 1));
+  searchNext.addEventListener("click", () => activateSearchMatch(activeSearchIndex + 1));
+  searchClear.addEventListener("click", () => {
+    clearReportSearch();
+    search.focus();
+  });
+
+  window.CSAReportSearch = Object.freeze({
+    search(query) {
+      search.value = String(query || "");
+      return performReportSearch();
+    },
+    clear: clearReportSearch,
+    next() {
+      activateSearchMatch(activeSearchIndex + 1);
+      return activeSearchIndex;
+    },
+    previous() {
+      activateSearchMatch(activeSearchIndex - 1);
+      return activeSearchIndex;
+    },
+    state() {
+      return {
+        query: lastSearchQuery,
+        matchCount: searchMatches.length,
+        activeIndex: activeSearchIndex,
+      };
+    },
+  });
 
   document.getElementById("theme-toggle").addEventListener("click", () => {
     const root = document.documentElement;

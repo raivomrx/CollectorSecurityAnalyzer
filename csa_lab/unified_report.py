@@ -487,6 +487,8 @@ class UnifiedReportGenerator:
             str(item.get("finding", {}).get("status", "UNKNOWN"))
             for item in findings
         )
+        security_findings = _security_findings(findings)
+        security_finding_count = len(security_findings)
         privilege = evidence.get("privilegeContext", {})
         device = evidence.get("identity", evidence.get("device", {}))
         display_name = _endpoint_display_name(device)
@@ -551,7 +553,9 @@ class UnifiedReportGenerator:
                 "limitations", []
             ),
             "findings": findings,
-            "findingCount": len(findings),
+            "securityFindings": security_findings,
+            "findingCount": security_finding_count,
+            "securityFindingCount": security_finding_count,
             "controlResultCount": len(findings),
             "statusCounts": dict(sorted(status_counts.items())),
             "severityCounts": dict(sorted(severity_counts.items())),
@@ -609,6 +613,24 @@ class UnifiedReportGenerator:
             "confidence": value.confidence,
             "riskScore": value.risk_score,
         }
+
+
+def _security_findings(
+    findings: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return failed or warning controls that represent security findings."""
+
+    return [
+        item
+        for item in findings
+        if item.get("finding", {}).get("status") in {"FAIL", "WARNING"}
+    ]
+
+
+def _security_finding_count(findings: list[dict[str, Any]]) -> int:
+    """Count failed or warning controls that represent security findings."""
+
+    return len(_security_findings(findings))
 
 
 def _counter_rows(
@@ -713,6 +735,11 @@ def _aggregate_cve(
         kev_ids = identifiers("cisaKevCveIds") & confirmed_ids
     not_evaluated = max(total("notEvaluatedProducts"), eligible - evaluated)
     coverage_complete = status == "COMPLETE" and not_evaluated == 0
+    primary_display = (
+        str(len(unique_ids))
+        if coverage > 0.0 or status == "COMPLETE"
+        else "NOT EVALUATED"
+    )
     return {
         "status": status,
         "timestamp": max(
@@ -725,6 +752,8 @@ def _aggregate_cve(
         "successfullyEvaluatedProducts": evaluated,
         "notEvaluatedProducts": not_evaluated,
         "detectedCves": len(unique_ids),
+        "primaryDisplay": primary_display,
+        "evaluated": primary_display != "NOT EVALUATED",
         "uniqueCves": len(unique_ids),
         "confirmedUniqueCves": len(confirmed_ids),
         "confirmedProductCveRelationships": total(
@@ -908,8 +937,9 @@ def _assessment_risk(
     """Return deterministic trigger-based assessment risk and reasoning.
 
     A numeric score never promotes an assessment to CRITICAL. Critical rating
-    requires a confirmed critical finding/CVE, a confirmed KEV with critical
-    severity, or at least three systemic HIGH findings.
+    requires explicit confirmed critical evidence, such as a CRITICAL finding
+    or an applicable Critical CVE. Systemic HIGH findings affect prioritization
+    and support a HIGH rating, but their count never creates a CRITICAL rating.
     """
 
     critical_findings = [
@@ -925,8 +955,6 @@ def _assessment_risk(
         triggers.append("At least one confirmed CRITICAL security finding")
     if confirmed_critical_cves:
         triggers.append("At least one confirmed Critical CVE")
-    if len(systemic_high) >= 3:
-        triggers.append("Three or more systemic HIGH findings")
     if triggers:
         rating = "CRITICAL"
     elif any(item["severity"] == "HIGH" for item in findings) or int(
@@ -939,8 +967,28 @@ def _assessment_risk(
         rating = "LOW"
     else:
         rating = "INFORMATIONAL"
+    if triggers:
+        reason = "; ".join(triggers)
+    elif len(systemic_high) >= 2:
+        reason = (
+            "Multiple high-severity weaknesses affect a significant portion "
+            "of assessed endpoints. No Critical-risk condition was confirmed."
+        )
+    elif systemic_high:
+        reason = (
+            "A systemic high-severity weakness was confirmed. No Critical-risk "
+            "condition was confirmed."
+        )
+    else:
+        reason = f"Highest confirmed risk evidence supports a {rating} rating."
     return {
         "score": score,
+        "scoreLabel": "Prioritization and exposure score",
+        "scoreExplanation": (
+            "This numeric metric ranks cumulative exposure and remediation "
+            "priority. It does not independently determine Overall Security "
+            "Risk severity."
+        ),
         "rating": rating,
         "assessmentRiskRating": rating,
         "criticalTriggers": triggers,
@@ -955,11 +1003,7 @@ def _assessment_risk(
             if not cve.get("coverageComplete", False)
             else "No CVE coverage modifier was applied."
         ),
-        "reason": (
-            "; ".join(triggers)
-            if triggers
-            else f"Highest confirmed risk evidence supports a {rating} rating."
-        ),
+        "reason": reason,
     }
 
 

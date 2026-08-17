@@ -18,10 +18,17 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Run unified report and 13-endpoint tests
         run: python -W error::ResourceWarning -m unittest tests.test_lab_sprint51.UnifiedReportTests -v
-      - name: Generate inspectable synthetic report
+      - name: Generate inspectable single-endpoint report
         run: python scripts/Generate-SyntheticUnifiedReport.py --output test-artifacts/CSA-Unified-Assessment-Report.html
+      - name: Generate 100-endpoint search performance report
+        run: >-
+          python scripts/Generate-SyntheticUnifiedReport.py
+          --endpoints 100
+          --search-fixtures
+          --output test-artifacts/CSA-Unified-100-Endpoint-Search-Report.html
       - uses: actions/upload-artifact@v4
         with:
           name: CSA-Unified-Assessment-Report
-          path: test-artifacts/CSA-Unified-Assessment-Report.html
-
+          path: |
+            test-artifacts/CSA-Unified-Assessment-Report.html
+            test-artifacts/CSA-Unified-100-Endpoint-Search-Report.html

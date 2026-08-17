@@ -24,6 +24,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
     parser.add_argument("--endpoints", type=int, default=1)
+    parser.add_argument(
+        "--search-fixtures",
+        action="store_true",
+        help="Add deterministic endpoint, software and CVE search fixtures.",
+    )
     args = parser.parse_args()
     if args.endpoints < 1 or args.endpoints > 100:
         parser.error("--endpoints must be between 1 and 100")
@@ -56,6 +61,8 @@ def main() -> None:
                 ).read_bytes(),
             )
             ConsoleAnalysisPipeline(case.storage).analyze(package)
+            if args.search_fixtures and index == 0:
+                _add_search_fixtures(case, submission_id)
         started = time.perf_counter()
         report = UnifiedReportGenerator(case.storage).generate(
             case.assessment.assessment_id
@@ -70,6 +77,82 @@ def main() -> None:
         )
     finally:
         case.doCleanups()
+
+
+def _add_search_fixtures(case: Sprint5TestCase, submission_id: str) -> None:
+    """Add deterministic customer-visible terms for browser search tests."""
+
+    assessment_id = case.assessment.assessment_id
+    normalized = case.storage.read_json(
+        assessment_id,
+        "normalized",
+        f"{submission_id}.json",
+    )
+    normalized["identity"] = {
+        **normalized.get("identity", {}),
+        "computerName": "RIA-S9",
+        "hostName": "RIA-S9",
+        "currentUser": "LAB\\alice",
+    }
+    case.storage.write_json(
+        assessment_id,
+        ("normalized", f"{submission_id}.json"),
+        normalized,
+    )
+    analysis = case.storage.read_json(
+        assessment_id,
+        "findings",
+        f"{submission_id}.json",
+    )
+    analysis["cveAnalysisStatus"] = "COMPLETE"
+    analysis["cveSummary"] = {
+        "status": "COMPLETE",
+        "installedSoftwareRecords": 1,
+        "normalizedProducts": 1,
+        "cveEligibleProducts": 1,
+        "successfullyEvaluatedProducts": 1,
+        "notEvaluatedProducts": 0,
+        "confirmedCveIds": ["CVE-2026-5210"],
+        "possibleCveIds": [],
+        "criticalCveIds": [],
+        "highCveIds": ["CVE-2026-5210"],
+        "cisaKevCveIds": [],
+        "confirmedProductCveRelationships": 1,
+        "possibleProductCveRelationships": 0,
+        "softwareResults": [
+            {
+                "productKey": "google|chrome|147.0.0",
+                "displayName": "Google Chrome",
+                "displayVersion": "147.0.0",
+                "publisher": "Google LLC",
+                "normalizedVendor": "Google",
+                "normalizedProduct": "Google Chrome",
+                "normalizedVersion": "147.0.0",
+                "normalizationConfidence": 100,
+                "securityStatus": "Known vulnerability detected",
+                "lifecycleStatus": "SUPPORTED",
+                "confirmedCveCount": 1,
+                "possibleCveCount": 0,
+                "cveDetails": [
+                    {
+                        "cveId": "CVE-2026-5210",
+                        "severity": "HIGH",
+                        "cvssScore": 8.8,
+                        "matchStatus": "CONFIRMED",
+                        "matchRationale": (
+                            "Installed version is in the affected range"
+                        ),
+                        "cisaKev": False,
+                    }
+                ],
+            }
+        ],
+    }
+    case.storage.write_json(
+        assessment_id,
+        ("findings", f"{submission_id}.json"),
+        analysis,
+    )
 
 
 if __name__ == "__main__":

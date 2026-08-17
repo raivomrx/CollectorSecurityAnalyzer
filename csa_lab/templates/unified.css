@@ -105,14 +105,36 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   flex-wrap: wrap;
 }
 .header-actions button { background: #25323d; border-color: #596773; color: white; }
+.report-search-panel {
+  display: grid;
+  flex: 1 1 430px;
+  gap: 6px;
+  max-width: 520px;
+}
 .search-label { display: grid; gap: 4px; font-size: 13px; color: #d4dce2; }
 .search-label input {
-  width: min(300px, 70vw);
+  width: 100%;
   min-height: 38px;
   border: 1px solid #75818b;
   border-radius: 5px;
   padding: 6px 10px;
 }
+.search-navigation {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+}
+.search-navigation output {
+  flex: 1 1 auto;
+  color: #d4dce2;
+  font-size: 13px;
+}
+.search-navigation button {
+  min-height: 32px;
+  padding: 4px 9px;
+}
+.search-navigation button:disabled { cursor: default; opacity: .55; }
 .report-nav {
   position: fixed;
   left: 0;
@@ -169,6 +191,7 @@ h3 { font-size: 18px; }
 }
 .metric span { display: block; color: var(--muted); font-size: 14px; }
 .metric strong { display: block; margin-top: 8px; font-size: 27px; overflow-wrap: break-word; }
+.metric strong.metric-state { font-size: 20px; line-height: 1.25; }
 .metric small { display: block; margin-top: 5px; color: var(--muted); }
 .metric-link { color: inherit; text-decoration: none; }
 .metric-link:hover { border-color: var(--accent); }
@@ -303,6 +326,17 @@ pre {
   overflow-wrap: anywhere;
 }
 .digest { font-family: Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
+mark[data-report-search-match] {
+  background: #ffe58a;
+  color: #17120a;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+mark[data-report-search-match].active {
+  background: #ff9f1a;
+  outline: 3px solid #a84f00;
+  outline-offset: 2px;
+}
 .back-top { display: inline-block; margin-top: 20px; }
 .hidden { display: none !important; }
 footer { max-width: 1180px; margin: 0 auto; padding: 25px 30px 45px; color: var(--muted); }
@@ -314,6 +348,7 @@ footer { max-width: 1180px; margin: 0 auto; padding: 25px 30px 45px; color: var(
     justify-content: flex-start;
     width: 100%;
   }
+  .report-search-panel { flex-basis: 100%; max-width: none; width: 100%; }
   .report-header h1 { font-size: 30px; }
   .summary-grid, .primary-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .finding-grid { grid-template-columns: 1fr; }
@@ -328,6 +363,8 @@ footer { max-width: 1180px; margin: 0 auto; padding: 25px 30px 45px; color: var(
   .summary-grid, .primary-metrics { grid-template-columns: 1fr; }
   .report-header h1 { font-size: 26px; }
   h2 { font-size: 23px; }
+  .search-navigation { flex-wrap: wrap; }
+  .search-navigation output { flex-basis: 100%; }
 }
 
 @media print {

@@ -20,11 +20,17 @@ rating requires at least one of these explicit triggers:
 
 1. a confirmed `CRITICAL` security finding;
 2. a confirmed Critical CVE affecting an installed version;
-3. three or more systemic `HIGH` findings.
+3. a future policy control explicitly marked as a critical trigger.
 
-A possible Critical CVE is not a critical trigger. Incomplete coverage changes
-certainty and is disclosed in the reasoning, but does not automatically lower
-or increase the rating.
+A possible Critical CVE is not a critical trigger. Any number of systemic
+`HIGH` findings remains `HIGH` unless separate explicit critical evidence is
+confirmed. Their count and prevalence affect prioritization and exposure, not
+the severity boundary. Incomplete coverage changes certainty and is disclosed
+in the reasoning, but does not automatically lower or increase the rating.
+
+The report labels the numeric value as a prioritization and exposure score. It
+ranks cumulative exposure and remediation priority; it does not independently
+determine the Overall Security Risk severity.
 
 ## CVE terminology
 
@@ -41,6 +47,10 @@ or increase the rating.
 zero or incomplete coverage is an unevaluated or incomplete result and must not
 be presented as clean.
 
+At zero coverage, the primary CVE metric displays `NOT EVALUATED` instead of a
+numeric zero. Numeric detected, confirmed and possible counts remain available
+as technical context but are not presented as a completed vulnerability result.
+
 ## Customer navigation
 
 The primary path is:
@@ -53,6 +63,18 @@ Endpoint Overview links to details in the same HTML file. Findings,
 remediation actions, CVE relationships, limitations and framework traceability
 all identify affected endpoints. Raw normalized evidence, provider metadata,
 confidence values and digests remain collapsed in Advanced Technical Evidence.
+
+Endpoint Overview counts only `FAIL` and `WARNING` results as security
+findings. PASS and INFO results remain visible as control results and do not
+inflate the finding count.
+
+## Report search
+
+The self-contained report provides a case-insensitive full-report search over
+customer-visible content. It highlights every match, reports the total, opens
+collapsed ancestors for the active match and supports Previous, Next, Enter,
+Shift+Enter, Escape and Clear. Clearing search restores highlights, disclosure
+state and filter visibility without reloading the report.
 
 ## Framework boundary
 
