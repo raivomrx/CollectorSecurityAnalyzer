@@ -12,12 +12,49 @@ from software.version import compare_versions, parse_version
 
 ENVIRONMENT_COMPONENTS = {
     "update": ("Update", "OSUpdate", "CpeUpdate"),
-    "edition": ("Edition", "OSEdition", "WindowsEdition"),
-    "language": ("Language", "OSLanguage", "Locale"),
+    "edition": (
+        "Edition",
+        "OSEdition",
+        "WindowsEdition",
+        "operatingSystem.edition",
+    ),
+    "language": (
+        "Language",
+        "OSLanguage",
+        "Locale",
+        "operatingSystem.language",
+    ),
     "sw_edition": ("SoftwareEdition", "SWEdition", "SwEdition", "OSEdition"),
-    "target_sw": ("OS", "OSName", "OperatingSystem", "Operating System", "TargetSW"),
-    "target_hw": ("Architecture", "OSArchitecture", "SystemType", "TargetHW", "MachineArchitecture"),
+    "target_sw": (
+        "OS",
+        "OSName",
+        "OperatingSystem",
+        "Operating System",
+        "TargetSW",
+        "operatingSystem.name",
+    ),
+    "target_hw": (
+        "Architecture",
+        "OSArchitecture",
+        "SystemType",
+        "TargetHW",
+        "MachineArchitecture",
+        "operatingSystem.architecture",
+    ),
 }
+
+OPERATING_SYSTEM_KEYS = (
+    "OS",
+    "OSName",
+    "OperatingSystem",
+    "Operating System",
+    "operatingSystem.name",
+)
+OPERATING_SYSTEM_VERSION_KEYS = (
+    "OSVersion",
+    "OperatingSystemVersion",
+    "operatingSystem.version",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +65,7 @@ class EvaluationResult:
     reason: str
     confidence: int
     matched_criteria: list[str]
+    has_vulnerable_match: bool = False
 
 
 def evaluate_applicability(
@@ -52,6 +90,16 @@ def evaluate_applicability(
         for configuration in cve.configurations
     ]
     combined = _combine_or(results, "CVE configuration")
+    if (
+        combined.status == ApplicabilityStatus.AFFECTED
+        and not combined.has_vulnerable_match
+    ):
+        return (
+            ApplicabilityStatus.NOT_EVALUATED,
+            "CVE configuration contains no confirmed vulnerable software criteria",
+            30,
+            combined.matched_criteria,
+        )
     return combined.status, combined.reason, combined.confidence, combined.matched_criteria
 
 
@@ -120,9 +168,12 @@ def _evaluate_cpe_match(
         return _not_evaluated("CPE criteria could not be parsed", [criteria] if criteria else [])
 
     if match.get("vulnerable") is False:
-        return _not_evaluated(
-            "Non-vulnerable platform or environment criteria cannot be confirmed",
-            [criteria],
+        return _evaluate_applicability_constraint(
+            software,
+            cpe,
+            parsed,
+            environment_data,
+            criteria,
         )
 
     if _key(parsed.vendor) != _key(cpe.vendor) or _key(parsed.product) != _key(cpe.product):
@@ -156,6 +207,7 @@ def _evaluate_cpe_match(
             "Installed version matches vulnerable CPE version",
             95,
             [criteria],
+            True,
         )
     return _not_affected("Installed version does not match vulnerable CPE version")
 
@@ -186,7 +238,117 @@ def _evaluate_range(
         "Installed version is within vulnerable range",
         95,
         [criteria],
+        True,
     )
+
+
+def _evaluate_applicability_constraint(
+    software: SoftwareProduct,
+    cpe: CpeCandidate,
+    parsed: Any,
+    environment_data: dict[str, Any] | None,
+    criteria: str,
+) -> EvaluationResult:
+    """Evaluate a non-vulnerable CPE used as an AND applicability constraint."""
+
+    environment_result = _evaluate_environment(parsed, environment_data)
+    if environment_result is not None:
+        return environment_result
+
+    if parsed.part == "o":
+        observed_os = _read_environment_value(
+            environment_data,
+            OPERATING_SYSTEM_KEYS,
+        )
+        if observed_os is None:
+            return _not_evaluated(
+                "Operating-system applicability constraint cannot be confirmed",
+                [criteria],
+            )
+        if not _platform_product_matches(parsed.product, observed_os):
+            return _not_affected(
+                "Operating-system applicability constraint does not match "
+                "collector data"
+            )
+        version_result = _evaluate_platform_version(
+            parsed.version,
+            environment_data,
+            criteria,
+        )
+        if version_result is not None:
+            return version_result
+        return EvaluationResult(
+            ApplicabilityStatus.AFFECTED,
+            "Operating-system applicability constraint matches collector data",
+            95,
+            [criteria],
+        )
+
+    if parsed.part == "a":
+        if (
+            _key(parsed.vendor) != _key(cpe.vendor)
+            or _key(parsed.product) != _key(cpe.product)
+        ):
+            return _not_evaluated(
+                "Prerequisite application constraint is not represented by "
+                "the evaluated software record",
+                [criteria],
+            )
+        if parsed.version in {"*", "-"}:
+            return EvaluationResult(
+                ApplicabilityStatus.AFFECTED,
+                "Prerequisite application constraint matches installed software",
+                90,
+                [criteria],
+            )
+        if compare_versions(software.version, parsed.version) == 0:
+            return EvaluationResult(
+                ApplicabilityStatus.AFFECTED,
+                "Prerequisite application version matches installed software",
+                90,
+                [criteria],
+            )
+        return _not_affected(
+            "Prerequisite application version does not match installed software"
+        )
+
+    return _not_evaluated(
+        "Platform applicability constraint cannot be confirmed",
+        [criteria],
+    )
+
+
+def _evaluate_platform_version(
+    criteria_version: str,
+    environment_data: dict[str, Any] | None,
+    criteria: str,
+) -> EvaluationResult | None:
+    """Evaluate a concrete platform version while preserving CPE NA semantics."""
+
+    if criteria_version in {"*", "-"}:
+        return None
+    observed_version = _read_environment_value(
+        environment_data,
+        OPERATING_SYSTEM_VERSION_KEYS,
+    )
+    if observed_version is None:
+        return _not_evaluated(
+            "Operating-system version constraint cannot be confirmed",
+            [criteria],
+        )
+    if compare_versions(observed_version, criteria_version) != 0:
+        return _not_affected(
+            "Operating-system version constraint does not match collector data"
+        )
+    return None
+
+
+def _platform_product_matches(criteria_product: str, observed_os: str) -> bool:
+    """Match a CPE platform product to a trusted collector OS name."""
+
+    criteria = _normalise_environment(criteria_product)
+    observed = _normalise_environment(observed_os)
+    return criteria == observed or criteria in observed
 
 
 def _evaluate_environment(
@@ -221,9 +383,27 @@ def _read_environment_value(
     lowered = {str(key).casefold(): value for key, value in environment_data.items()}
     for key in keys:
         value = lowered.get(key.casefold())
+        if value is None and "." in key:
+            value = _read_nested_value(environment_data, key)
         if value is not None and str(value).strip():
+            if isinstance(value, dict):
+                continue
             return str(value)
     return None
+
+
+def _read_nested_value(data: dict[str, Any], path: str) -> Any | None:
+    """Read a case-insensitive dotted path from normalized collector data."""
+
+    current: Any = data
+    for component in path.split("."):
+        if not isinstance(current, dict):
+            return None
+        indexed = {str(key).casefold(): value for key, value in current.items()}
+        current = indexed.get(component.casefold())
+        if current is None:
+            return None
+    return current
 
 
 def _environment_matches(component: str, criteria_value: str, observed_value: str) -> bool:
@@ -289,6 +469,7 @@ def _combine_or(results: list[EvaluationResult], scope: str) -> EvaluationResult
             "Installed version is within vulnerable CPE criteria",
             95,
             _criteria(affected),
+            any(result.has_vulnerable_match for result in affected),
         )
 
     possible = [result for result in results if result.status == ApplicabilityStatus.POSSIBLY_AFFECTED]
@@ -327,7 +508,11 @@ def _combine_and(results: list[EvaluationResult], scope: str) -> EvaluationResul
             "All AND criteria matched vulnerable CPE criteria",
             95,
             _criteria(results),
+            any(result.has_vulnerable_match for result in results),
         )
+
+    if any(result.status == ApplicabilityStatus.NOT_AFFECTED for result in results):
+        return _not_affected("An AND applicability constraint does not match")
 
     if any(result.status == ApplicabilityStatus.NOT_EVALUATED for result in results):
         return EvaluationResult(

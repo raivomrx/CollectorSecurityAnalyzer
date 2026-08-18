@@ -66,6 +66,8 @@
       <div class="metric"><span>Core assessment coverage</span><strong>{{ "%.1f"|format(model.coverage.corePassiveCoverage) }}%</strong><small>Passive control evidence</small></div>
     </div>
     <div class="summary-grid secondary-metrics">
+      <div class="metric compact"><span>Computers with BitLocker enabled</span><strong>{{ model.executiveEndpointMetrics.bitLockerEnabledEndpoints }} / {{ model.executiveEndpointMetrics.assessedEndpoints }}</strong><small>Evidence-backed OS drive protection</small></div>
+      <div class="metric compact"><span>Computers with daily-user admin privileges</span><strong>{{ model.executiveEndpointMetrics.dailyUserLocalAdminEndpoints }} / {{ model.executiveEndpointMetrics.assessedEndpoints }}</strong><small>Current user is a local Administrators member</small></div>
       <div class="metric compact"><span>Confirmed CVEs</span><strong>{{ model.cve.confirmedUniqueCves }}</strong></div>
       <div class="metric compact"><span>Possible CVEs</span><strong>{{ model.cve.possibleUniqueCves }}</strong></div>
       <div class="metric compact"><span>Unsupported software</span><strong>{{ model.software.unsupportedCount }}</strong></div>

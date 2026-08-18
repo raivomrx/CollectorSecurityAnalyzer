@@ -208,6 +208,7 @@ class UnifiedReportGenerator:
         priority_actions = _priority_actions(endpoints, fleet_findings)
         remediation_plan = _remediation_plan(priority_actions, fleet_findings)
         main_limitations = _main_coverage_limitations(endpoints, cve)
+        executive_endpoint_metrics = _executive_endpoint_metrics(endpoints)
         highest_severity = next(
             (
                 severity
@@ -315,6 +316,7 @@ class UnifiedReportGenerator:
                 "activeValidationPerformed": False,
                 "identityMode": "REAL_ENDPOINT_IDENTITIES",
             },
+            "executiveEndpointMetrics": executive_endpoint_metrics,
             "risk": {
                 **risk,
                 "highestFindingSeverity": highest_severity,
@@ -1278,6 +1280,42 @@ def _security_control_summary(
         "Firewall": _rule_status(findings, "FW-001"),
     }
     return {key: str(value) for key, value in controls.items()}
+
+
+def _executive_endpoint_metrics(
+    endpoints: list[dict[str, Any]],
+) -> dict[str, int]:
+    """Count evidence-backed endpoint posture facts for the executive view."""
+
+    bitlocker_enabled = sum(
+        1
+        for endpoint in endpoints
+        if str(endpoint.get("bitLocker", {}).get("status", "")).upper()
+        == "PASS"
+    )
+    daily_user_local_admin = sum(
+        1
+        for endpoint in endpoints
+        if _daily_user_has_local_admin_privileges(endpoint)
+    )
+    return {
+        "assessedEndpoints": len(endpoints),
+        "bitLockerEnabledEndpoints": bitlocker_enabled,
+        "dailyUserLocalAdminEndpoints": daily_user_local_admin,
+    }
+
+
+def _daily_user_has_local_admin_privileges(
+    endpoint: dict[str, Any],
+) -> bool:
+    """Return whether trusted evidence identifies the daily user as an admin."""
+
+    membership = endpoint.get("privilegeContext", {}).get(
+        "isLocalAdministratorMember"
+    )
+    if membership is True:
+        return True
+    return _rule_status(endpoint.get("findings", []), "ACC-011") == "FAIL"
 
 
 def _setting_status(evidence: dict[str, Any], setting_id: str) -> str:

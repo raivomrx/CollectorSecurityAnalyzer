@@ -11,7 +11,10 @@ from typing import Any
 
 from analysis_context import AnalysisContext
 from collector_schema.enums import CollectionStatus, ConfigurationSource
-from csa_lab.unified_report import _collected_system_information
+from csa_lab.unified_report import (
+    _collected_system_information,
+    _executive_endpoint_metrics,
+)
 from evidence.registry import WindowsEvidenceRegistry
 from evidence.windows_models import SecuritySettingEvidence
 from risk import Status
@@ -82,6 +85,43 @@ class HomeLiveAcceptanceTests(unittest.TestCase):
         ):
             self.assertIn(field, evaluation)
         self.assertEqual(evaluation["terminalStatus"], "NOT_EVALUATED")
+
+    def test_executive_summary_counts_bitlocker_and_daily_admin_endpoints(
+        self,
+    ) -> None:
+        """Executive metrics must count endpoint facts, not control rows."""
+
+        metrics = _executive_endpoint_metrics([
+            {
+                "bitLocker": {"status": "PASS"},
+                "privilegeContext": self.fixture["privilegeContext"],
+                "findings": [],
+            },
+            {
+                "bitLocker": {"status": "FAIL"},
+                "privilegeContext": {
+                    "isLocalAdministratorMember": False,
+                },
+                "findings": [],
+            },
+        ])
+
+        self.assertEqual(metrics["assessedEndpoints"], 2)
+        self.assertEqual(metrics["bitLockerEnabledEndpoints"], 1)
+        self.assertEqual(metrics["dailyUserLocalAdminEndpoints"], 1)
+
+    def test_executive_summary_renders_endpoint_posture_labels(self) -> None:
+        """Both requested fleet counters must be visible in section 01."""
+
+        template = (
+            Path(__file__).parents[1]
+            / "csa_lab"
+            / "templates"
+            / "unified.html"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("Computers with BitLocker enabled", template)
+        self.assertIn("Computers with daily-user admin privileges", template)
 
     def test_report_and_lab_expose_terminal_diagnostics(self) -> None:
         """Both customer report and Advanced Details must expose root cause."""

@@ -27,6 +27,9 @@ from software.models import SoftwareProduct
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "home_software_inventory_sanitized.json"
+HOME_EVIDENCE_FIXTURE = (
+    ROOT / "tests" / "fixtures" / "home_endpoint_sanitized.json"
+)
 ADOBE_ADVISORY = (
     "https://helpx.adobe.com/security/products/illustrator/apsb21-42.html"
 )
@@ -167,22 +170,28 @@ class AdobeAcceptanceTests(unittest.TestCase):
     """Verify Illustrator CVE and Creative Cloud lifecycle acceptance."""
 
     def test_illustrator_2523_confirms_two_source_backed_cves(self) -> None:
-        """Illustrator 25.2.3 must confirm APSB21-42 version-range CVEs."""
+        """HOME Illustrator evidence must confirm APSB21-42 NVD AND records."""
+
+        home_inventory = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        home_evidence = json.loads(
+            HOME_EVIDENCE_FIXTURE.read_text(encoding="utf-8")
+        )
+        illustrator = next(
+            item
+            for item in home_inventory["software"]
+            if item["DisplayName"] == "Adobe Illustrator 2021"
+        )
 
         with tempfile.TemporaryDirectory() as temp_dir:
             inventory = build_inventory(
-                [{
-                    "Publisher": "Adobe Inc.",
-                    "DisplayName": "Adobe Illustrator 2021",
-                    "DisplayVersion": "25.2.3",
-                }],
+                [illustrator],
                 unknown_products_path=Path(temp_dir) / "unknown.json",
             )
         client = _AdobeClient()
         summary = CveService(
             client=client,
             resolver=CpeResolver(client=client),
-        ).scan_inventory(inventory)
+        ).scan_inventory(inventory, raw_data=home_evidence)
         confirmed = {
             item.cve.cve_id
             for item in summary.assessments
@@ -254,6 +263,19 @@ class AdobeAcceptanceTests(unittest.TestCase):
             all(
                 item["sourceResolution"]["status"]
                 == "AUTHORITATIVE_CONFIRMED"
+                for item in visible_cves
+            )
+        )
+        self.assertTrue(
+            all(
+                item["nvdUrl"]
+                == f"https://nvd.nist.gov/vuln/detail/{item['cveId']}"
+                for item in visible_cves
+            )
+        )
+        self.assertTrue(
+            all(
+                ADOBE_ADVISORY in item["vendorAdvisoryUrls"]
                 for item in visible_cves
             )
         )
@@ -527,14 +549,28 @@ def _adobe_cve(cve_id: str, score: float) -> dict:
             "tags": ["Vendor Advisory"],
         }],
         "configurations": [{
-            "nodes": [{
-                "operator": "OR",
-                "cpeMatch": [{
-                    "vulnerable": True,
-                    "criteria": "cpe:2.3:a:adobe:illustrator:*:*:*:*:*:*:*:*",
-                    "versionEndIncluding": "25.2.3",
-                }],
-            }],
+            "operator": "AND",
+            "nodes": [
+                {
+                    "operator": "OR",
+                    "cpeMatch": [{
+                        "vulnerable": True,
+                        "criteria": (
+                            "cpe:2.3:a:adobe:illustrator:*:*:*:*:*:*:*:*"
+                        ),
+                        "versionEndIncluding": "25.2.3",
+                    }],
+                },
+                {
+                    "operator": "OR",
+                    "cpeMatch": [{
+                        "vulnerable": False,
+                        "criteria": (
+                            "cpe:2.3:o:microsoft:windows:-:*:*:*:*:*:*:*"
+                        ),
+                    }],
+                },
+            ],
         }],
     }
 
