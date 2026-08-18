@@ -29,12 +29,19 @@ def parse_cve_items(items: list[dict[str, Any]]) -> list[CveRecord]:
 def parse_cve_record(cve: dict[str, Any]) -> CveRecord:
     """Parse one NVD CVE object."""
 
-    description, description_partial = _read_description(cve.get("descriptions", []))
+    description, description_partial = _read_description(
+        cve.get("descriptions", [])
+    )
     cvss_version, score, severity, vector = _read_cvss(cve.get("metrics", {}))
     configurations = cve.get("configurations", [])
     if not isinstance(configurations, list):
         configurations = []
-    quality = _quality(bool(description), score is not None, bool(configurations), description_partial)
+    quality = _quality(
+        bool(description),
+        score is not None,
+        bool(configurations),
+        description_partial,
+    )
     return CveRecord(
         cve_id=str(cve.get("id", "UNKNOWN")),
         description=description,
@@ -50,6 +57,9 @@ def parse_cve_record(cve: dict[str, Any]) -> CveRecord:
         source_identifier=cve.get("sourceIdentifier"),
         vuln_status=cve.get("vulnStatus"),
         data_quality=quality,
+        vendor_advisory_urls=_read_vendor_advisories(
+            cve.get("references", {})
+        ),
     )
 
 
@@ -117,11 +127,39 @@ def _read_cwes(weaknesses: Any) -> list[str]:
 def _read_references(references: Any) -> list[str]:
     """Read CVE reference URLs."""
 
-    items = references.get("referenceData", references) if isinstance(references, dict) else references
+    items = (
+        references.get("referenceData", references)
+        if isinstance(references, dict)
+        else references
+    )
     if not isinstance(items, list):
         return []
     urls = [item.get("url") for item in items if isinstance(item, dict)]
     return [str(url) for url in urls if url]
+
+
+def _read_vendor_advisories(references: Any) -> list[str]:
+    """Read HTTPS references explicitly tagged as vendor advisories."""
+
+    items = (
+        references.get("referenceData", references)
+        if isinstance(references, dict)
+        else references
+    )
+    if not isinstance(items, list):
+        return []
+    result = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        tags = {
+            str(tag).casefold().replace("_", "-").replace(" ", "-")
+            for tag in item.get("tags", [])
+        }
+        url = str(item.get("url", "")).strip()
+        if "vendor-advisory" in tags and url.casefold().startswith("https://"):
+            result.append(url)
+    return sorted(set(result))
 
 
 def _quality(

@@ -20,6 +20,12 @@ DEFAULT_PRODUCT_ALIASES_PATH = SOFTWARE_DIR / "product_aliases.json"
 DEFAULT_UNKNOWN_PRODUCTS_PATH = SOFTWARE_DIR / "unknown_products.json"
 FUZZY_THRESHOLD = 0.88
 PRODUCT_PATTERNS = (
+    (r"^adobe illustrator(?:\s+\d{4})?\b", "Adobe Illustrator"),
+    (r"^adobe premiere pro(?:\s+\d{4})?\b", "Adobe Premiere Pro"),
+    (r"^adobe lightroom classic\b", "Adobe Lightroom Classic"),
+    (r"^vlc media player\b", "VLC media player"),
+    (r"^irfanview(?:\s+[\d.]+)?\b", "IrfanView"),
+    (r"^xampp\b", "XAMPP"),
     (r"^microsoft \.net (?:runtime|sdk|host|desktop runtime)\b", ".NET"),
     (r"^mozilla firefox\b", "Mozilla Firefox"),
     (r"^7-zip\b", "7-Zip"),
@@ -29,6 +35,12 @@ PRODUCT_PATTERNS = (
     (r"^java 8(?: update)?\b", "Java 8"),
     (r"^microsoft edge\b", "Microsoft Edge"),
     (r"^google chrome\b", "Google Chrome"),
+)
+DISCOVERY_EXCLUSIONS = (
+    r"^windows driver package\b",
+    r"\b(?:additional|minimum) runtime\b",
+    r"\bredistributable\b",
+    r"\b(?:update helper|meeting add-in)\b",
 )
 
 
@@ -95,6 +107,11 @@ def normalize_software(
     vendor_result = normalize_vendor(vendor)
     product_result = normalize_product(product)
     confidence = _calculate_confidence(vendor_result, product_result)
+    discovery_eligible = _is_discovery_candidate(
+        vendor_result,
+        product_result,
+        version,
+    )
     software = SoftwareProduct(
         vendor=_clean_text(vendor),
         product=_clean_text(product),
@@ -113,7 +130,15 @@ def normalize_software(
         normalization_status=(
             "NORMALIZED" if confidence >= 95 else
             "PARTIAL" if confidence >= 60 else
+            "DISCOVERY_CANDIDATE" if discovery_eligible else
             "FAILED"
+        ),
+        discovery_eligible=discovery_eligible,
+        identity_source=(
+            "VALIDATED_ALIAS" if confidence >= 95 else
+            "VENDOR_ALIAS" if confidence >= 60 else
+            "RAW_DISCOVERY" if discovery_eligible else
+            "UNKNOWN"
         ),
     )
 
@@ -156,6 +181,28 @@ def _calculate_confidence(
     if vendor_result.confidence >= 95:
         return 60
     return 0
+
+
+def _is_discovery_candidate(
+    vendor_result: NormalizationResult,
+    product_result: NormalizationResult,
+    version: Any,
+) -> bool:
+    """Return whether raw identity is safe enough for CPE discovery only."""
+
+    if not vendor_result.value or not product_result.value:
+        return False
+    if not normalize_version(version):
+        return False
+    if vendor_result.confidence >= 95 and product_result.confidence >= 95:
+        return False
+    product = product_result.value.strip()
+    if len(product) < 3:
+        return False
+    return not any(
+        re.search(pattern, product, flags=re.IGNORECASE)
+        for pattern in DISCOVERY_EXCLUSIONS
+    )
 
 
 def _load_aliases(path: str | Path) -> dict[str, str]:

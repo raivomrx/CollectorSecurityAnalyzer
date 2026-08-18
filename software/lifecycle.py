@@ -73,6 +73,13 @@ class LifecycleRepository:
                 "Product is mapped but this version is not covered",
             )
         entry = versioned[0]
+        if entry.get("policyType"):
+            return _assess_policy(
+                software,
+                entry,
+                today=today,
+                data_version=self.data_version,
+            )
         end_date = _date(entry.get("endOfSupportDate"))
         if entry.get("supportStatus") == "NOT_EVALUATED":
             status = LifecycleStatus.NOT_EVALUATED
@@ -128,6 +135,122 @@ def _date(value: Any) -> date | None:
         return date.fromisoformat(str(value)) if value else None
     except ValueError:
         return None
+
+
+def _assess_policy(
+    software: SoftwareProduct,
+    entry: dict[str, Any],
+    *,
+    today: date,
+    data_version: str,
+) -> LifecycleResult:
+    """Evaluate a version-channel lifecycle policy from pack data."""
+
+    source = entry.get("source")
+    confidence = int(entry.get("confidence", 90))
+    if entry.get("policyType") != "ADOBE_CREATIVE_CLOUD":
+        return _result(
+            software,
+            LifecycleStatus.NOT_EVALUATED,
+            None,
+            source,
+            data_version,
+            0,
+            "Lifecycle policy type is unsupported",
+        )
+    refresh_after = _date(entry.get("refreshAfter"))
+    if refresh_after is not None and today > refresh_after:
+        return _result(
+            software,
+            LifecycleStatus.NOT_EVALUATED,
+            None,
+            source,
+            data_version,
+            40,
+            "Adobe release-channel policy data requires refresh",
+        )
+
+    installed_major = _major(software.normalized_version)
+    if installed_major is None:
+        return _result(
+            software,
+            LifecycleStatus.UNKNOWN_VERSION,
+            None,
+            source,
+            data_version,
+            60,
+            "Installed major version is unavailable",
+        )
+    supported_majors = {
+        int(value)
+        for value in (
+            entry.get("latestMajor"),
+            entry.get("previousMajor"),
+        )
+        if isinstance(value, int) or str(value).isdigit()
+    }
+    if installed_major in supported_majors:
+        return _result(
+            software,
+            LifecycleStatus.SUPPORTED,
+            None,
+            source,
+            data_version,
+            confidence,
+            (
+                "Adobe Creative Cloud N/N-1 release-channel policy covers "
+                "this major version"
+            ),
+        )
+
+    for lts in entry.get("ltsVersions", []):
+        if not isinstance(lts, dict):
+            continue
+        minimum = str(lts.get("minimumVersion", ""))
+        supported_until = _date(lts.get("supportedUntil"))
+        if not minimum or _major(minimum) != installed_major:
+            continue
+        if _version_parts(software.normalized_version) < _version_parts(minimum):
+            break
+        if supported_until is not None and today <= supported_until:
+            return _result(
+                software,
+                LifecycleStatus.SUPPORTED,
+                supported_until,
+                source,
+                data_version,
+                confidence,
+                "Adobe-designated LTS branch is within its support window",
+            )
+        break
+
+    return _result(
+        software,
+        LifecycleStatus.OUT_OF_SUPPORT,
+        None,
+        source,
+        data_version,
+        confidence,
+        (
+            "Installed release is outside Adobe Creative Cloud "
+            "N/N-1/LTS policy"
+        ),
+    )
+
+
+def _major(value: str) -> int | None:
+    """Return the numeric major component of a normalized version."""
+
+    first = value.split(".", 1)[0]
+    return int(first) if first.isdigit() else None
+
+
+def _version_parts(value: str) -> tuple[int, ...]:
+    """Return numeric version parts for policy threshold comparison."""
+
+    return tuple(
+        int(part) for part in value.split(".") if part.isdigit()
+    )
 
 
 def _result(

@@ -71,6 +71,7 @@ class CveRecord:
     source_identifier: str | None
     vuln_status: str | None
     data_quality: CveDataQuality
+    vendor_advisory_urls: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -108,6 +109,7 @@ class CveProductEvaluation:
     eligibility_status: str
     provider: str = "NVD"
     product_mapping_status: str = "NOT_RUN"
+    mapping_source: str | None = None
     cpe_candidate_count: int = 0
     cpe: str | None = None
     provider_query_status: str = "NOT_RUN"

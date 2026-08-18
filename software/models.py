@@ -57,6 +57,8 @@ class SoftwareProduct:
     source: str = "UNKNOWN"
     uninstall_key: str | None = None
     normalization_status: str = "NOT_EVALUATED"
+    discovery_eligible: bool = False
+    identity_source: str = "UNKNOWN"
 
 
 @dataclass(slots=True)

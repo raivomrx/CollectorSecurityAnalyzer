@@ -70,8 +70,11 @@
       <div class="metric compact"><span>Possible CVEs</span><strong>{{ model.cve.possibleUniqueCves }}</strong></div>
       <div class="metric compact"><span>Unsupported software</span><strong>{{ model.software.unsupportedCount }}</strong></div>
       <div class="metric compact"><span>Products evaluated</span><strong>{{ model.cve.successfullyEvaluatedProducts }} / {{ model.cve.cveEligibleProducts }}</strong></div>
+      <div class="metric compact"><span>Software normalized</span><strong>{{ model.softwareIntelligence.normalizedConfidently }} / {{ model.softwareIntelligence.productsDiscovered }}</strong></div>
+      <div class="metric compact"><span>Lifecycle evaluated</span><strong>{{ model.softwareIntelligence.lifecycleEvaluated }} / {{ model.softwareIntelligence.productsDiscovered }}</strong></div>
     </div>
     <p class="notice{% if not model.cve.coverageComplete %} warning{% endif %}"><strong>CVE analysis: {{ model.cve.status|replace("_", " ") }}</strong>. {{ model.cve.coverageStatement }}</p>
+    <details class="explainability"><summary>Software Intelligence Coverage: {{ model.softwareIntelligence.coveragePercent }}%</summary><dl class="details-grid"><div><dt>Software products discovered</dt><dd>{{ model.softwareIntelligence.productsDiscovered }}</dd></div><div><dt>Normalized confidently</dt><dd>{{ model.softwareIntelligence.normalizedConfidently }}</dd></div><div><dt>CVE eligible</dt><dd>{{ model.softwareIntelligence.cveEligible }}</dd></div><div><dt>CVE evaluated</dt><dd>{{ model.softwareIntelligence.cveEvaluated }}</dd></div><div><dt>Lifecycle evaluated</dt><dd>{{ model.softwareIntelligence.lifecycleEvaluated }}</dd></div><div><dt>Unknown / unmapped products</dt><dd>{{ model.softwareIntelligence.unknownOrUnmapped }}</dd></div><div><dt>Not evaluated</dt><dd>{{ model.softwareIntelligence.notEvaluated }}</dd></div></dl></details>
     <details class="explainability"><summary>Why this rating?</summary>
       <dl class="details-grid">
         <div><dt>Highest finding severity</dt><dd>{{ model.risk.highestFindingSeverity }}</dd></div>

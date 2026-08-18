@@ -152,7 +152,7 @@ class CveEngineTests(unittest.TestCase):
             def get_cpes(self, params):
                 return [
                     {"cpe": {"cpeName": "cpe:2.3:a:vendor:product:*:*:*:*:*:*:*:*", "titles": [{"lang": "en", "title": "Vendor Product"}]}},
-                    {"cpe": {"cpeName": "cpe:2.3:a:vendor:product:*:*:*:*:*:*:*:*", "titles": [{"lang": "en", "title": "Vendor Product Pro"}]}},
+                    {"cpe": {"cpeName": "cpe:2.3:a:vendor:product_2026:*:*:*:*:*:*:*:*", "titles": [{"lang": "en", "title": "Vendor Product 2026"}]}},
                 ]
 
         software = SoftwareProduct(

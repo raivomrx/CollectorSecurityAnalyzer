@@ -455,7 +455,7 @@ def _software_results(
         confirmed = [item for item in related if item.applicability.value == "AFFECTED"]
         possible = [item for item in related if item.applicability.value == "POSSIBLY_AFFECTED"]
         not_evaluated = [item for item in related if item.applicability.value == "NOT_EVALUATED"]
-        if product.confidence < 60:
+        if product.confidence < 60 and not product.discovery_eligible:
             evaluation_status = "NOT_EVALUATED"
         elif confirmed:
             evaluation_status = "CONFIRMED"
@@ -476,7 +476,9 @@ def _software_results(
                 "affectedVersionRange": ", ".join(item.matched_criteria),
                 "cisaKev": item.cve.cve_id in kev_ids,
                 "fixedVersions": [],
-                "vendorAdvisoryUrls": [],
+                "vendorAdvisoryUrls": list(
+                    item.cve.vendor_advisory_urls
+                ),
                 "references": list(item.cve.references),
                 "publishedDate": (
                     item.cve.published.isoformat()
@@ -493,6 +495,19 @@ def _software_results(
             for item in sorted(relevant, key=lambda value: value.cve.cve_id)
         ]
         lifecycle_status = lifecycle.status.value
+        mapping_status = (
+            pipeline.product_mapping_status
+            if pipeline is not None
+            else "NOT_RUN"
+        )
+        product_recognized = (
+            product.confidence >= 95 or mapping_status == "SUCCESS"
+        )
+        lifecycle_evaluated = lifecycle_status in {
+            "SUPPORTED",
+            "OUT_OF_SUPPORT",
+            "NEARING_END_OF_SUPPORT",
+        }
         if lifecycle.status == LifecycleStatus.OUT_OF_SUPPORT and confirmed:
             security_status = "Both vulnerable and out of support"
         elif lifecycle.status == LifecycleStatus.OUT_OF_SUPPORT:
@@ -501,12 +516,14 @@ def _software_results(
             security_status = "Known vulnerabilities"
         elif possible:
             security_status = "Possible vulnerabilities"
-        elif product.confidence < 60:
-            security_status = "Normalization failed"
-        elif evaluation_status == "NO_KNOWN_VULNERABILITIES":
-            security_status = "No known issue"
+        elif not product_recognized:
+            security_status = "Product not recognized"
+        elif evaluation_status != "NO_KNOWN_VULNERABILITIES":
+            security_status = "CVE not evaluated"
+        elif not lifecycle_evaluated:
+            security_status = "Lifecycle not evaluated"
         else:
-            security_status = "Not evaluated"
+            security_status = "None identified"
         rows.append(
             {
                 "productKey": "|".join(_software_key(product)),
@@ -527,6 +544,8 @@ def _software_results(
                 "normalizedVersion": product.normalized_version,
                 "normalizationConfidence": product.confidence,
                 "normalizationStatus": product.normalization_status,
+                "identitySource": product.identity_source,
+                "discoveryEligible": product.discovery_eligible,
                 "cpe": product.cpe,
                 "cvePipeline": (
                     _product_evaluation_dict(pipeline)
@@ -668,6 +687,7 @@ def _product_evaluation_dict(evaluation: Any) -> dict[str, Any]:
         "eligibilityStatus": evaluation.eligibility_status,
         "provider": evaluation.provider,
         "productMappingStatus": evaluation.product_mapping_status,
+        "mappingSource": evaluation.mapping_source,
         "cpeCandidateCount": evaluation.cpe_candidate_count,
         "cpe": evaluation.cpe,
         "providerQueryStatus": evaluation.provider_query_status,

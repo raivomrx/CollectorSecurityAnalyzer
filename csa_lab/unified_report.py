@@ -203,6 +203,7 @@ class UnifiedReportGenerator:
         cve = _aggregate_cve(endpoints)
         vulnerability_exposure = _vulnerability_exposure(endpoints)
         software = _aggregate_software(endpoints)
+        software_intelligence = _aggregate_software_intelligence(endpoints)
         software_matrix = _software_matrix(endpoints)
         priority_actions = _priority_actions(endpoints, fleet_findings)
         remediation_plan = _remediation_plan(priority_actions, fleet_findings)
@@ -261,7 +262,7 @@ class UnifiedReportGenerator:
         framework_rows = _framework_rows(fleet_findings)
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.2.2",
+            "reportVersion": "CSA-5.2.3",
             "generatedAt": generated_at,
             "dataClassification": "Confidential - Security Assessment Data",
             "containsPersonalData": True,
@@ -346,6 +347,7 @@ class UnifiedReportGenerator:
             "cve": cve,
             "vulnerabilityExposure": vulnerability_exposure,
             "software": software,
+            "softwareIntelligence": software_intelligence,
             "softwareMatrix": software_matrix,
             "priorityActions": priority_actions,
             "charts": {
@@ -556,6 +558,9 @@ class UnifiedReportGenerator:
             for item in software_results
             if item.get("lifecycleStatus") == "OUT_OF_SUPPORT"
         )
+        software_intelligence = _software_intelligence_coverage(
+            software_results
+        )
         return {
             "deviceId": str(endpoint.get("deviceId", "UNKNOWN")),
             "displayName": display_name,
@@ -614,6 +619,7 @@ class UnifiedReportGenerator:
             "cveSummary": dict(endpoint.get("cveSummary", {})),
             "softwareCollection": evidence.get("softwareCollection", {}),
             "softwareResults": software_results,
+            "softwareIntelligence": software_intelligence,
             "unsupportedSoftwareCount": unsupported_count,
             "bitLocker": bitlocker,
             "securityControls": _security_control_summary(
@@ -1057,7 +1063,7 @@ def _vendor_advisory_urls(cve: dict[str, Any]) -> list[str]:
         if not isinstance(reference, dict):
             continue
         tags = {
-            str(tag).casefold().replace("_", "-")
+            str(tag).casefold().replace("_", "-").replace(" ", "-")
             for tag in reference.get("tags", [])
         }
         if "vendor-advisory" in tags and reference.get("url"):
@@ -1735,6 +1741,31 @@ def _software_matrix(endpoints: list[dict[str, Any]]) -> dict[str, Any]:
                 row["risk"].add("Possible CVE")
             if software.get("lifecycleStatus") == "OUT_OF_SUPPORT":
                 row["risk"].add("End of support")
+            elif software.get("lifecycleStatus") in {
+                "NOT_EVALUATED",
+                "UNKNOWN_VERSION",
+            }:
+                row["risk"].add("Lifecycle not evaluated")
+            pipeline = software.get("cvePipeline", {})
+            mapping_status = str(
+                pipeline.get("productMappingStatus", "NOT_RUN")
+            )
+            if (
+                int(software.get("normalizationConfidence", 0) or 0) < 95
+                and mapping_status != "SUCCESS"
+            ) or mapping_status in {
+                "NO_RELIABLE_MAPPING",
+                "AMBIGUOUS",
+                "AMBIGUOUS_MAPPING",
+                "FAILED",
+            }:
+                row["risk"].add("Product not recognized")
+            elif software.get("cveEvaluationStatus") not in {
+                "CONFIRMED",
+                "POSSIBLE",
+                "NO_KNOWN_VULNERABILITIES",
+            }:
+                row["risk"].add("CVE not evaluated")
     rows = [
         {
             "software": row["software"],
@@ -1754,6 +1785,133 @@ def _software_matrix(endpoints: list[dict[str, Any]]) -> dict[str, Any]:
         "compact": len(endpoint_names) > 12,
         "rows": sorted(rows, key=lambda item: item["software"]),
     }
+
+
+def _software_intelligence_coverage(
+    software_results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Summarize auditable software-intelligence coverage for one endpoint."""
+
+    discovered = len(software_results)
+    normalized = sum(
+        1
+        for item in software_results
+        if int(item.get("normalizationConfidence", 0) or 0) >= 95
+    )
+    eligible = sum(
+        1
+        for item in software_results
+        if _software_is_cve_eligible(item)
+    )
+    evaluated = sum(
+        1
+        for item in software_results
+        if item.get("cvePipeline", {}).get("terminalStatus") == "COMPLETED"
+    )
+    lifecycle_evaluated = sum(
+        1
+        for item in software_results
+        if item.get("lifecycleStatus") in {
+            "SUPPORTED",
+            "OUT_OF_SUPPORT",
+            "NEARING_END_OF_SUPPORT",
+        }
+    )
+    unknown_or_unmapped = sum(
+        1
+        for item in software_results
+        if _software_is_unknown_or_unmapped(item)
+    )
+    return {
+        "productsDiscovered": discovered,
+        "normalizedConfidently": normalized,
+        "cveEligible": eligible,
+        "cveEvaluated": evaluated,
+        "lifecycleEvaluated": lifecycle_evaluated,
+        "unknownOrUnmapped": unknown_or_unmapped,
+        "notEvaluated": max(0, eligible - evaluated),
+        "coveragePercent": (
+            round((evaluated / eligible) * 100, 1)
+            if eligible
+            else 100.0 if discovered == 0 else 0.0
+        ),
+    }
+
+
+def _aggregate_software_intelligence(
+    endpoints: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Aggregate endpoint software-intelligence coverage without deduping scope."""
+
+    rows = [
+        endpoint.get("softwareIntelligence")
+        or _software_intelligence_coverage(
+            list(endpoint.get("softwareResults", []))
+        )
+        for endpoint in endpoints
+    ]
+    aggregate = {
+        key: sum(int(row.get(key, 0) or 0) for row in rows)
+        for key in (
+            "productsDiscovered",
+            "normalizedConfidently",
+            "cveEligible",
+            "cveEvaluated",
+            "lifecycleEvaluated",
+            "unknownOrUnmapped",
+            "notEvaluated",
+        )
+    }
+    eligible = aggregate["cveEligible"]
+    aggregate["coveragePercent"] = (
+        round((aggregate["cveEvaluated"] / eligible) * 100, 1)
+        if eligible
+        else 100.0 if aggregate["productsDiscovered"] == 0 else 0.0
+    )
+    return aggregate
+
+
+def _software_is_unknown_or_unmapped(item: dict[str, Any]) -> bool:
+    """Return whether product identity lacks a reliable terminal mapping."""
+
+    mapping = str(
+        item.get("cvePipeline", {}).get("productMappingStatus", "NOT_RUN")
+    )
+    return (
+        int(item.get("normalizationConfidence", 0) or 0) < 95
+        and mapping != "SUCCESS"
+    ) or mapping in {
+        "NO_RELIABLE_MAPPING",
+        "AMBIGUOUS",
+        "AMBIGUOUS_MAPPING",
+        "FAILED",
+    }
+
+
+def _software_is_cve_eligible(item: dict[str, Any]) -> bool:
+    """Infer eligibility even when CVE analysis has not been started."""
+
+    pipeline_status = str(
+        item.get("cvePipeline", {}).get("eligibilityStatus", "NOT_EVALUATED")
+    )
+    if pipeline_status == "ELIGIBLE":
+        return True
+    if pipeline_status == "NOT_ELIGIBLE":
+        return False
+    has_identity = bool(
+        item.get("normalizedProduct") or item.get("displayName")
+    )
+    has_version = bool(
+        item.get("normalizedVersion") or item.get("displayVersion")
+    )
+    return bool(
+        has_identity
+        and has_version
+        and (
+            int(item.get("normalizationConfidence", 0) or 0) >= 80
+            or item.get("discoveryEligible") is True
+        )
+    )
 
 
 def _priority_actions(

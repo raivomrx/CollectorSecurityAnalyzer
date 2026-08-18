@@ -161,6 +161,7 @@ class CveService:
                 software.cpe = cpe.cpe_name
                 evaluation.cpe = cpe.cpe_name
                 evaluation.product_mapping_status = "SUCCESS"
+                evaluation.mapping_source = cpe.source
                 _notify(
                     progress_callback,
                     phase="QUERYING_PROVIDER",
@@ -455,7 +456,10 @@ def _mark_terminal_failure(
 def _ineligible_reason(software: SoftwareProduct) -> str:
     """Explain why a normalized inventory row cannot enter CVE matching."""
 
-    if software.confidence < MINIMUM_SOFTWARE_CONFIDENCE:
+    if (
+        software.confidence < MINIMUM_SOFTWARE_CONFIDENCE
+        and not software.discovery_eligible
+    ):
         return "Normalization confidence is below the CVE eligibility threshold"
     if not software.version:
         return "Installed version is missing"
@@ -469,6 +473,8 @@ def _normalization_stage_status(software: SoftwareProduct) -> str:
         return "SUCCESS"
     if software.confidence >= 60:
         return "PARTIAL"
+    if software.discovery_eligible:
+        return "DISCOVERY_CANDIDATE"
     return "FAILED"
 
 
@@ -521,7 +527,10 @@ def _is_eligible(software: SoftwareProduct) -> bool:
     return bool(
         software.normalized_product
         and software.version
-        and software.confidence >= MINIMUM_SOFTWARE_CONFIDENCE
+        and (
+            software.confidence >= MINIMUM_SOFTWARE_CONFIDENCE
+            or software.discovery_eligible
+        )
     )
 
 

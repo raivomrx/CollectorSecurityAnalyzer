@@ -1,0 +1,41 @@
+{
+  "fixtureVersion": "CSA-HOME-SOFTWARE-2026.08",
+  "sourceShape": "Sanitized and minimized from a Windows 11 HOME live assessment",
+  "sourceRecordCount": 116,
+  "privacy": {
+    "realComputerNames": false,
+    "realUserNames": false,
+    "installLocations": false,
+    "uninstallKeys": false
+  },
+  "software": [
+    {"Publisher": "Igor Pavlov", "DisplayName": "7-Zip 26.00 (x64)", "DisplayVersion": "26.00", "Architecture": "x64"},
+    {"Publisher": "Adobe Inc.", "DisplayName": "Adobe Illustrator 2021", "DisplayVersion": "25.2.3", "Architecture": "x86"},
+    {"Publisher": "Adobe Systems Incorporated", "DisplayName": "Adobe Lightroom Classic", "DisplayVersion": "8.4", "Architecture": "x86"},
+    {"Publisher": "Adobe Systems Incorporated", "DisplayName": "Adobe Premiere Pro 2019", "DisplayVersion": "13.1.3", "Architecture": "x86"},
+    {"Publisher": "Tim Kosse", "DisplayName": "FileZilla Client 3.55.1", "DisplayVersion": "3.55.1", "Architecture": "x86"},
+    {"Publisher": "Google LLC", "DisplayName": "Google Chrome", "DisplayVersion": "151.0.7922.138", "Architecture": "x86"},
+    {"Publisher": "Irfan Skiljan", "DisplayName": "IrfanView 4.58 (64-bit)", "DisplayVersion": "4.58", "Architecture": "x64"},
+    {"Publisher": "The Document Foundation", "DisplayName": "LibreOffice 25.8.3.2", "DisplayVersion": "25.8.3.2", "Architecture": "x64"},
+    {"Publisher": "Simon Tatham", "DisplayName": "PuTTY release 0.78 (64-bit)", "DisplayVersion": "0.78.0.0", "Architecture": "x64"},
+    {"Publisher": "VideoLAN", "DisplayName": "VLC media player", "DisplayVersion": "3.0.11", "Architecture": "x64"},
+    {"Publisher": "Apache Friends", "DisplayName": "XAMPP", "DisplayVersion": "8.2.12-0", "Architecture": "x64"},
+    {"Publisher": "Example Vendor", "DisplayName": "Internal Client", "DisplayVersion": "1.0.0.19", "Architecture": "x64"},
+    {"Publisher": "IDEMIA", "DisplayName": "Windows Driver Package - SmartCard (12/18/2024 2.4.0.865)", "DisplayVersion": "12/18/2024 2.4.0.865", "Architecture": "x64"}
+  ],
+  "legacyProblemStates": [
+    {"product": "7-Zip 26.00 (x64)", "state": "NO_RELIABLE_MAPPING"},
+    {"product": "Adobe Illustrator 2021", "state": "FAILED"},
+    {"product": "Adobe Lightroom Classic", "state": "FAILED"},
+    {"product": "Adobe Premiere Pro 2019", "state": "FAILED"},
+    {"product": "FileZilla Client 3.55.1", "state": "FAILED"},
+    {"product": "Google Chrome", "state": "PARTIAL"},
+    {"product": "IrfanView 4.58 (64-bit)", "state": "FAILED"},
+    {"product": "LibreOffice 25.8.3.2", "state": "FAILED"},
+    {"product": "PuTTY release 0.78 (64-bit)", "state": "FAILED"},
+    {"product": "VLC media player", "state": "FAILED"},
+    {"product": "XAMPP", "state": "FAILED"},
+    {"product": "Internal Client", "state": "NO_RELIABLE_MAPPING"},
+    {"product": "Windows Driver Package - SmartCard (12/18/2024 2.4.0.865)", "state": "FAILED"}
+  ]
+}

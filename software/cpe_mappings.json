@@ -42,7 +42,43 @@
     "confidence": 100,
     "validated": true,
     "validated_at": "2026-07-13",
-    "validation_source": "NVD_CPE_API"
+    "validation_source": "NVD_CPE_DICTIONARY"
+  },
+  "adobe|adobe illustrator": {
+    "part": "a",
+    "vendor": "adobe",
+    "product": "illustrator",
+    "confidence": 100,
+    "validated": true,
+    "validated_at": "2026-08-18",
+    "validation_source": "NVD_CPE_DICTIONARY"
+  },
+  "videolan|vlc media player": {
+    "part": "a",
+    "vendor": "videolan",
+    "product": "vlc_media_player",
+    "confidence": 100,
+    "validated": true,
+    "validated_at": "2026-08-18",
+    "validation_source": "NVD_CPE_DICTIONARY"
+  },
+  "irfanview|irfanview": {
+    "part": "a",
+    "vendor": "irfanview",
+    "product": "irfanview",
+    "confidence": 100,
+    "validated": true,
+    "validated_at": "2026-08-18",
+    "validation_source": "NVD_CPE_DICTIONARY"
+  },
+  "apache friends|xampp": {
+    "part": "a",
+    "vendor": "apachefriends",
+    "product": "xampp",
+    "confidence": 100,
+    "validated": true,
+    "validated_at": "2026-08-18",
+    "validation_source": "NVD_CPE_DICTIONARY"
   },
   "fortinet|forticlient vpn": {
     "part": "a",

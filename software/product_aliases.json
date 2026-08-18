@@ -15,5 +15,21 @@
   "Microsoft .NET Runtime - 6": ".NET",
   "Microsoft .NET Runtime - 7": ".NET",
   "Microsoft .NET Runtime - 8": ".NET",
-  "Microsoft 365 Apps for enterprise": "Microsoft Office"
+  "Microsoft 365 Apps for enterprise": "Microsoft Office",
+  "Adobe Illustrator 2021": "Adobe Illustrator",
+  "Adobe Premiere Pro 2019": "Adobe Premiere Pro",
+  "Adobe Lightroom Classic": "Adobe Lightroom Classic",
+  "VLC media player": "VLC media player",
+  "IrfanView 4.58 (64-bit)": "IrfanView",
+  "XAMPP": "XAMPP",
+  "7-Zip 26.00 (x64)": "7-Zip",
+  "Audacity 2.4.2": "Audacity",
+  "Bonjour": "Bonjour",
+  "FileZilla Client 3.55.1": "FileZilla Client",
+  "LibreOffice 25.8.3.2": "LibreOffice",
+  "Malwarebytes version 5.6.3.284": "Malwarebytes",
+  "PuTTY release 0.78 (64-bit)": "PuTTY",
+  "Python 3.12.4 (64-bit)": "Python",
+  "qBittorrent": "qBittorrent",
+  "Wireshark 4.4.7 x64": "Wireshark"
 }

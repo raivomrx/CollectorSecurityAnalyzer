@@ -312,7 +312,7 @@ class ConsoleAnalysisPipeline:
                     }
                 )
             ),
-            analysis_engine_version="CSA-5.2.2",
+            analysis_engine_version="CSA-5.2.3",
             cve_analysis_status=str(
                 cve_metadata.get("status", "NOT_PERFORMED")
             ),
@@ -480,6 +480,9 @@ def _append_intelligence_audit(
                 "provider": str(evaluation.get("provider", "NVD")),
                 "productMappingStatus": str(
                     evaluation.get("productMappingStatus", "NOT_RUN")
+                ),
+                "mappingSource": str(
+                    evaluation.get("mappingSource", "") or ""
                 ),
                 "cpeCandidateCount": int(
                     evaluation.get("cpeCandidateCount", 0) or 0

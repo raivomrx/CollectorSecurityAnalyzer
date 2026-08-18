@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0",
-  "dataVersion": "CSA-LIFECYCLE-2026.08",
+  "dataVersion": "CSA-LIFECYCLE-2026.08.1",
   "nearingEndOfSupportDays": 180,
   "entries": [
     {"vendor": "Microsoft", "product": "Windows 10", "majorVersion": "10", "endOfSupportDate": "2025-10-14", "source": "https://learn.microsoft.com/lifecycle/products/windows-10-home-and-pro", "confidence": 100},
@@ -14,9 +14,12 @@
     {"vendor": "Google", "product": "Google Chrome", "supportStatus": "NOT_EVALUATED", "source": "https://chromereleases.googleblog.com/", "confidence": 70},
     {"vendor": "Microsoft", "product": "Microsoft Edge", "supportStatus": "NOT_EVALUATED", "source": "https://learn.microsoft.com/deployedge/microsoft-edge-supported-operating-systems", "confidence": 70},
     {"vendor": "Mozilla", "product": "Mozilla Firefox", "supportStatus": "NOT_EVALUATED", "source": "https://whattrainisitnow.com/release/", "confidence": 70},
-    {"vendor": "Igor Pavlov", "product": "7-Zip", "supportStatus": "NOT_EVALUATED", "source": "https://www.7-zip.org/", "confidence": 60},
+    {"vendor": "7-Zip", "product": "7-Zip", "supportStatus": "NOT_EVALUATED", "source": "https://www.7-zip.org/", "confidence": 60},
     {"vendor": "TeamViewer", "product": "TeamViewer", "supportStatus": "NOT_EVALUATED", "source": "https://www.teamviewer.com/en/global/support/knowledge-base/", "confidence": 60},
     {"vendor": "AnyDesk", "product": "AnyDesk", "supportStatus": "NOT_EVALUATED", "source": "https://support.anydesk.com/", "confidence": 60},
-    {"vendor": "Fortinet", "product": "FortiClient", "supportStatus": "NOT_EVALUATED", "source": "https://support.fortinet.com/Information/ProductLifeCycle.aspx", "confidence": 70}
+    {"vendor": "Fortinet", "product": "FortiClient", "supportStatus": "NOT_EVALUATED", "source": "https://support.fortinet.com/Information/ProductLifeCycle.aspx", "confidence": 70},
+    {"vendor": "Adobe", "product": "Adobe Illustrator", "policyType": "ADOBE_CREATIVE_CLOUD", "latestMajor": 30, "previousMajor": 29, "ltsVersions": [{"minimumVersion": "28.7.9", "supportedUntil": "2026-10-31"}], "refreshAfter": "2026-10-31", "source": "https://helpx.adobe.com/support/programs/cc-support-policy.html", "confidence": 95},
+    {"vendor": "Adobe", "product": "Adobe Premiere Pro", "policyType": "ADOBE_CREATIVE_CLOUD", "latestMajor": 26, "previousMajor": 25, "ltsVersions": [{"minimumVersion": "25.6", "supportedUntil": "2026-10-31"}], "refreshAfter": "2026-10-31", "source": "https://helpx.adobe.com/support/programs/cc-support-policy.html", "confidence": 95},
+    {"vendor": "Adobe", "product": "Adobe Lightroom Classic", "policyType": "ADOBE_CREATIVE_CLOUD", "latestMajor": 15, "previousMajor": 14, "ltsVersions": [{"minimumVersion": "14.5.1", "supportedUntil": "2026-10-31"}], "refreshAfter": "2026-10-31", "source": "https://helpx.adobe.com/support/programs/cc-support-policy.html", "confidence": 95}
   ]
 }

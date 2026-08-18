@@ -61,6 +61,7 @@ class CpeResolver:
         self.mappings = _load_mappings(mapping_path)
         self.minimum_confidence = minimum_confidence
         self.ambiguous_score_difference = ambiguous_score_difference
+        self._resolution_cache: dict[str, CpeResolution] = {}
 
     def resolve(self, software: SoftwareProduct) -> CpeCandidate | None:
         """Resolve a software product to a CPE candidate."""
@@ -70,6 +71,13 @@ class CpeResolver:
     def resolve_with_trace(self, software: SoftwareProduct) -> CpeResolution:
         """Resolve a product and retain the candidate decision for audit."""
 
+        cache_key = (
+            f"{software.normalized_vendor}|{software.normalized_product}"
+        ).casefold()
+        cached = self._resolution_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         local = self._resolve_local(software)
         if local is not None:
             LOGGER.info(
@@ -78,45 +86,62 @@ class CpeResolver:
                 local.confidence,
                 local.source,
             )
-            return CpeResolution(local, 1, "SUCCESS")
+            resolution = CpeResolution(local, 1, "SUCCESS")
+            self._resolution_cache[cache_key] = resolution
+            return resolution
 
         if self.client is None:
-            return CpeResolution(
+            resolution = CpeResolution(
                 None,
                 0,
                 "NO_RELIABLE_MAPPING",
                 "No validated local mapping and remote lookup is disabled",
             )
+            self._resolution_cache[cache_key] = resolution
+            return resolution
         candidates = self._resolve_nvd(software)
         if not candidates:
-            return CpeResolution(
+            resolution = CpeResolution(
                 None,
                 0,
                 "NO_RELIABLE_MAPPING",
                 "NVD CPE search returned no reliable candidate",
             )
+            self._resolution_cache[cache_key] = resolution
+            return resolution
+        candidates = _collapse_equivalent_candidates(candidates)
         candidates.sort(key=lambda candidate: candidate.confidence, reverse=True)
         active = [candidate for candidate in candidates if not candidate.deprecated]
         ranked = active or candidates
         best = ranked[0]
         if best.confidence < self.minimum_confidence:
-            return CpeResolution(
+            resolution = CpeResolution(
                 None,
                 len(ranked),
                 "NO_RELIABLE_MAPPING",
                 f"Best CPE confidence {best.confidence} is below "
                 f"{self.minimum_confidence}",
             )
-        if len(ranked) > 1 and best.confidence - ranked[1].confidence < self.ambiguous_score_difference:
+            self._resolution_cache[cache_key] = resolution
+            return resolution
+        if (
+            len(ranked) > 1
+            and best.confidence - ranked[1].confidence
+            < self.ambiguous_score_difference
+        ):
             best.match_status = CpeMatchStatus.AMBIGUOUS
             LOGGER.warning("Ambiguous CPE match for product: %s", software.product)
-            return CpeResolution(
+            resolution = CpeResolution(
                 best,
                 len(ranked),
                 "AMBIGUOUS",
                 "Top CPE candidates are too close to select reliably",
             )
-        return CpeResolution(best, len(ranked), "SUCCESS")
+            self._resolution_cache[cache_key] = resolution
+            return resolution
+        resolution = CpeResolution(best, len(ranked), "SUCCESS")
+        self._resolution_cache[cache_key] = resolution
+        return resolution
 
     def _resolve_local(self, software: SoftwareProduct) -> CpeCandidate | None:
         """Resolve using local audited mappings."""
@@ -137,6 +162,13 @@ class CpeResolver:
             vendor=str(mapping["vendor"]),
             product=str(mapping["product"]),
             version="*",
+            update=str(mapping.get("update", "*")),
+            edition=str(mapping.get("edition", "*")),
+            language=str(mapping.get("language", "*")),
+            sw_edition=str(mapping.get("sw_edition", "*")),
+            target_sw=str(mapping.get("target_sw", "*")),
+            target_hw=str(mapping.get("target_hw", "*")),
+            other=str(mapping.get("other", "*")),
         )
         status = CpeMatchStatus.EXACT if validated and confidence >= 95 else CpeMatchStatus.ALIAS
         return CpeCandidate(
@@ -182,7 +214,20 @@ class CpeResolver:
         return candidates
 
 
-def build_cpe23(part: str, vendor: str, product: str, version: str = "*") -> str:
+def build_cpe23(
+    part: str,
+    vendor: str,
+    product: str,
+    version: str = "*",
+    *,
+    update: str = "*",
+    edition: str = "*",
+    language: str = "*",
+    sw_edition: str = "*",
+    target_sw: str = "*",
+    target_hw: str = "*",
+    other: str = "*",
+) -> str:
     """Build a minimally safe CPE 2.3 well-formed name."""
 
     fields = [
@@ -192,13 +237,13 @@ def build_cpe23(part: str, vendor: str, product: str, version: str = "*") -> str
         _escape(vendor),
         _escape(product),
         _escape(version),
-        "*",
-        "*",
-        "*",
-        "*",
-        "*",
-        "*",
-        "*",
+        _escape(update),
+        _escape(edition),
+        _escape(language),
+        _escape(sw_edition),
+        _escape(target_sw),
+        _escape(target_hw),
+        _escape(other),
     ]
     return ":".join(fields)
 
@@ -296,10 +341,111 @@ def _load_mappings(path: str | Path) -> dict[str, Any]:
 def _score_candidate(software: SoftwareProduct, vendor: str, product: str, title: str) -> int:
     """Score a CPE API candidate."""
 
-    vendor_score = 50 if _key(software.normalized_vendor) == _key(vendor) else 0
-    product_score = 35 if _key(software.normalized_product) == _key(product) else 0
-    title_score = int(15 * SequenceMatcher(None, _key(software.normalized_product), _key(title)).ratio())
+    vendor_score = _component_score(
+        software.normalized_vendor,
+        vendor,
+        exact=50,
+        similar=45,
+    )
+    product_score = _component_score(
+        software.normalized_product,
+        product,
+        exact=35,
+        similar=30,
+    )
+    title_score = int(
+        15
+        * SequenceMatcher(
+            None,
+            _identity_key(software.normalized_product),
+            _identity_key(title),
+        ).ratio()
+    )
     return min(100, vendor_score + product_score + title_score)
+
+
+def _collapse_equivalent_candidates(
+    candidates: list[CpeCandidate],
+) -> list[CpeCandidate]:
+    """Collapse version rows that represent the same CPE product identity."""
+
+    grouped: dict[tuple[str, ...], list[CpeCandidate]] = {}
+    for candidate in candidates:
+        parsed = parse_cpe23_components(candidate.cpe_name)
+        if parsed is None:
+            continue
+        key = (parsed.part, parsed.vendor, parsed.product)
+        grouped.setdefault(key, []).append(candidate)
+
+    collapsed: list[CpeCandidate] = []
+    for values in grouped.values():
+        values.sort(
+            key=lambda item: (item.deprecated, -item.confidence, item.cpe_name)
+        )
+        best = values[0]
+        parsed = parse_cpe23_components(best.cpe_name)
+        if parsed is None:
+            continue
+        wildcard = build_cpe23(
+            parsed.part,
+            parsed.vendor,
+            parsed.product,
+        )
+        collapsed.append(
+            CpeCandidate(
+                cpe_name=wildcard,
+                title=best.title,
+                vendor=best.vendor,
+                product=best.product,
+                version=None,
+                deprecated=best.deprecated,
+                confidence=best.confidence,
+                match_status=best.match_status,
+                source="NVD_CPE_API_DISCOVERY",
+            )
+        )
+    return collapsed
+
+
+def _component_score(
+    left: str,
+    right: str,
+    *,
+    exact: int,
+    similar: int,
+) -> int:
+    """Score exact or strongly similar CPE identity components."""
+
+    left_key = _identity_key(left)
+    right_key = _identity_key(right)
+    if not left_key or not right_key:
+        return 0
+    if left_key == right_key:
+        return exact
+    ratio = SequenceMatcher(None, left_key, right_key).ratio()
+    if ratio >= 0.9:
+        return similar
+    left_tokens = set(left_key.split())
+    right_tokens = set(right_key.split())
+    if left_tokens and right_tokens and (
+        left_tokens <= right_tokens or right_tokens <= left_tokens
+    ):
+        return similar
+    return 0
+
+
+def _identity_key(value: str) -> str:
+    """Return a conservative comparison key for vendor/product discovery."""
+
+    text = _key(value)
+    text = re.sub(
+        r"\b(?:incorporated|corporation|company|limited|llc|ltd|inc)\b\.?,?",
+        " ",
+        text,
+    )
+    text = re.sub(r"\b(?:19|20)\d{2}\b", " ", text)
+    text = re.sub(r"\b\d+(?:\.\d+){1,}\b", " ", text)
+    return re.sub(r"[^a-z0-9]+", " ", text).strip()
 
 
 def _status_for_confidence(confidence: int) -> CpeMatchStatus:
