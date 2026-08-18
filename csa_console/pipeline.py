@@ -312,7 +312,7 @@ class ConsoleAnalysisPipeline:
                     }
                 )
             ),
-            analysis_engine_version="CSA-5.2.3",
+            analysis_engine_version="CSA-5.2.4",
             cve_analysis_status=str(
                 cve_metadata.get("status", "NOT_PERFORMED")
             ),

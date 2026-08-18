@@ -1,4 +1,4 @@
-"""Sprint 5.2.3 software intelligence coverage hardening tests."""
+"""Sprint 5.2.3/5.2.4 software intelligence correctness tests."""
 
 from __future__ import annotations
 
@@ -8,11 +8,17 @@ import unittest
 from datetime import date
 from pathlib import Path
 
+from analysis_context import AnalysisContext
+from analyzer import _cve_analysis_metadata
 from csa_lab.unified_report import (
+    _aggregate_software_intelligence,
     _software_intelligence_coverage,
     _software_matrix,
+    _vulnerability_exposure,
 )
 from cve.cpe_resolver import CpeResolver
+from cve.enrichment_models import ProviderStatus, SourceEnrichment, SourceType
+from cve.enrichment_service import VulnerabilityEnrichmentService
 from cve.models import ApplicabilityStatus, CpeMatchStatus
 from cve.service import CveService
 from software.inventory import build_inventory
@@ -202,6 +208,56 @@ class AdobeAcceptanceTests(unittest.TestCase):
             )
         )
 
+        enrichment = VulnerabilityEnrichmentService(
+            [_IncompleteAdobeProvider()]
+        ).enrich_summary(summary)
+        context = AnalysisContext(
+            raw_data={},
+            software_inventory=inventory,
+            cve_summary=summary,
+            cve_enrichment=enrichment,
+        )
+        metadata = _cve_analysis_metadata(context)
+        details = metadata["softwareResults"][0]["cveDetails"]
+        self.assertEqual(
+            {item["cveId"] for item in details},
+            {"CVE-2021-36009", "CVE-2021-36011"},
+        )
+        self.assertTrue(
+            all(item["matchStatus"] == "AFFECTED" for item in details)
+        )
+        self.assertTrue(
+            all(
+                item["sourceResolution"]["status"]
+                == "AUTHORITATIVE_CONFIRMED"
+                for item in details
+            )
+        )
+        self.assertEqual(metadata["sourceConflictCount"], 0)
+        exposure = _vulnerability_exposure([
+            {
+                "displayName": "HOME",
+                "submissionId": "SUB-HOME",
+                "anchorId": "endpoint-home",
+                "softwareResults": metadata["softwareResults"],
+            }
+        ])
+        visible_cves = exposure[0]["cves"]
+        self.assertEqual(
+            {item["cveId"] for item in visible_cves},
+            {"CVE-2021-36009", "CVE-2021-36011"},
+        )
+        self.assertTrue(
+            all(item["applicability"] == "CONFIRMED" for item in visible_cves)
+        )
+        self.assertTrue(
+            all(
+                item["sourceResolution"]["status"]
+                == "AUTHORITATIVE_CONFIRMED"
+                for item in visible_cves
+            )
+        )
+
     def test_adobe_lifecycle_uses_release_channel_policy(self) -> None:
         """Old Adobe releases should be assessed through N/N-1/LTS policy."""
 
@@ -252,7 +308,79 @@ class SoftwareCoverageReportTests(unittest.TestCase):
         self.assertEqual(coverage["cveEvaluated"], 1)
         self.assertEqual(coverage["lifecycleEvaluated"], 1)
         self.assertEqual(coverage["unknownOrUnmapped"], 2)
-        self.assertEqual(coverage["coveragePercent"], 50.0)
+        self.assertEqual(coverage["notFullyEvaluated"], 2)
+        self.assertEqual(coverage["eligibleCveCoveragePercent"], 50.0)
+        self.assertEqual(coverage["coveragePercent"], 33.3)
+
+    def test_coverage_names_instance_and_unique_counting_units(self) -> None:
+        """A 22/99 identification result and 15/99 evaluation stay distinct."""
+
+        rows = []
+        for index in range(99):
+            identified = index < 22
+            evaluated = index < 15
+            rows.append(
+                {
+                    **_report_product(
+                        "COMPLETED" if evaluated else "NOT_EVALUATED",
+                        "NOT_EVALUATED",
+                        100 if identified else 0,
+                        "SUCCESS" if identified else "NO_RELIABLE_MAPPING",
+                        eligible=identified,
+                    ),
+                    "normalizedVendor": "Vendor" if identified else "",
+                    "normalizedProduct": (
+                        f"Product {index}" if identified else ""
+                    ),
+                    "normalizedVersion": "1.0" if identified else "",
+                    "publisher": "Unknown Vendor",
+                    "displayName": f"Inventory record {index}",
+                    "displayVersion": "1.0",
+                    "architecture": "x64",
+                }
+            )
+
+        coverage = _software_intelligence_coverage(rows)
+
+        self.assertEqual(coverage["softwareRecordsDiscovered"], 99)
+        self.assertEqual(coverage["endpointProductInstances"], 99)
+        self.assertEqual(coverage["normalizedConfidently"], 22)
+        self.assertEqual(coverage["cveEligible"], 22)
+        self.assertEqual(coverage["cveEvaluated"], 15)
+        self.assertEqual(coverage["notEvaluated"], 7)
+        self.assertEqual(coverage["notFullyEvaluated"], 84)
+        self.assertEqual(coverage["identificationCoveragePercent"], 22.2)
+        self.assertEqual(coverage["eligibleCveCoveragePercent"], 68.2)
+        self.assertEqual(coverage["coveragePercent"], 15.2)
+
+    def test_fleet_unique_products_are_separate_from_endpoint_instances(self) -> None:
+        """The same product on two endpoints counts as two instances, one identity."""
+
+        product = {
+            **_report_product(
+                "COMPLETED",
+                "SUPPORTED",
+                100,
+                "SUCCESS",
+            ),
+            "normalizedVendor": "Adobe",
+            "normalizedProduct": "Adobe Illustrator",
+            "normalizedVersion": "25.2.3",
+            "displayName": "Adobe Illustrator 2021",
+            "displayVersion": "25.2.3",
+            "architecture": "x64",
+        }
+        endpoints = [
+            {"softwareResults": [dict(product)]},
+            {"softwareResults": [dict(product)]},
+        ]
+
+        coverage = _aggregate_software_intelligence(endpoints)
+
+        self.assertEqual(coverage["endpointProductInstances"], 2)
+        self.assertEqual(coverage["uniqueProductVersions"], 1)
+        self.assertEqual(coverage["uniqueCveEvaluated"], 1)
+        self.assertEqual(coverage["coveragePercent"], 100.0)
 
     def test_unified_template_exposes_coverage_and_source_links(self) -> None:
         """Customer report must expose coverage plus NVD/vendor references."""
@@ -261,10 +389,11 @@ class SoftwareCoverageReportTests(unittest.TestCase):
             ROOT / "csa_lab" / "templates" / "unified.html"
         ).read_text(encoding="utf-8")
         for label in (
-            "Software Intelligence Coverage",
+            "Software Security Coverage",
             "Software products discovered",
-            "Normalized confidently",
-            "Unknown / unmapped products",
+            "Reliably identified",
+            "Unknown / unmapped instances",
+            "Source trust",
             "cve.nvdUrl",
             "cve.vendorAdvisoryUrls",
         ):
@@ -327,6 +456,30 @@ class _AdobeClient:
             {"cve": _adobe_cve("CVE-2021-36009", 7.8)},
             {"cve": _adobe_cve("CVE-2021-36011", 8.3)},
         ]
+
+
+class _IncompleteAdobeProvider:
+    """Return a CVE record without CNA affected-version information."""
+
+    name = "Incomplete CVE Program"
+
+    def enrich(self, cve_id: str) -> SourceEnrichment:
+        return SourceEnrichment(
+            cve_id=cve_id,
+            source=SourceType.CVE_PROGRAM,
+            affected=[],
+            raw_available=True,
+        )
+
+    def status(self) -> ProviderStatus:
+        return ProviderStatus(
+            provider=self.name,
+            enabled=True,
+            succeeded=True,
+            used_stale_cache=False,
+            records_loaded=2,
+            error_message=None,
+        )
 
 
 def _discovery_product() -> SoftwareProduct:

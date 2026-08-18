@@ -14,9 +14,19 @@ def evaluate_cna_applicability(
 ) -> tuple[ApplicabilityStatus, str, int]:
     """Evaluate CNA affected-version data for one installed product."""
 
+    if not affected:
+        return (
+            ApplicabilityStatus.NOT_EVALUATED,
+            "CNA affected-version data is unavailable",
+            0,
+        )
     matching = [item for item in affected if _product_matches(software, item)]
     if not matching:
-        return ApplicabilityStatus.NOT_AFFECTED, "CNA affected data does not match product", 80
+        return (
+            ApplicabilityStatus.NOT_EVALUATED,
+            "CNA affected-version data does not cover the installed product",
+            20,
+        )
     if not parse_version(software.version).parts:
         return ApplicabilityStatus.NOT_EVALUATED, "Installed version could not be compared with CNA data", 30
 

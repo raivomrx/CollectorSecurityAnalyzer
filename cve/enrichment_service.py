@@ -8,6 +8,7 @@ from typing import Any
 
 from cve.cna_applicability import evaluate_cna_applicability
 from cve.enrichment_models import (
+    ApplicabilityResolutionStatus,
     EnrichedCveAssessment,
     EnrichedCveScanSummary,
     ExploitationStatus,
@@ -215,6 +216,13 @@ class VulnerabilityEnrichmentService:
 
         exploitation_status = _exploitation_status(source_enrichments)
         conflicts = _detect_conflicts(assessment, cna_status, source_enrichments, exploitation_status)
+        resolution, resolution_reason, authoritative_sources = (
+            _resolve_applicability_trust(
+                assessment,
+                cna_status,
+                conflicts,
+            )
+        )
         ransomware_use = kev.known_ransomware_campaign_use if kev else RansomwareUse.NOT_LISTED
         priority = calculate_priority(
             assessment=assessment,
@@ -236,6 +244,9 @@ class VulnerabilityEnrichmentService:
             cna_affected=cna_affected,
             cna_applicability=cna_status,
             cna_applicability_reason=cna_reason,
+            applicability_resolution=resolution,
+            applicability_resolution_reason=resolution_reason,
+            authoritative_sources=authoritative_sources,
             merged_references=_dedupe_references(_nvd_references(assessment) + _source_references(source_enrichments)),
             source_enrichments=source_enrichments,
             priority=priority,
@@ -334,36 +345,124 @@ def _detect_conflicts(
     """Detect source disagreements that require visibility."""
 
     conflicts: list[DataConflict] = []
-    if assessment.applicability == ApplicabilityStatus.AFFECTED and cna_status == ApplicabilityStatus.NOT_AFFECTED:
+    if (
+        assessment.applicability == ApplicabilityStatus.AFFECTED
+        and cna_status == ApplicabilityStatus.NOT_AFFECTED
+    ):
         conflicts.append(
             DataConflict(
                 conflict_type=ConflictType.AFFECTED_VERSION_DISAGREEMENT,
-                description="NVD marks the installed version affected but CNA affected data does not.",
+                description=(
+                    "NVD marks the installed version affected but CNA affected "
+                    "data does not."
+                ),
                 sources=[SourceType.NVD, SourceType.CNA],
                 requires_manual_review=True,
             )
         )
-    elif assessment.applicability == ApplicabilityStatus.NOT_AFFECTED and cna_status == ApplicabilityStatus.AFFECTED:
+    elif (
+        assessment.applicability == ApplicabilityStatus.NOT_AFFECTED
+        and cna_status == ApplicabilityStatus.AFFECTED
+    ):
         conflicts.append(
             DataConflict(
                 conflict_type=ConflictType.AFFECTED_VERSION_DISAGREEMENT,
-                description="CNA marks the installed version affected but NVD applicability does not.",
+                description=(
+                    "CNA marks the installed version affected but NVD "
+                    "applicability does not."
+                ),
                 sources=[SourceType.NVD, SourceType.CNA],
                 requires_manual_review=True,
             )
         )
-    if _has_adp_kev_evidence(source_enrichments) and exploitation_status != ExploitationStatus.KNOWN_EXPLOITED:
+    if (
+        _has_adp_kev_evidence(source_enrichments)
+        and exploitation_status != ExploitationStatus.KNOWN_EXPLOITED
+    ):
         conflicts.append(
             DataConflict(
                 conflict_type=ConflictType.OTHER,
-                description="CISA ADP contains KEV-related metadata but direct CISA KEV feed did not confirm membership.",
+                description=(
+                    "CISA ADP contains KEV-related metadata but direct CISA "
+                    "KEV feed did not confirm membership."
+                ),
                 sources=[SourceType.CISA_ADP, SourceType.CISA_KEV],
                 requires_manual_review=True,
             )
         )
     if conflicts:
-        LOGGER.warning("NVD and CNA affected-version disagreement")
+        LOGGER.warning(
+            "Vulnerability source conflict detected: %s",
+            ",".join(item.conflict_type.value for item in conflicts),
+        )
     return conflicts
+
+
+def _resolve_applicability_trust(
+    assessment: CveAssessment,
+    cna_status: ApplicabilityStatus,
+    conflicts: list[DataConflict],
+) -> tuple[ApplicabilityResolutionStatus, str, list[str]]:
+    """Resolve source trust without treating missing data as disagreement."""
+
+    has_applicability_conflict = any(
+        item.conflict_type == ConflictType.AFFECTED_VERSION_DISAGREEMENT
+        for item in conflicts
+    )
+    if has_applicability_conflict:
+        return (
+            ApplicabilityResolutionStatus.SOURCE_CONFLICT,
+            "Authoritative sources provide contradictory installed-version "
+            "applicability evidence",
+            [SourceType.NVD.value, SourceType.CNA.value],
+        )
+
+    nvd_status = assessment.applicability
+    if nvd_status == ApplicabilityStatus.AFFECTED:
+        sources = [SourceType.NVD.value]
+        if assessment.cve.vendor_advisory_urls:
+            sources.append("VENDOR_ADVISORY")
+            if cna_status == ApplicabilityStatus.AFFECTED:
+                sources.append(SourceType.CNA.value)
+            return (
+                ApplicabilityResolutionStatus.AUTHORITATIVE_CONFIRMED,
+                "NVD version applicability confirms the installed version and "
+                "an official vendor advisory is linked; absent enrichment data "
+                "does not reduce this result",
+                sources,
+            )
+        if cna_status == ApplicabilityStatus.AFFECTED:
+            return (
+                ApplicabilityResolutionStatus.CORROBORATED,
+                "NVD and CNA affected-version data both include the installed "
+                "version",
+                [SourceType.NVD.value, SourceType.CNA.value],
+            )
+        return (
+            ApplicabilityResolutionStatus.NVD_CONFIRMED,
+            "NVD version applicability confirms the installed version; other "
+            "sources supplied no contradictory applicability evidence",
+            sources,
+        )
+    if nvd_status == ApplicabilityStatus.POSSIBLY_AFFECTED:
+        return (
+            ApplicabilityResolutionStatus.POSSIBLE,
+            "NVD data does not contain enough version evidence for a confirmed "
+            "applicability result",
+            [SourceType.NVD.value],
+        )
+    if nvd_status == ApplicabilityStatus.NOT_AFFECTED:
+        return (
+            ApplicabilityResolutionStatus.NOT_AFFECTED,
+            "NVD applicability excludes the installed version and no "
+            "authoritative source contradicts it",
+            [SourceType.NVD.value],
+        )
+    return (
+        ApplicabilityResolutionStatus.NOT_EVALUATED,
+        "Available sources do not establish installed-version applicability",
+        [],
+    )
 
 
 def _has_adp_kev_evidence(enrichments: list[SourceEnrichment]) -> bool:
@@ -396,8 +495,21 @@ def _build_provenance(
     if ssvc:
         records.append(ProvenanceRecord("ssvc_decision", str(ssvc.decision), ssvc.source, "CISA ADP", now))
         records.append(ProvenanceRecord("ssvc_exploitation", str(ssvc.exploitation_raw), ssvc.source, "CISA ADP", now))
-    if cna_status != ApplicabilityStatus.NOT_AFFECTED:
-        records.append(ProvenanceRecord("cna_applicability", cna_status.value, SourceType.CNA, "CVE Program", now))
+    has_cna_applicability = any(
+        affected.source == SourceType.CNA
+        for enrichment in enrichments
+        for affected in enrichment.affected
+    )
+    if has_cna_applicability:
+        records.append(
+            ProvenanceRecord(
+                "cna_applicability",
+                cna_status.value,
+                SourceType.CNA,
+                "CVE Program",
+                now,
+            )
+        )
     for enrichment in enrichments:
         if enrichment.affected:
             records.append(

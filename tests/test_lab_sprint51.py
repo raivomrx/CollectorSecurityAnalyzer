@@ -596,7 +596,7 @@ class LabServiceTests(unittest.TestCase):
             coverage_percent=90.0,
             finding_count=1,
             received_at=utc_text(),
-            collector_version="5.2.3",
+            collector_version="5.2.4",
             execution_mode="STANDARD_USER",
             integrity_level="MEDIUM",
             is_elevated=False,

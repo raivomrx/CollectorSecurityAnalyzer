@@ -297,6 +297,8 @@ def _cve_analysis_metadata(
             "cisaKevUniqueCves": 0,
             "cisaKevCveIds": [],
             "coveragePercent": 0.0,
+            "sourceConflictCount": 0,
+            "sourceResolutionCounts": {},
             "providerCoverage": [],
             "productEvaluations": [],
             "softwareResults": _software_results(
@@ -335,6 +337,7 @@ def _cve_analysis_metadata(
         if item.cve.severity.upper() == "HIGH"
     }
     enrichment = context.cve_enrichment
+    source_resolutions = _source_resolution_map(enrichment)
     nvd_status = (
         "COMPLETE"
         if summary.scan_complete and summary.coverage_complete
@@ -415,6 +418,12 @@ def _cve_analysis_metadata(
         ),
         "cisaKevCveIds": sorted(kev_ids),
         "coveragePercent": summary.coverage_percent,
+        "sourceConflictCount": (
+            enrichment.conflict_count if enrichment is not None else 0
+        ),
+        "sourceResolutionCounts": _source_resolution_counts(
+            source_resolutions
+        ),
         "providerCoverage": provider_coverage,
         "productEvaluations": [
             _product_evaluation_dict(item)
@@ -427,6 +436,7 @@ def _cve_analysis_metadata(
             scan_status=status,
             kev_ids=kev_ids,
             product_evaluations=summary.product_evaluations,
+            source_resolutions=source_resolutions,
         ),
     }
 
@@ -439,6 +449,7 @@ def _software_results(
     scan_status: str,
     kev_ids: set[str],
     product_evaluations: list[Any] | None = None,
+    source_resolutions: dict[tuple[str, str], dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Build report-safe software/CVE/lifecycle relationships."""
 
@@ -450,7 +461,7 @@ def _software_results(
         pipeline = evaluation_by_key.get(_cve_product_key(product))
         related = [
             item for item in assessments
-            if _software_key(item.software) == _software_key(product)
+            if _cve_product_key(item.software) == _cve_product_key(product)
         ]
         confirmed = [item for item in related if item.applicability.value == "AFFECTED"]
         possible = [item for item in related if item.applicability.value == "POSSIBLY_AFFECTED"]
@@ -466,34 +477,42 @@ def _software_results(
         else:
             evaluation_status = "NOT_EVALUATED"
         relevant = confirmed + possible + not_evaluated
-        details = [
-            {
-                "cveId": item.cve.cve_id,
-                "severity": item.cve.severity,
-                "cvssScore": item.cve.cvss_score,
-                "matchStatus": item.applicability.value,
-                "matchRationale": item.reason,
-                "affectedVersionRange": ", ".join(item.matched_criteria),
-                "cisaKev": item.cve.cve_id in kev_ids,
-                "fixedVersions": [],
-                "vendorAdvisoryUrls": list(
-                    item.cve.vendor_advisory_urls
-                ),
-                "references": list(item.cve.references),
-                "publishedDate": (
-                    item.cve.published.isoformat()
-                    if item.cve.published
-                    else None
-                ),
-                "lastModifiedDate": (
-                    item.cve.last_modified.isoformat()
-                    if item.cve.last_modified
-                    else None
-                ),
-                "source": "NVD",
-            }
-            for item in sorted(relevant, key=lambda value: value.cve.cve_id)
-        ]
+        details = []
+        for item in sorted(relevant, key=lambda value: value.cve.cve_id):
+            resolution = (source_resolutions or {}).get(
+                (_cve_product_key(item.software), item.cve.cve_id),
+                _default_source_resolution(item),
+            )
+            details.append(
+                {
+                    "cveId": item.cve.cve_id,
+                    "severity": item.cve.severity,
+                    "cvssScore": item.cve.cvss_score,
+                    "matchStatus": item.applicability.value,
+                    "matchRationale": item.reason,
+                    "affectedVersionRange": ", ".join(
+                        item.matched_criteria
+                    ),
+                    "cisaKev": item.cve.cve_id in kev_ids,
+                    "fixedVersions": [],
+                    "vendorAdvisoryUrls": list(
+                        item.cve.vendor_advisory_urls
+                    ),
+                    "references": list(item.cve.references),
+                    "publishedDate": (
+                        item.cve.published.isoformat()
+                        if item.cve.published
+                        else None
+                    ),
+                    "lastModifiedDate": (
+                        item.cve.last_modified.isoformat()
+                        if item.cve.last_modified
+                        else None
+                    ),
+                    "source": "NVD",
+                    "sourceResolution": resolution,
+                }
+            )
         lifecycle_status = lifecycle.status.value
         mapping_status = (
             pipeline.product_mapping_status
@@ -599,6 +618,86 @@ def _software_results(
             }
         )
     return rows
+
+
+def _source_resolution_map(
+    enrichment: Any | None,
+) -> dict[tuple[str, str], dict[str, Any]]:
+    """Index trust-aware source resolutions by product and CVE."""
+
+    if enrichment is None:
+        return {}
+    return {
+        (
+            _cve_product_key(item.base_assessment.software),
+            item.base_assessment.cve.cve_id,
+        ): {
+            "status": item.applicability_resolution.value,
+            "rationale": item.applicability_resolution_reason,
+            "authoritativeSources": list(item.authoritative_sources),
+            "cnaApplicability": item.cna_applicability.value,
+            "cnaRationale": item.cna_applicability_reason,
+            "conflicts": [
+                {
+                    "type": conflict.conflict_type.value,
+                    "description": conflict.description,
+                    "sources": [source.value for source in conflict.sources],
+                    "manualReview": conflict.requires_manual_review,
+                }
+                for conflict in item.conflicts
+            ],
+        }
+        for item in enrichment.assessments
+    }
+
+
+def _source_resolution_counts(
+    resolutions: dict[tuple[str, str], dict[str, Any]],
+) -> dict[str, int]:
+    """Count source-resolution outcomes without mixing CVEs and products."""
+
+    counts: dict[str, int] = {}
+    for resolution in resolutions.values():
+        status = str(resolution.get("status", "NOT_EVALUATED"))
+        counts[status] = counts.get(status, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _default_source_resolution(assessment: Any) -> dict[str, Any]:
+    """Describe NVD-only trust when optional enrichment was not run."""
+
+    applicability = assessment.applicability.value
+    if applicability == "AFFECTED" and assessment.cve.vendor_advisory_urls:
+        status = "AUTHORITATIVE_CONFIRMED"
+        rationale = (
+            "NVD version applicability confirms the installed version and an "
+            "official vendor advisory is linked."
+        )
+        sources = ["NVD", "VENDOR_ADVISORY"]
+    elif applicability == "AFFECTED":
+        status = "NVD_CONFIRMED"
+        rationale = "NVD version applicability confirms the installed version."
+        sources = ["NVD"]
+    elif applicability == "POSSIBLY_AFFECTED":
+        status = "POSSIBLE"
+        rationale = "NVD data does not establish confirmed applicability."
+        sources = ["NVD"]
+    elif applicability == "NOT_AFFECTED":
+        status = "NOT_AFFECTED"
+        rationale = "NVD applicability excludes the installed version."
+        sources = ["NVD"]
+    else:
+        status = "NOT_EVALUATED"
+        rationale = "Available data does not establish applicability."
+        sources = []
+    return {
+        "status": status,
+        "rationale": rationale,
+        "authoritativeSources": sources,
+        "cnaApplicability": "NOT_EVALUATED",
+        "cnaRationale": "CNA enrichment was not available",
+        "conflicts": [],
+    }
 
 
 def _operating_system_lifecycle(

@@ -296,7 +296,7 @@ class EndpointAnalysis:
     findings: list[dict[str, Any]]
     report_path: str | None
     evidence_set_digest: str
-    analysis_engine_version: str = "CSA-5.2.3"
+    analysis_engine_version: str = "CSA-5.2.4"
     cve_analysis_status: str = "NOT_PERFORMED"
     cve_summary: dict[str, Any] = field(default_factory=dict)
 

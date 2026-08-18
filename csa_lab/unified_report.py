@@ -262,7 +262,7 @@ class UnifiedReportGenerator:
         framework_rows = _framework_rows(fleet_findings)
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.2.3",
+            "reportVersion": "CSA-5.2.4",
             "generatedAt": generated_at,
             "dataClassification": "Confidential - Security Assessment Data",
             "containsPersonalData": True,
@@ -731,8 +731,23 @@ def _aggregate_cve(
             for value in item.get(key, [])
         }
 
-    eligible = total("cveEligibleProducts")
-    evaluated = total("successfullyEvaluatedProducts")
+    software_coverage = [
+        endpoint["softwareIntelligence"]
+        for endpoint in endpoints
+        if "softwareIntelligence" in endpoint
+    ]
+    if software_coverage:
+        eligible = sum(
+            int(item.get("cveEligible", 0) or 0)
+            for item in software_coverage
+        )
+        evaluated = sum(
+            int(item.get("cveEvaluated", 0) or 0)
+            for item in software_coverage
+        )
+    else:
+        eligible = total("cveEligibleProducts")
+        evaluated = total("successfullyEvaluatedProducts")
     coverage = (
         round(evaluated * 100.0 / eligible, 1)
         if eligible
@@ -779,7 +794,7 @@ def _aggregate_cve(
         possible_critical_ids = set()
         high_ids = identifiers("highCveIds") & confirmed_ids
         kev_ids = identifiers("cisaKevCveIds") & confirmed_ids
-    not_evaluated = max(total("notEvaluatedProducts"), eligible - evaluated)
+    not_evaluated = max(0, eligible - evaluated)
     coverage_complete = status == "COMPLETE" and not_evaluated == 0
     primary_display = (
         str(len(unique_ids))
@@ -794,6 +809,9 @@ def _aggregate_cve(
         ),
         "installedSoftwareRecords": total("installedSoftwareRecords"),
         "normalizedProducts": total("normalizedProducts"),
+        "coverageUnit": "endpoint_product_version_instances",
+        "eligibleSoftwareInstances": eligible,
+        "evaluatedSoftwareInstances": evaluated,
         "cveEligibleProducts": eligible,
         "successfullyEvaluatedProducts": evaluated,
         "notEvaluatedProducts": not_evaluated,
@@ -908,6 +926,9 @@ def _cve_relationships(
                             cve.get("fixedVersions", cve.get("fixedVersion"))
                         ),
                         "vendorAdvisoryUrls": _vendor_advisory_urls(cve),
+                        "sourceResolution": dict(
+                            cve.get("sourceResolution", {})
+                        ),
                     }
                 )
     return sorted(
@@ -1792,25 +1813,27 @@ def _software_intelligence_coverage(
 ) -> dict[str, Any]:
     """Summarize auditable software-intelligence coverage for one endpoint."""
 
-    discovered = len(software_results)
+    installation_records = len(software_results)
+    products = _deduplicated_software_instances(software_results)
+    discovered = len(products)
     normalized = sum(
         1
-        for item in software_results
+        for item in products
         if int(item.get("normalizationConfidence", 0) or 0) >= 95
     )
     eligible = sum(
         1
-        for item in software_results
+        for item in products
         if _software_is_cve_eligible(item)
     )
     evaluated = sum(
         1
-        for item in software_results
+        for item in products
         if item.get("cvePipeline", {}).get("terminalStatus") == "COMPLETED"
     )
     lifecycle_evaluated = sum(
         1
-        for item in software_results
+        for item in products
         if item.get("lifecycleStatus") in {
             "SUPPORTED",
             "OUT_OF_SUPPORT",
@@ -1819,21 +1842,47 @@ def _software_intelligence_coverage(
     )
     unknown_or_unmapped = sum(
         1
-        for item in software_results
+        for item in products
         if _software_is_unknown_or_unmapped(item)
     )
+    confirmed_vulnerable = sum(
+        1
+        for item in products
+        if int(item.get("confirmedCves", 0) or 0) > 0
+        or item.get("cveEvaluationStatus") == "CONFIRMED"
+    )
+    confirmed_cves = {
+        str(cve.get("cveId"))
+        for item in products
+        for cve in item.get("cveDetails", [])
+        if str(cve.get("matchStatus")) in {"AFFECTED", "CONFIRMED"}
+        and cve.get("cveId")
+    }
     return {
-        "productsDiscovered": discovered,
+        "countingUnit": "endpoint_product_version_instances",
+        "softwareRecordsDiscovered": installation_records,
+        "productsDiscovered": installation_records,
+        "endpointProductInstances": discovered,
         "normalizedConfidently": normalized,
         "cveEligible": eligible,
         "cveEvaluated": evaluated,
         "lifecycleEvaluated": lifecycle_evaluated,
         "unknownOrUnmapped": unknown_or_unmapped,
         "notEvaluated": max(0, eligible - evaluated),
-        "coveragePercent": (
+        "notFullyEvaluated": max(0, discovered - evaluated),
+        "confirmedVulnerableProductInstances": confirmed_vulnerable,
+        "confirmedCves": len(confirmed_cves),
+        "identificationCoveragePercent": (
+            round((normalized / discovered) * 100, 1)
+            if discovered else 100.0
+        ),
+        "eligibleCveCoveragePercent": (
             round((evaluated / eligible) * 100, 1)
-            if eligible
-            else 100.0 if discovered == 0 else 0.0
+            if eligible else 100.0 if discovered == 0 else 0.0
+        ),
+        "coveragePercent": (
+            round((evaluated / discovered) * 100, 1)
+            if discovered else 100.0
         ),
     }
 
@@ -1841,7 +1890,7 @@ def _software_intelligence_coverage(
 def _aggregate_software_intelligence(
     endpoints: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Aggregate endpoint software-intelligence coverage without deduping scope."""
+    """Aggregate instance and fleet-unique software coverage separately."""
 
     rows = [
         endpoint.get("softwareIntelligence")
@@ -1853,22 +1902,131 @@ def _aggregate_software_intelligence(
     aggregate = {
         key: sum(int(row.get(key, 0) or 0) for row in rows)
         for key in (
+            "softwareRecordsDiscovered",
             "productsDiscovered",
+            "endpointProductInstances",
             "normalizedConfidently",
             "cveEligible",
             "cveEvaluated",
             "lifecycleEvaluated",
             "unknownOrUnmapped",
             "notEvaluated",
+            "notFullyEvaluated",
+            "confirmedVulnerableProductInstances",
         )
     }
+    fleet_products = _deduplicated_software_instances(
+        [
+            software
+            for endpoint in endpoints
+            for software in endpoint.get("softwareResults", [])
+        ]
+    )
+    aggregate.update(
+        {
+            "countingUnit": "endpoint_product_version_instances",
+            "uniqueProductVersions": len(fleet_products),
+            "uniqueReliablyIdentified": sum(
+                1
+                for item in fleet_products
+                if int(item.get("normalizationConfidence", 0) or 0) >= 95
+            ),
+            "uniqueCveEligible": sum(
+                1 for item in fleet_products
+                if _software_is_cve_eligible(item)
+            ),
+            "uniqueCveEvaluated": sum(
+                1
+                for item in fleet_products
+                if item.get("cvePipeline", {}).get("terminalStatus")
+                == "COMPLETED"
+            ),
+            "confirmedVulnerableProducts": sum(
+                1
+                for item in fleet_products
+                if int(item.get("confirmedCves", 0) or 0) > 0
+                or item.get("cveEvaluationStatus") == "CONFIRMED"
+            ),
+            "confirmedCves": len(
+                {
+                    str(cve.get("cveId"))
+                    for item in fleet_products
+                    for cve in item.get("cveDetails", [])
+                    if str(cve.get("matchStatus"))
+                    in {"AFFECTED", "CONFIRMED"}
+                    and cve.get("cveId")
+                }
+            ),
+        }
+    )
+    discovered = aggregate["endpointProductInstances"]
     eligible = aggregate["cveEligible"]
-    aggregate["coveragePercent"] = (
+    aggregate["identificationCoveragePercent"] = (
+        round((aggregate["normalizedConfidently"] / discovered) * 100, 1)
+        if discovered else 100.0
+    )
+    aggregate["eligibleCveCoveragePercent"] = (
         round((aggregate["cveEvaluated"] / eligible) * 100, 1)
-        if eligible
-        else 100.0 if aggregate["productsDiscovered"] == 0 else 0.0
+        if eligible else 100.0 if discovered == 0 else 0.0
+    )
+    aggregate["coveragePercent"] = (
+        round((aggregate["cveEvaluated"] / discovered) * 100, 1)
+        if discovered else 100.0
     )
     return aggregate
+
+
+def _deduplicated_software_instances(
+    software_results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Collapse registry-scope duplicates to product/version identities."""
+
+    selected: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for index, item in enumerate(software_results):
+        key = _software_identity_key(item)
+        if not any(key):
+            key = ("", f"unidentified-record-{index}", "", "")
+        current = selected.get(key)
+        if current is None or _software_result_rank(item) > _software_result_rank(
+            current
+        ):
+            selected[key] = item
+    return list(selected.values())
+
+
+def _software_identity_key(item: dict[str, Any]) -> tuple[str, str, str, str]:
+    """Return one stable vendor/product/version/architecture identity."""
+
+    return tuple(
+        str(value or "").strip().casefold()
+        for value in (
+            item.get("normalizedVendor") or item.get("publisher"),
+            item.get("normalizedProduct") or item.get("displayName"),
+            item.get("normalizedVersion") or item.get("displayVersion"),
+            item.get("architecture"),
+        )
+    )
+
+
+def _software_result_rank(item: dict[str, Any]) -> tuple[int, int, int]:
+    """Prefer the most complete duplicate result deterministically."""
+
+    terminal_order = {
+        "COMPLETED": 5,
+        "PARTIAL": 4,
+        "FAILED": 3,
+        "NOT_EVALUATED": 2,
+        "NOT_ELIGIBLE": 1,
+        "NOT_RUN": 0,
+    }
+    terminal = str(
+        item.get("cvePipeline", {}).get("terminalStatus", "NOT_RUN")
+    )
+    return (
+        terminal_order.get(terminal, 0),
+        int(item.get("normalizationConfidence", 0) or 0),
+        int(item.get("confirmedCves", 0) or 0),
+    )
 
 
 def _software_is_unknown_or_unmapped(item: dict[str, Any]) -> bool:

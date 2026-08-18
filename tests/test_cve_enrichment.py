@@ -237,10 +237,22 @@ class CnaApplicabilityTests(unittest.TestCase):
         """CNA evaluator should stay conservative on mismatches and bad versions."""
 
         self.assertEqual(evaluate_cna_applicability(_software(), [_affected(status="unaffected")])[0], ApplicabilityStatus.NOT_AFFECTED)
-        self.assertEqual(evaluate_cna_applicability(_software(), [_affected(vendor="Other")])[0], ApplicabilityStatus.NOT_AFFECTED)
-        self.assertEqual(evaluate_cna_applicability(_software(), [_affected(product="Other")])[0], ApplicabilityStatus.NOT_AFFECTED)
+        self.assertEqual(evaluate_cna_applicability(_software(), [_affected(vendor="Other")])[0], ApplicabilityStatus.NOT_EVALUATED)
+        self.assertEqual(evaluate_cna_applicability(_software(), [_affected(product="Other")])[0], ApplicabilityStatus.NOT_EVALUATED)
         self.assertEqual(evaluate_cna_applicability(_software(architecture="x64"), [_affected(platforms=["arm64"])])[0], ApplicabilityStatus.NOT_AFFECTED)
         self.assertEqual(evaluate_cna_applicability(_software(version="unknown"), [_affected()])[0], ApplicabilityStatus.NOT_EVALUATED)
+
+    def test_missing_cna_affected_data_is_not_a_negative_assertion(self) -> None:
+        """Absent CNA applicability must remain unknown, not unaffected."""
+
+        status, reason, confidence = evaluate_cna_applicability(
+            _software(),
+            [],
+        )
+
+        self.assertEqual(status, ApplicabilityStatus.NOT_EVALUATED)
+        self.assertIn("unavailable", reason)
+        self.assertEqual(confidence, 0)
 
     def test_changes_boundaries_and_transitions(self) -> None:
         """CNA changes should be sorted, boundary-aware, and conservative."""
@@ -323,6 +335,45 @@ class EnrichmentServiceTests(unittest.TestCase):
         self.assertFalse(failing.succeeded)
         self.assertEqual(failing.attempts, 1)
         self.assertFalse(enriched.enrichment_complete)
+
+    def test_missing_provider_applicability_does_not_conflict_with_nvd(self) -> None:
+        """Incomplete enrichment must not downgrade authoritative NVD evidence."""
+
+        assessment = _assessment()
+        assessment.cve.vendor_advisory_urls = [
+            "https://vendor.example/security/advisory"
+        ]
+        provider = _Provider(
+            SourceEnrichment(
+                cve_id=assessment.cve.cve_id,
+                source=SourceType.CVE_PROGRAM,
+                affected=[],
+                raw_available=True,
+            )
+        )
+
+        enriched = VulnerabilityEnrichmentService([provider]).enrich_summary(
+            _summary([assessment])
+        )
+        result = enriched.assessments[0]
+
+        self.assertEqual(enriched.conflict_count, 0)
+        self.assertEqual(
+            result.cna_applicability,
+            ApplicabilityStatus.NOT_EVALUATED,
+        )
+        self.assertEqual(
+            result.applicability_resolution.value,
+            "AUTHORITATIVE_CONFIRMED",
+        )
+        self.assertEqual(
+            result.authoritative_sources,
+            ["NVD", "VENDOR_ADVISORY"],
+        )
+        self.assertEqual(
+            result.base_assessment.applicability,
+            ApplicabilityStatus.AFFECTED,
+        )
 
     def test_priority_model(self) -> None:
         """Priority model should remain separate from CVSS."""

@@ -51,6 +51,18 @@ class SsvcExploitation(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
+class ApplicabilityResolutionStatus(str, Enum):
+    """Trust-aware result of reconciling applicability sources."""
+
+    AUTHORITATIVE_CONFIRMED = "AUTHORITATIVE_CONFIRMED"
+    CORROBORATED = "CORROBORATED"
+    NVD_CONFIRMED = "NVD_CONFIRMED"
+    POSSIBLE = "POSSIBLE"
+    SOURCE_CONFLICT = "SOURCE_CONFLICT"
+    NOT_AFFECTED = "NOT_AFFECTED"
+    NOT_EVALUATED = "NOT_EVALUATED"
+
+
 @dataclass(slots=True, frozen=True)
 class ReferenceRecord:
     """Represent a source reference with provenance."""
@@ -144,6 +156,9 @@ class EnrichedCveAssessment:
     cna_affected: list[AffectedVersionRange]
     cna_applicability: ApplicabilityStatus
     cna_applicability_reason: str
+    applicability_resolution: ApplicabilityResolutionStatus
+    applicability_resolution_reason: str
+    authoritative_sources: list[str]
     merged_references: list[ReferenceRecord]
     source_enrichments: list[SourceEnrichment]
     priority: "VulnerabilityPriority"

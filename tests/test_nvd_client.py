@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 import unittest
 from unittest.mock import patch
 
@@ -73,6 +74,33 @@ class NvdClientTests(unittest.TestCase):
         message = "\n".join(logs.output)
         self.assertIn("endpoint=CPES", message)
         self.assertNotIn("secret product", message)
+
+    def test_warm_cache_is_faster_than_cold_provider_request(self) -> None:
+        """A repeated CVE query should use cache and reduce measured duration."""
+
+        session = _DelayedSession([
+            _Response({"totalResults": 0, "vulnerabilities": []})
+        ])
+        client = NvdClient(
+            cache=_MemoryCache(),
+            session=session,
+            limiter=_limiter(),
+            max_retries=0,
+        )
+
+        cold_started = time.perf_counter()
+        client.get_cves({"cpeName": "cpe:2.3:a:adobe:illustrator:25.2.3:*:*:*:*:*:*:*"})
+        cold_duration = time.perf_counter() - cold_started
+        warm_started = time.perf_counter()
+        client.get_cves({"cpeName": "cpe:2.3:a:adobe:illustrator:25.2.3:*:*:*:*:*:*:*"})
+        warm_duration = time.perf_counter() - warm_started
+
+        self.assertEqual(len(session.calls), 1)
+        self.assertLess(
+            warm_duration,
+            cold_duration / 2,
+            msg=f"cold={cold_duration:.4f}s warm={warm_duration:.4f}s",
+        )
 
     def test_429_and_500_exhaust_retries(self) -> None:
         """Retryable server responses should raise after retries are exhausted."""
@@ -215,6 +243,14 @@ class _Session:
         if isinstance(response, Exception):
             raise response
         return response
+
+
+class _DelayedSession(_Session):
+    """Fake a measurable provider round trip for cache timing."""
+
+    def get(self, endpoint, params, headers, timeout):
+        time.sleep(0.05)
+        return super().get(endpoint, params, headers, timeout)
 
 
 class _Response:
