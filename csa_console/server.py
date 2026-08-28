@@ -201,7 +201,7 @@ def _handler_factory(
     limiter = _RateLimiter()
 
     class SubmissionHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Lab/5.1"
+        server_version = "CSA-Lab/5.3.0"
         protocol_version = "HTTP/1.1"
 
         def do_GET(self) -> None:
@@ -438,6 +438,14 @@ def _handler_factory(
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'none'; style-src 'unsafe-inline'; "
+                "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+            )
+            self.send_header(
+                "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
+            )
             if attachment is not None:
                 self.send_header(
                     "Content-Disposition", f'attachment; filename="{attachment}"'

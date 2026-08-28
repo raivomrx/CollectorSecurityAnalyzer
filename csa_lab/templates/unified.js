@@ -19,6 +19,17 @@
   const collapsibleSections = Array.from(
     document.querySelectorAll("details.collapsible-section"),
   );
+  const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
+
+  const applyTheme = (preference) => {
+    const normalized = ["system", "light", "dark"].includes(preference) ? preference : "system";
+    const resolved = normalized === "system" ? (themeMedia.matches ? "dark" : "light") : normalized;
+    document.documentElement.dataset.themePreference = normalized;
+    document.documentElement.dataset.theme = resolved;
+    document.documentElement.style.colorScheme = resolved;
+    const select = document.getElementById("theme-select");
+    if (select) select.value = normalized;
+  };
 
   const synchronizeSectionState = (section) => {
     const summary = section.querySelector(":scope > summary");
@@ -46,6 +57,13 @@
       section.open = false;
       synchronizeSectionState(section);
     });
+  });
+  const contentsToggle = document.getElementById("contents-toggle");
+  const reportNav = document.querySelector(".report-nav");
+  contentsToggle.addEventListener("click", () => {
+    const open = reportNav.classList.toggle("contents-open");
+    contentsToggle.setAttribute("aria-expanded", String(open));
+    contentsToggle.textContent = open ? "Hide contents" : "Show contents";
   });
 
   const applyFindingFilters = () => {
@@ -76,6 +94,9 @@
     detailsOpenedBySearch.clear();
     elementsRevealedBySearch.forEach((item) => {
       item.classList.add("hidden");
+      if (item.matches("[data-cve-detail-row]")) {
+        document.querySelector(`[data-cve-expand="${item.id}"]`)?.setAttribute("aria-expanded", "false");
+      }
     });
     elementsRevealedBySearch.clear();
   };
@@ -118,6 +139,9 @@
       if (current.classList.contains("hidden")) {
         current.classList.remove("hidden");
         elementsRevealedBySearch.add(current);
+      }
+      if (current.matches("[data-cve-detail-row]")) {
+        document.querySelector(`[data-cve-expand="${current.id}"]`)?.setAttribute("aria-expanded", "true");
       }
       current = current.parentElement;
     }
@@ -255,25 +279,45 @@
     },
   });
 
-  document.getElementById("theme-toggle").addEventListener("click", () => {
-    const root = document.documentElement;
-    root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+  const themeSelect = document.getElementById("theme-select");
+  applyTheme(document.documentElement.dataset.themePreference || "system");
+  themeSelect.addEventListener("change", () => {
+    applyTheme(themeSelect.value);
+    try { sessionStorage.setItem("csa-report-theme", themeSelect.value); } catch (_error) {}
+  });
+  themeMedia.addEventListener?.("change", () => {
+    if (document.documentElement.dataset.themePreference === "system") applyTheme("system");
+  });
+
+  document.querySelectorAll("[data-cve-expand]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const row = document.getElementById(button.dataset.cveExpand);
+      if (!row) return;
+      const willOpen = row.classList.contains("hidden");
+      row.classList.toggle("hidden", !willOpen);
+      button.setAttribute("aria-expanded", String(willOpen));
+    });
   });
 
   const details = Array.from(document.querySelectorAll("details"));
+  const cveDetailRows = Array.from(document.querySelectorAll("[data-cve-detail-row]"));
   let previousState = [];
+  let previousCveState = [];
   window.addEventListener("beforeprint", () => {
     previousState = details.map((item) => item.open);
+    previousCveState = cveDetailRows.map((item) => item.classList.contains("hidden"));
     details.forEach((item) => {
       item.open = true;
       item.classList.add("print-open");
     });
+    cveDetailRows.forEach((item) => item.classList.remove("hidden"));
   });
   window.addEventListener("afterprint", () => {
     details.forEach((item, index) => {
       item.open = previousState[index];
       item.classList.remove("print-open");
     });
+    cveDetailRows.forEach((item, index) => item.classList.toggle("hidden", previousCveState[index]));
   });
   document.getElementById("print-report").addEventListener("click", () => window.print());
 
@@ -340,12 +384,28 @@
     if (value === "high") return Number(row.dataset.high) > 0;
     return value === "known-exploited" && Number(row.dataset.kev) > 0;
   });
+  document.querySelectorAll(".vulnerability-filter").forEach((button) => {
+    button.addEventListener("click", () => {
+      document.querySelectorAll("[data-vulnerability-row]").forEach((row) => {
+        const detail = document.getElementById(row.dataset.detailId);
+        if (!detail || !row.classList.contains("hidden")) return;
+        detail.classList.add("hidden");
+        document.querySelector(`[data-cve-expand="${detail.id}"]`)?.setAttribute("aria-expanded", "false");
+      });
+    });
+  });
   wireFilter(".matrix-filter", "[data-matrix-row]", "matrixFilter", (row, value) => {
     if (value === "all-software") return true;
     if (value === "vulnerable") return row.dataset.vulnerable === "1";
     if (value === "end-of-support") return row.dataset.eol === "1";
     if (value === "remote-access") return row.dataset.remote === "1";
     return value === "only-differences" && row.dataset.different === "1";
+  });
+  document.querySelectorAll("[data-activate-matrix-filter]").forEach((link) => {
+    link.addEventListener("click", () => {
+      const value = link.dataset.activateMatrixFilter;
+      document.querySelector(`[data-matrix-filter="${value}"]`)?.click();
+    });
   });
   wireFilter(".framework-filter", "[data-framework-row]", "frameworkFilter", (row, value) => {
     if (value === "all") return true;
@@ -380,6 +440,7 @@
         throw new Error("Clipboard is unavailable");
       }
       copyStatus.textContent = "Remediation list copied as Markdown.";
+      window.setTimeout(() => { copyStatus.textContent = ""; }, 3000);
     } catch (_error) {
       copyStatus.textContent = "Clipboard access was blocked by the browser.";
     }
@@ -431,6 +492,8 @@
       history.pushState(null, "", hash);
       requestAnimationFrame(() => {
         target.scrollIntoView({ block: "start", behavior: "smooth" });
+        target.setAttribute("tabindex", "-1");
+        target.focus({ preventScroll: true });
       });
     });
   });

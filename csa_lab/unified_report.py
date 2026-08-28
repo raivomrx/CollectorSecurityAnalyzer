@@ -263,7 +263,7 @@ class UnifiedReportGenerator:
         framework_rows = _framework_rows(fleet_findings)
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.2.4",
+            "reportVersion": "CSA-5.3.0",
             "generatedAt": generated_at,
             "dataClassification": "Confidential - Security Assessment Data",
             "containsPersonalData": True,
@@ -1786,6 +1786,11 @@ def _software_matrix(endpoints: list[dict[str, Any]]) -> dict[str, Any]:
                     "versions": {},
                     "risk": set(),
                     "installedOn": set(),
+                    "endpointLinks": {},
+                    "confirmedCves": 0,
+                    "possibleCves": 0,
+                    "highestCvss": None,
+                    "lifecycleStatuses": set(),
                     "remoteAccess": "remote" in name.casefold()
                     or name.casefold() in {"anydesk", "teamviewer", "screenconnect"},
                 },
@@ -1794,6 +1799,23 @@ def _software_matrix(endpoints: list[dict[str, Any]]) -> dict[str, Any]:
                 software.get("displayVersion") or "Installed"
             )
             row["installedOn"].add(endpoint["displayName"])
+            row["endpointLinks"][endpoint["displayName"]] = endpoint.get(
+                "anchorId", f"endpoint-{_slug(endpoint['displayName'])}"
+            )
+            row["confirmedCves"] += int(
+                software.get("confirmedCves", 0) or 0
+            )
+            row["possibleCves"] += int(
+                software.get("possibleCves", 0) or 0
+            )
+            score = software.get("highestCvss")
+            if score is not None:
+                row["highestCvss"] = max(
+                    float(score), row["highestCvss"] or 0.0
+                )
+            row["lifecycleStatuses"].add(
+                str(software.get("lifecycleStatus") or "NOT_EVALUATED")
+            )
             if int(software.get("confirmedCves", 0) or 0):
                 row["risk"].add("CVE")
             elif int(software.get("possibleCves", 0) or 0):
@@ -1829,7 +1851,36 @@ def _software_matrix(endpoints: list[dict[str, Any]]) -> dict[str, Any]:
         {
             "software": row["software"],
             "versions": [row["versions"].get(name, "-") for name in endpoint_names],
+            "versionDisplay": ", ".join(sorted(set(row["versions"].values()))),
             "installedCount": len(row["installedOn"]),
+            "endpointLinks": [
+                {"name": name, "anchor": row["endpointLinks"][name]}
+                for name in sorted(row["installedOn"])
+            ],
+            "cveStatus": (
+                f"{row['confirmedCves']} confirmed"
+                if row["confirmedCves"]
+                else (
+                    f"{row['possibleCves']} possible"
+                    if row["possibleCves"]
+                    else (
+                        "Not evaluated"
+                        if "CVE not evaluated" in row["risk"]
+                        else "No known vulnerabilities found"
+                    )
+                )
+            ),
+            "lifecycleStatus": (
+                "Outside vendor support"
+                if "OUT_OF_SUPPORT" in row["lifecycleStatuses"]
+                else (
+                    "Lifecycle not evaluated"
+                    if row["lifecycleStatuses"]
+                    & {"NOT_EVALUATED", "UNKNOWN_VERSION"}
+                    else "Supported"
+                )
+            ),
+            "highestCvss": row["highestCvss"],
             "risk": ", ".join(sorted(row["risk"])) or "None identified",
             "vulnerable": "CVE" in row["risk"] or "Possible CVE" in row["risk"],
             "endOfSupport": "End of support" in row["risk"],

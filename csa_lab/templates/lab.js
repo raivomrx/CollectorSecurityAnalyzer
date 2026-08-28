@@ -3,6 +3,31 @@
   const csrf = document.querySelector('meta[name="csa-csrf"]').content;
   const state = { assessments: [], currentId: "", current: null, interfaces: [], timer: null, cveTimer: null, cveRunning: false };
   const $ = (id) => document.getElementById(id);
+  const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
+
+  function applyTheme(preference) {
+    const normalized = ["system", "light", "dark"].includes(preference) ? preference : "system";
+    const resolved = normalized === "system" ? (themeMedia.matches ? "dark" : "light") : normalized;
+    document.documentElement.dataset.themePreference = normalized;
+    document.documentElement.dataset.theme = resolved;
+    document.documentElement.style.colorScheme = resolved;
+    document.querySelectorAll('input[name="theme"]').forEach((input) => {
+      input.checked = input.value === normalized;
+    });
+  }
+
+  async function saveTheme(preference) {
+    applyTheme(preference);
+    try {
+      await request("/api/v1/preferences", { method: "POST", body: { theme: preference } });
+    } catch (error) {
+      showMessage(error.message, true);
+    }
+  }
+
+  themeMedia.addEventListener?.("change", () => {
+    if (document.documentElement.dataset.themePreference === "system") applyTheme("system");
+  });
 
   async function request(path, options = {}) {
     const settings = { cache: "no-store", ...options };
@@ -94,6 +119,8 @@
       : "Collection server is stopped.";
     const portalVisible = status === "COLLECTING" && payload.portalUrl;
     $("portal-panel").classList.toggle("hidden", !portalVisible);
+    $("portal-server").textContent = payload.portalServer || "";
+    $("join-code").textContent = payload.joinCode || "";
     $("portal-url").textContent = payload.portalUrl || "";
     $("start-collection").disabled = status !== "DRAFT";
     $("pause-collection").disabled = status !== "COLLECTING";
@@ -553,6 +580,10 @@
     await navigator.clipboard.writeText(state.current.portalUrl);
     showMessage("Collector page address copied.");
   });
+  $("copy-join-code").addEventListener("click", async () => {
+    await navigator.clipboard.writeText(state.current.joinCode);
+    showMessage("Assessment join code copied.");
+  });
   $("open-portal").addEventListener("click", () => window.open(state.current.portalUrl, "_blank", "noopener"));
   $("run-cve-analysis").addEventListener("click", runCveAnalysis);
   $("generate-report").addEventListener("click", () => generateReport());
@@ -570,6 +601,9 @@
   $("export-archive").addEventListener("click", exportArchive);
   $("offline-file").addEventListener("change", importOffline);
   $("settings-button").addEventListener("click", () => $("settings-dialog").showModal());
+  document.querySelectorAll('input[name="theme"]').forEach((input) => {
+    input.addEventListener("change", () => saveTheme(input.value));
+  });
   $("export-diagnostics").addEventListener("click", async () => {
     try {
       const data = await request("/api/v1/diagnostics", { method: "POST" });
@@ -593,5 +627,6 @@
     if (state.currentId) openAssessment(state.currentId).catch(() => {});
   }, 5000);
 
+  applyTheme(document.documentElement.dataset.themePreference || "system");
   loadAssessments().catch((error) => showMessage(error.message, true));
 })();

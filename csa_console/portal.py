@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import html
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +17,29 @@ from csa_console.enums import SessionStatus
 from csa_console.network import source_is_allowed
 from csa_console.sessions import AssessmentSessionService
 from csa_console.storage import AssessmentStorage
+
+
+JOIN_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+JOIN_CODE_LENGTH = 8
+
+
+def normalize_join_code(value: str) -> str:
+    """Return the canonical human-readable join-code representation."""
+
+    normalized = value.strip().upper()
+    if len(normalized) == JOIN_CODE_LENGTH + 1:
+        if normalized[4] != "-":
+            return ""
+        compact = normalized[:4] + normalized[5:]
+    elif len(normalized) == JOIN_CODE_LENGTH and "-" not in normalized:
+        compact = normalized
+    else:
+        return ""
+    if len(compact) != JOIN_CODE_LENGTH or any(
+        character not in JOIN_CODE_ALPHABET for character in compact
+    ):
+        return ""
+    return f"{compact[:4]}-{compact[4:]}"
 
 
 @dataclass(slots=True)
@@ -30,6 +54,17 @@ class PortalBinding:
     maximum_downloads: int
     storage: AssessmentStorage
     download_count: int = 0
+    maximum_failed_attempts: int = 5
+    failure_window_seconds: float = 60.0
+    throttle_seconds: float = 30.0
+    failed_authorization_count: int = 0
+    throttled_authorization_count: int = 0
+    _failed_attempts: dict[str, list[float]] = field(
+        default_factory=dict, repr=False, compare=False
+    )
+    _blocked_until: dict[str, float] = field(
+        default_factory=dict, repr=False, compare=False
+    )
     _lock: threading.Lock = field(
         default_factory=threading.Lock, repr=False, compare=False
     )
@@ -37,8 +72,16 @@ class PortalBinding:
     def authorize(self, join_code: str, source_address: str) -> bool:
         """Validate code, session, expiry, source scope and download budget."""
 
-        supplied = hashlib.sha256(join_code.encode("utf-8")).hexdigest()
+        now = time.monotonic()
+        with self._lock:
+            if now < self._blocked_until.get(source_address, 0.0):
+                self.throttled_authorization_count += 1
+                return False
+
+        normalized = normalize_join_code(join_code)
+        supplied = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
         if not hmac.compare_digest(supplied, self.join_code_hash):
+            self._record_failed_authorization(source_address, now)
             return False
         session = AssessmentSessionService(self.storage).load_session(
             self.assessment_id, self.session_id
@@ -50,9 +93,39 @@ class PortalBinding:
         ):
             return False
         if not source_is_allowed(session, source_address):
+            self._record_failed_authorization(source_address, now)
             return False
         with self._lock:
             return self.download_count < self.maximum_downloads
+
+    def _record_failed_authorization(
+        self, source_address: str, now: float
+    ) -> None:
+        """Count a failed attempt without retaining attacker-supplied data."""
+
+        with self._lock:
+            cutoff = now - self.failure_window_seconds
+            attempts = [
+                attempt
+                for attempt in self._failed_attempts.get(source_address, [])
+                if attempt >= cutoff
+            ]
+            attempts.append(now)
+            self._failed_attempts[source_address] = attempts
+            self.failed_authorization_count += 1
+            if len(attempts) >= self.maximum_failed_attempts:
+                self._blocked_until[source_address] = now + self.throttle_seconds
+                self.throttled_authorization_count += 1
+        ConsoleAuditLog(
+            self.storage.path(self.assessment_id, "audit", "audit.jsonl")
+        ).append(
+            "collector_portal_authorization_failed",
+            {
+                "sessionId": self.session_id,
+                "sourceAddress": source_address,
+                "failedAttemptCount": self.failed_authorization_count,
+            },
+        )
 
     def record_download(self, source_address: str) -> None:
         """Atomically count and audit a successful download without the code."""
@@ -101,16 +174,21 @@ class PortalBinding:
   <meta name="robots" content="noindex,nofollow">
   <title>CSA Security Assessment</title>
   <style>
-    :root {{ color-scheme: light; font-family: "Segoe UI", Arial, sans-serif; }}
-    body {{ margin: 0; background: #f3f5f7; color: #17202a; }}
+    :root {{ color-scheme: light dark; font-family: "Segoe UI", Arial, sans-serif;
+      --bg: #f3f5f7; --surface: #fff; --text: #17202a; --border: #d8dee5;
+      --muted: #4f5b66; --accent: #176b3a; }}
+    @media (prefers-color-scheme: dark) {{ :root {{ --bg: #12171b;
+      --surface: #1d252b; --text: #edf2f5; --border: #4c5a64;
+      --muted: #b9c5cc; --accent: #2d9b68; }} }}
+    body {{ margin: 0; background: var(--bg); color: var(--text); }}
     main {{ max-width: 720px; margin: 7vh auto; padding: 36px;
-      background: white; border: 1px solid #d8dee5; border-radius: 8px; }}
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }}
     h1 {{ margin-top: 0; font-size: 28px; }}
     .assessment {{ padding: 14px 0; border-block: 1px solid #e4e8ec; }}
     ul {{ line-height: 1.7; }}
-    a.button {{ display: inline-block; padding: 12px 18px; background: #176b3a;
+    a.button {{ display: inline-block; padding: 12px 18px; background: var(--accent);
       color: white; text-decoration: none; border-radius: 5px; font-weight: 650; }}
-    .meta {{ margin-top: 24px; color: #4f5b66; font-size: 14px; }}
+    .meta {{ margin-top: 24px; color: var(--muted); font-size: 14px; }}
   </style>
 </head>
 <body>
@@ -136,7 +214,7 @@ class PortalBinding:
     <li>Wait for <strong>Submission accepted</strong>.</li>
     <li>Close the collector.</li>
   </ol>
-  <p class="meta">Collector version: 5.2.x<br>Package expires: {safe_expiry}</p>
+  <p class="meta">Collector version: 5.3.0<br>Package expires: {safe_expiry}</p>
 </main>
 </body>
 </html>"""

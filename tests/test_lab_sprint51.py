@@ -324,7 +324,11 @@ class LabServiceTests(unittest.TestCase):
         token = json.loads(package_config)["enrollmentToken"]
         self.assertNotIn(token, session_text)
         self.assertNotIn(token, json.dumps(model_to_dict(state)))
-        self.assertEqual(len(self.service.join_code(state.assessment_id)), 24)
+        self.assertRegex(
+            self.service.join_code(state.assessment_id),
+            r"^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{4}-"
+            r"[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{4}$",
+        )
 
     def test_empty_draft_can_be_deleted_without_leaving_session_state(
         self,

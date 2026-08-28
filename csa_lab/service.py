@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import hmac
 import json
@@ -21,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from csa_console.audit import ConsoleAuditLog
+from csa_console.canonical import read_json, write_canonical_json
 from csa_console.archive import export_assessment_archive
 from csa_console.collector_package import (
     create_collector_package,
@@ -30,7 +30,12 @@ from csa_console.enums import SessionStatus
 from csa_console.fleet import FleetAnalyzer
 from csa_console.identifiers import utc_text
 from csa_console.offline import OfflineImportService
-from csa_console.portal import PortalBinding
+from csa_console.portal import (
+    JOIN_CODE_ALPHABET,
+    JOIN_CODE_LENGTH,
+    PortalBinding,
+    normalize_join_code,
+)
 from csa_console.pipeline import ConsoleAnalysisPipeline
 from csa_console.serde import model_to_dict
 from csa_console.server import ConsoleHttpsServer
@@ -88,9 +93,37 @@ class LabApplicationService:
         self._secret = self._load_or_create_join_secret()
         self._application_audit().append(
             "application_started",
-            {"version": "5.1", "processId": os.getpid()},
+            {"version": "5.3.0", "processId": os.getpid()},
         )
         self.detect_recovery_items()
+
+    def load_ui_preferences(self) -> dict[str, str]:
+        """Load validated local UI preferences outside assessment evidence."""
+
+        path = self.storage.root.parent / "config" / "ui-preferences.json"
+        if not path.is_file():
+            return {"theme": "system"}
+        try:
+            theme = str(read_json(path).get("theme", "system")).lower()
+        except (OSError, ValueError, json.JSONDecodeError):
+            LOGGER.warning("CSA Lab UI preferences are invalid; using defaults")
+            return {"theme": "system"}
+        if theme not in {"system", "light", "dark"}:
+            theme = "system"
+        return {"theme": theme}
+
+    def save_ui_preferences(self, theme: str) -> dict[str, str]:
+        """Persist an allowlisted local UI theme preference atomically."""
+
+        normalized = str(theme).lower()
+        if normalized not in {"system", "light", "dark"}:
+            raise ValueError("Theme must be System, Light, or Dark")
+        preferences = {"theme": normalized}
+        write_canonical_json(
+            self.storage.root.parent / "config" / "ui-preferences.json",
+            preferences,
+        )
+        return preferences
 
     def create_assessment(
         self, request: AssessmentWizardRequest
@@ -369,7 +402,9 @@ class LabApplicationService:
             portal = PortalBinding(
                 assessment_id=assessment_id,
                 session_id=state.session_id,
-                join_code_hash=hashlib.sha256(code.encode("utf-8")).hexdigest(),
+                join_code_hash=hashlib.sha256(
+                    normalize_join_code(code).encode("utf-8")
+                ).hexdigest(),
                 collector_path=Path(state.collector_path),
                 expires_at=state.expires_at,
                 maximum_downloads=max(
@@ -498,16 +533,28 @@ class LabApplicationService:
             return state
 
     def join_code(self, assessment_id: str) -> str:
-        """Derive a high-entropy non-persisted code for the active session."""
+        """Derive a short, assessment-bound, non-persisted join code."""
 
         state = self.load_state(assessment_id)
-        digest = hmac.digest(
-            self._secret,
-            f"{state.assessment_id}|{state.session_id}".encode("utf-8"),
-            "sha256",
-        )
-        value = base64.b32encode(digest).decode("ascii").rstrip("=")[:24]
-        return value
+        context = (
+            f"CSA-JOIN-V1|{state.assessment_id}|{state.session_id}|"
+            f"{state.expires_at}"
+        ).encode("utf-8")
+        characters: list[str] = []
+        counter = 0
+        while len(characters) < JOIN_CODE_LENGTH:
+            digest = hmac.digest(
+                self._secret, context + counter.to_bytes(2, "big"), "sha256"
+            )
+            counter += 1
+            for value in digest:
+                if value >= 248:
+                    continue
+                characters.append(JOIN_CODE_ALPHABET[value % 31])
+                if len(characters) == JOIN_CODE_LENGTH:
+                    break
+        compact = "".join(characters)
+        return normalize_join_code(compact)
 
     def portal_url(self, assessment_id: str) -> str:
         """Return the user-facing portal address for one assessment."""

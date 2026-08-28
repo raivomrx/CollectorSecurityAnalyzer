@@ -107,7 +107,7 @@ def _admin_handler_factory(application: LabAdminServer):
     service = application.service
 
     class AdminHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Lab-Admin/5.1"
+        server_version = "CSA-Lab-Admin/5.3.0"
         protocol_version = "HTTP/1.1"
 
         def do_GET(self) -> None:
@@ -127,6 +127,8 @@ def _admin_handler_factory(application: LabAdminServer):
                             )
                         },
                     )
+                elif path == "/api/v1/preferences":
+                    self._json(HTTPStatus.OK, service.load_ui_preferences())
                 elif path == "/api/v1/assessments":
                     self._json(
                         HTTPStatus.OK,
@@ -237,6 +239,15 @@ def _admin_handler_factory(application: LabAdminServer):
                     )
                     return
                 if not path.startswith("/api/v1/assessments/"):
+                    if path == "/api/v1/preferences":
+                        data = self._read_json(MAX_JSON)
+                        self._json(
+                            HTTPStatus.OK,
+                            service.save_ui_preferences(
+                                str(data.get("theme", ""))
+                            ),
+                        )
+                        return
                     if path == "/api/v1/shutdown":
                         self._json(HTTPStatus.ACCEPTED, {"status": "CLOSING"})
                         application.shutdown()
@@ -370,6 +381,9 @@ def _admin_handler_factory(application: LabAdminServer):
             html = html.replace("/*__CSA_STYLE__*/", style)
             html = html.replace("/*__CSA_SCRIPT__*/", script)
             html = html.replace("__CSA_CSRF__", application.csrf_token)
+            html = html.replace(
+                "__CSA_THEME__", service.load_ui_preferences()["theme"]
+            )
             logo = Path(__file__).resolve().parents[1] / "assets" / "logo.png"
             logo_uri = (
                 "data:image/png;base64,"
@@ -468,6 +482,16 @@ def _assessment_payload(
         "assessment": model_to_dict(state),
         "portalUrl": (
             service.portal_url(assessment_id)
+            if state.status.value == "COLLECTING"
+            else ""
+        ),
+        "portalServer": (
+            f"https://{state.listener_address}:{state.listener_port}"
+            if state.status.value == "COLLECTING"
+            else ""
+        ),
+        "joinCode": (
+            service.join_code(assessment_id)
             if state.status.value == "COLLECTING"
             else ""
         ),

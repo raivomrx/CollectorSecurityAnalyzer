@@ -3,9 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light">
+  <meta name="color-scheme" content="light dark">
   <meta name="csa-csrf" content="__CSA_CSRF__">
   <title>CSA Lab</title>
+  <script>
+    (() => {
+      const preference = "__CSA_THEME__";
+      const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const resolved = preference === "system" ? (dark ? "dark" : "light") : preference;
+      document.documentElement.dataset.themePreference = preference;
+      document.documentElement.dataset.theme = resolved;
+      document.documentElement.style.colorScheme = resolved;
+    })();
+  </script>
   <style>/*__CSA_STYLE__*/</style>
 </head>
 <body>
@@ -87,13 +97,18 @@
           </div>
         </div>
         <div id="portal-panel" class="portal-panel hidden">
-          <div>
-            <span>Collector page</span>
-            <strong id="portal-url"></strong>
+          <div class="join-details">
+            <h3>Connect endpoint</h3>
+            <dl>
+              <div><dt>Server</dt><dd id="portal-server"></dd></div>
+              <div><dt>Join code</dt><dd id="join-code" class="join-code"></dd></div>
+              <div><dt>Full URL</dt><dd id="portal-url"></dd></div>
+            </dl>
             <p>The temporary certificate may cause a browser warning. Verify that the address matches this CSA Lab computer. Collector submission still uses certificate pinning.</p>
           </div>
           <div class="action-row">
-            <button id="copy-portal" type="button">Copy Address</button>
+            <button id="copy-portal" type="button">Copy URL</button>
+            <button id="copy-join-code" type="button">Copy join code</button>
             <button id="open-portal" type="button">Open Locally</button>
           </div>
         </div>
@@ -206,6 +221,7 @@
     <div class="settings-layout">
       <div class="settings-tabs" role="tablist">
         <button type="button" class="settings-tab active" data-tab="general">General</button>
+        <button type="button" class="settings-tab" data-tab="appearance">Appearance</button>
         <button type="button" class="settings-tab" data-tab="storage">Storage</button>
         <button type="button" class="settings-tab" data-tab="network">Network</button>
         <button type="button" class="settings-tab" data-tab="tls">TLS Certificate</button>
@@ -216,10 +232,20 @@
       </div>
       <div class="settings-content">
         <section data-panel="general"><h3>General</h3><p>Language: English. Reports open in the system browser.</p></section>
+        <section data-panel="appearance" class="hidden">
+          <h3>Appearance</h3>
+          <p>Choose how CSA Lab follows the Windows display theme.</p>
+          <fieldset class="theme-selector">
+            <legend>Theme</legend>
+            <label><input type="radio" name="theme" value="system">System</label>
+            <label><input type="radio" name="theme" value="light">Light</label>
+            <label><input type="radio" name="theme" value="dark">Dark</label>
+          </fieldset>
+        </section>
         <section data-panel="storage" class="hidden"><h3>Storage</h3><p>Assessment data is stored outside the installation directory with restricted access.</p></section>
         <section data-panel="network" class="hidden"><h3>Network</h3><p>CSA uses the interface and source subnet confirmed in each assessment.</p></section>
         <section data-panel="tls" class="hidden"><h3>TLS Certificate</h3><p>Generated assessment certificates are the current fallback. Collector identity validation is pinned and cannot be bypassed.</p></section>
-        <section data-panel="collector" class="hidden"><h3>Collector</h3><p>Collector 5.2.4, Standard Privileges Assessment profile, offline fallback enabled by default.</p><p>If Windows application control blocks execution, record the exact Windows Security message. Do not disable Smart App Control as the default remediation. Use a trusted, signed CSA Collector build or contact the assessment administrator.</p></section>
+        <section data-panel="collector" class="hidden"><h3>Collector</h3><p>Collector 5.3.0, Standard Privileges Assessment profile, offline fallback enabled by default.</p><p>If Windows application control blocks execution, record the exact Windows Security message. Do not disable Smart App Control as the default remediation. Use a trusted, signed CSA Collector build or contact the assessment administrator.</p></section>
         <section data-panel="reporting" class="hidden"><h3>Reporting</h3><p>The unified self-contained HTML report is the primary output.</p></section>
         <section data-panel="privacy" class="hidden"><h3>Privacy</h3><p>Strict privacy validation is mandatory. Sensitive evidence is quarantined.</p></section>
         <section data-panel="advanced" class="hidden">
