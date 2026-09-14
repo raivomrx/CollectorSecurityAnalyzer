@@ -1810,6 +1810,27 @@ def _vulnerability_exposure(
     )
 
 
+def _software_cve_status(row: dict[str, Any]) -> str:
+    """Keep positive findings and incomplete fleet evaluation visible together."""
+
+    states = row["cveEvaluationStates"]
+    partial = "PARTIAL" in states or (
+        "COMPLETED" in states and "NOT_EVALUATED" in states
+    )
+    if row["confirmedCves"] or row["possibleCves"]:
+        label = (
+            f"{row['confirmedCves']} confirmed"
+            if row["confirmedCves"]
+            else f"{row['possibleCves']} possible"
+        )
+        return f"{label} · Partially evaluated" if partial else label
+    if partial:
+        return "Partially evaluated"
+    if states == {"COMPLETED"}:
+        return "No known vulnerabilities found"
+    return "Not evaluated"
+
+
 def _software_matrix(endpoints: list[dict[str, Any]]) -> dict[str, Any]:
     """Build a compact software-by-endpoint matrix for offline comparison."""
 
@@ -1834,6 +1855,7 @@ def _software_matrix(endpoints: list[dict[str, Any]]) -> dict[str, Any]:
                     "possibleCves": 0,
                     "highestCvss": None,
                     "lifecycleStatuses": set(),
+                    "cveEvaluationStates": set(),
                     "remoteAccess": "remote" in name.casefold()
                     or name.casefold() in {"anydesk", "teamviewer", "screenconnect"},
                 },
@@ -1874,6 +1896,12 @@ def _software_matrix(endpoints: list[dict[str, Any]]) -> dict[str, Any]:
             mapping_status = str(
                 pipeline.get("productMappingStatus", "NOT_RUN")
             )
+            # Evaluation belongs to this product instance. Risk labels and the
+            # assessment-wide status cannot establish successful evaluation.
+            evaluation_state = pipeline.get("terminalStatus", "NOT_EVALUATED")
+            if evaluation_state not in {"COMPLETED", "PARTIAL"}:
+                evaluation_state = "NOT_EVALUATED"
+            row["cveEvaluationStates"].add(evaluation_state)
             if (
                 int(software.get("normalizationConfidence", 0) or 0) < 95
                 and mapping_status != "SUCCESS"
@@ -1884,12 +1912,10 @@ def _software_matrix(endpoints: list[dict[str, Any]]) -> dict[str, Any]:
                 "FAILED",
             }:
                 row["risk"].add("Product not recognized")
-            elif software.get("cveEvaluationStatus") not in {
-                "CONFIRMED",
-                "POSSIBLE",
-                "NO_KNOWN_VULNERABILITIES",
-            }:
+            if evaluation_state == "NOT_EVALUATED":
                 row["risk"].add("CVE not evaluated")
+            elif evaluation_state == "PARTIAL":
+                row["risk"].add("CVE partially evaluated")
     rows = [
         {
             "software": row["software"],
@@ -1900,19 +1926,7 @@ def _software_matrix(endpoints: list[dict[str, Any]]) -> dict[str, Any]:
                 {"name": name, "anchor": row["endpointLinks"][name]}
                 for name in sorted(row["installedOn"])
             ],
-            "cveStatus": (
-                f"{row['confirmedCves']} confirmed"
-                if row["confirmedCves"]
-                else (
-                    f"{row['possibleCves']} possible"
-                    if row["possibleCves"]
-                    else (
-                        "Not evaluated"
-                        if "CVE not evaluated" in row["risk"]
-                        else "No known vulnerabilities found"
-                    )
-                )
-            ),
+            "cveStatus": _software_cve_status(row),
             "lifecycleStatus": (
                 "Outside vendor support"
                 if "OUT_OF_SUPPORT" in row["lifecycleStatuses"]

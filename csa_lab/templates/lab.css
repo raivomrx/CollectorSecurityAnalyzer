@@ -144,6 +144,7 @@ main { min-width: 0; }
 .workspace-heading h1 { margin: 2px 0 0; font-size: 30px; line-height: 1.2; }
 .eyebrow { margin: 0; color: var(--accent); font-weight: 750; font-size: 13px; }
 .empty-state { min-height: 55vh; display: grid; place-content: center; justify-items: center; text-align: center; color: var(--muted); }
+.empty-state-logo { height: 72px; width: auto; max-width: 100%; object-fit: contain; }
 .empty-state h2 { color: var(--text); margin-bottom: 3px; }
 .metric-strip {
   display: grid;

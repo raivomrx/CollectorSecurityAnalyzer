@@ -466,13 +466,15 @@ def _software_results(
         confirmed = [item for item in related if item.applicability.value == "AFFECTED"]
         possible = [item for item in related if item.applicability.value == "POSSIBLY_AFFECTED"]
         not_evaluated = [item for item in related if item.applicability.value == "NOT_EVALUATED"]
-        if product.confidence < 60 and not product.discovery_eligible:
-            evaluation_status = "NOT_EVALUATED"
-        elif confirmed:
+        if confirmed:
             evaluation_status = "CONFIRMED"
         elif possible:
             evaluation_status = "POSSIBLE"
-        elif scan_status == "COMPLETE" and not not_evaluated:
+        elif (
+            pipeline is not None
+            and pipeline.terminal_status == "COMPLETED"
+            and not not_evaluated
+        ):
             evaluation_status = "NO_KNOWN_VULNERABILITIES"
         else:
             evaluation_status = "NOT_EVALUATED"
