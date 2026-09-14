@@ -47,12 +47,36 @@ jobs:
           $checksums | Set-Content `
             -LiteralPath dist/installer/SHA256SUMS.txt `
             -Encoding ascii
+      - name: Record installer creation time
+        shell: pwsh
+        run: |
+          $installer = Get-Item -LiteralPath dist/installer/CSA-Lab-Setup.exe
+          $createdUtc = [DateTimeOffset]$installer.LastWriteTimeUtc
+          $tallinnZone = [TimeZoneInfo]::FindSystemTimeZoneById('FLE Standard Time')
+          $createdTallinn = [TimeZoneInfo]::ConvertTime($createdUtc, $tallinnZone)
+          $versionMatch = Select-String -LiteralPath packaging/CSA-Lab.nsi -Pattern '^!define PRODUCT_VERSION "([^"]+)"$'
+          if (-not $versionMatch) { throw 'Installer version could not be read.' }
+          $version = $versionMatch.Matches[0].Groups[1].Value
+          $hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          $buildInfo = @(
+            "## CSA Lab $version installer"
+            ''
+            "- Installer created (Europe/Tallinn): $($createdTallinn.ToString('yyyy-MM-dd HH:mm:ss zzz'))"
+            "- Installer created (UTC): $($createdUtc.ToString('yyyy-MM-dd HH:mm:ss')) UTC"
+            "- File: CSA-Lab-Setup.exe"
+            "- Commit: $env:GITHUB_SHA"
+            "- SHA-256: $hash"
+            "- Build: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          )
+          $buildInfo | Set-Content -LiteralPath dist/installer/BUILD-INFO.md -Encoding utf8
+          $buildInfo | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
       - uses: actions/upload-artifact@v4
         with:
           name: CSA-Lab-Setup
           path: |
             dist/installer/CSA-Lab-Setup.exe
             dist/installer/SHA256SUMS.txt
+            dist/installer/BUILD-INFO.md
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
@@ -61,4 +85,5 @@ jobs:
             dist/CSA-Lab/
             dist/installer/CSA-Lab-Setup.exe
             dist/installer/SHA256SUMS.txt
+            dist/installer/BUILD-INFO.md
             build/collector/CSA-Collector.exe
