@@ -5,6 +5,9 @@ assessment toolkit. CSA Lab turns the secure collection, analysis, fleet
 aggregation, and reporting pipeline into one assessor-facing Windows
 application.
 
+Sprint 5.3.1 clarifies BitLocker evidence states and software vulnerability
+evaluation scope. See [semantics and live acceptance](docs/sprint-5.3.1-semantics.md).
+
 ## Normal Assessment Flow
 
 1. Install `CSA-Lab-Setup.exe`.

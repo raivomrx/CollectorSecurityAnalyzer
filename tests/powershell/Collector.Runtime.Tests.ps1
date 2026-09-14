@@ -301,6 +301,36 @@ Describe "CSA Windows Collector runtime evidence contracts" {
             $result.CollectedEvidenceCount | Should -Be 8
         }
 
+        It "preserves explicitly disabled OS protection through JSON evidence" {
+            $provider = { @([pscustomobject]@{ MountPoint="C:"; VolumeType="OperatingSystem"; ProtectionStatus="Off"; EncryptionPercentage=0; EncryptionMethod="None"; LockStatus="Unlocked"; AutoUnlockEnabled=$false; KeyProtector=@() }) }
+            $result = Get-CSABitLockerEvidence -VolumeProvider $provider -BitLockerSupported $true
+            $roundtrip = $result | ConvertTo-Json -Depth 15 | ConvertFrom-Json
+            $setting = @($roundtrip.Settings | Where-Object settingId -eq "BITLOCKER_OS_PROTECTION")[0]
+            $setting.collectionStatus | Should -Be "SUCCESS"
+            $setting.effectiveValue | Should -BeFalse
+            $setting.metadata.protectionEnabled | Should -BeFalse
+        }
+
+        It "does not coerce an unknown native status to disabled" {
+            $provider = { @([pscustomobject]@{ MountPoint="C:"; VolumeType="OperatingSystem"; ProtectionStatus="Unknown"; EncryptionPercentage=$null; EncryptionMethod=""; LockStatus="Unknown"; AutoUnlockEnabled=$false; KeyProtector=@() }) }
+            $result = Get-CSABitLockerEvidence -VolumeProvider $provider -BitLockerSupported $true
+            $setting = @($result.Settings | Where-Object settingId -eq "BITLOCKER_OS_PROTECTION")[0]
+            $setting.collectionStatus | Should -Be "PARTIAL"
+            ($null -eq $setting.effectiveValue) | Should -BeTrue
+            ($null -eq $setting.metadata.protectionEnabled) | Should -BeTrue
+        }
+
+        It "preserves disabled Shell fallback evidence after access denial" {
+            $primary = { throw (New-Object System.UnauthorizedAccessException "denied") }
+            $shell = { @(ConvertFrom-CSAShellBitLockerValue -RawValue 2) }
+            $result = Get-CSABitLockerEvidence -VolumeProvider $primary -BitLockerSupported $true -ShellProvider $shell
+            $setting = @($result.Settings | Where-Object settingId -eq "BITLOCKER_OS_PROTECTION")[0]
+            $setting.collectionStatus | Should -Be "SUCCESS"
+            $setting.effectiveValue | Should -BeFalse
+            $setting.metadata.rawEvidence.value | Should -Be 2
+            $setting.metadata.fallbacksAttempted[0].status | Should -Be "ACCESS_DENIED"
+        }
+
         It "expands cardinality for an OS and a data volume" {
             $provider = { @(
                 [pscustomobject]@{ MountPoint="C:"; VolumeType="OperatingSystem"; ProtectionStatus="On"; EncryptionPercentage=100; EncryptionMethod="XtsAes256"; LockStatus="Unlocked"; AutoUnlockEnabled=$false; KeyProtector=@() },

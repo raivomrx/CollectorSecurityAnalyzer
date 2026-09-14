@@ -7,6 +7,7 @@ from typing import Any
 from csa_console.coverage import calculate_coverage
 from csa_console.models import EndpointEvidenceRecord
 from csa_console.package import ValidatedPackage
+from evidence.bitlocker import resolve_bitlocker
 
 
 def normalize_endpoint_package(
@@ -31,6 +32,10 @@ def normalize_endpoint_package(
         settings, ("DEFENDER_", "WINDOWS_FIREWALL_", "ACTIVE_FIREWALL_")
     )
     disk_encryption = _settings(settings, ("BITLOCKER_",))
+    disk_encryption["bitLocker"] = resolve_bitlocker(next(
+        (item for item in settings if item.get("settingId") == "BITLOCKER_OS_PROTECTION"),
+        None,
+    ))
     network = _settings(
         settings,
         (

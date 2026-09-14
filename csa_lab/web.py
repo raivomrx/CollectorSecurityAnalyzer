@@ -107,7 +107,7 @@ def _admin_handler_factory(application: LabAdminServer):
     service = application.service
 
     class AdminHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Lab-Admin/5.3.0"
+        server_version = "CSA-Lab-Admin/5.3.1"
         protocol_version = "HTTP/1.1"
 
         def do_GET(self) -> None:

@@ -18,6 +18,10 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Run unified report and 13-endpoint tests
         run: python -W error::ResourceWarning -m unittest tests.test_lab_sprint51.UnifiedReportTests -v
+      - name: Verify report semantics from collector evidence
+        run: python -W error::ResourceWarning -m unittest tests.test_sprint531_semantics -v
+      - name: Generate mixed-fleet semantic acceptance report
+        run: python scripts/Generate-SemanticsReport.py --output test-artifacts/CSA-Sprint-5.3.1-Semantics.html
       - name: Generate inspectable single-endpoint report
         run: python scripts/Generate-SyntheticUnifiedReport.py --output test-artifacts/CSA-Unified-Assessment-Report.html
       - name: Generate 100-endpoint search performance report
@@ -32,3 +36,5 @@ jobs:
           path: |
             test-artifacts/CSA-Unified-Assessment-Report.html
             test-artifacts/CSA-Unified-100-Endpoint-Search-Report.html
+            test-artifacts/CSA-Sprint-5.3.1-Semantics.html
+            test-artifacts/CSA-Sprint-5.3.1-Semantics.model.json

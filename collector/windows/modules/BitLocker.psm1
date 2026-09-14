@@ -10,16 +10,13 @@ function ConvertTo-CSABitLockerState {
     $mountPoint = [string]$Volume.MountPoint
     $volumeType = [string]$Volume.VolumeType
     $protectionStatus = [string]$Volume.ProtectionStatus
-    $protectionEnabled = if (
-        $Volume.PSObject.Properties.Name -contains "ProtectionEnabled" -and
-        $null -eq $Volume.ProtectionEnabled
-    ) { $null } else {
-        [bool](
-            $Volume.ProtectionEnabled -eq $true -or
-            $protectionStatus -eq "On" -or
-            $protectionStatus -eq "1"
-        )
-    }
+    $protectionEnabled = if ($Volume.PSObject.Properties.Name -contains "ProtectionEnabled") {
+        if ($Volume.ProtectionEnabled -is [bool]) { $Volume.ProtectionEnabled } else { $null }
+    } elseif ($protectionStatus -in @("On", "1")) {
+        $true
+    } elseif ($protectionStatus -in @("Off", "0")) {
+        $false
+    } else { $null }
     $percentage = if ($null -ne $Volume.EncryptionPercentage) {
         [int]$Volume.EncryptionPercentage
     } else {
@@ -42,6 +39,9 @@ function ConvertTo-CSABitLockerState {
         [string]$Volume.EncryptionMethod -notin @("", "None", "0")
     }
     $collectionStatus = if ($Volume.PSObject.Properties.Name -contains "CollectionStatus") { [string]$Volume.CollectionStatus } else { "SUCCESS" }
+    if ($null -eq $protectionEnabled -and $collectionStatus -eq "SUCCESS") {
+        $collectionStatus = "PARTIAL"
+    }
     $rawEvidence = if ($Volume.PSObject.Properties.Name -contains "RawEvidence") { $Volume.RawEvidence } else { $null }
     return [ordered]@{
         MountPoint = $mountPoint
@@ -87,18 +87,21 @@ function Get-CSABitLockerWmiVolumes {
             -InputObject $volume `
             -MethodName GetProtectionStatus `
             -ErrorAction Stop
+        if ($protection.ReturnValue -ne 0 -or $conversion.ReturnValue -ne 0) {
+            throw "BitLocker WMI method returned an unsuccessful result."
+        }
         $conversionStatus = [int]$conversion.ConversionStatus
         $values += [pscustomobject]@{
             MountPoint = [string]$volume.DriveLetter
             VolumeType = if (
                 [string]$volume.DriveLetter -eq [string]$env:SystemDrive
             ) { "OperatingSystem" } else { "FixedData" }
-            ProtectionStatus = if ([int]$protection.ProtectionStatus -eq 1) {
+            ProtectionStatus = if ($protection.ProtectionStatus -eq 1) {
                 "On"
-            } else {
+            } elseif ($protection.ProtectionStatus -eq 0) {
                 "Off"
-            }
-            ProtectionEnabled = [int]$protection.ProtectionStatus -eq 1
+            } else { "Unknown" }
+            ProtectionEnabled = if ($protection.ProtectionStatus -eq 1) { $true } elseif ($protection.ProtectionStatus -eq 0) { $false } else { $null }
             EncryptionPercentage = [int]$conversion.EncryptionPercentage
             EncryptionState = switch ($conversionStatus) {
                 0 { "FULLY_DECRYPTED" }
@@ -253,7 +256,7 @@ function Add-CSABitLockerVolumeSettings {
         collectionStatus = [string]$State.CollectionStatus
         confidence = [int]$State.Confidence
         configured = [bool]$State.Configured
-        protectionEnabled = [bool]$State.ProtectionEnabled
+        protectionEnabled = $State.ProtectionEnabled
         encryptionState = [string]$State.EncryptionState
         encryptionPercentage = $State.EncryptionPercentage
         rawEvidence = $State.RawEvidence

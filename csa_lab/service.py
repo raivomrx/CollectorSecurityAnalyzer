@@ -93,7 +93,7 @@ class LabApplicationService:
         self._secret = self._load_or_create_join_secret()
         self._application_audit().append(
             "application_started",
-            {"version": "5.3.0", "processId": os.getpid()},
+            {"version": "5.3.1", "processId": os.getpid()},
         )
         self.detect_recovery_items()
 

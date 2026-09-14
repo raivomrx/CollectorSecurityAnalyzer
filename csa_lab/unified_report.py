@@ -20,6 +20,7 @@ from csa_console.storage import AssessmentStorage
 from frameworks.loader import load_pack
 from frameworks.models import FrameworkPack
 from knowledge.repository import KnowledgeRepository
+from evidence.bitlocker import resolve_bitlocker
 
 TEMPLATE_ROOT = Path(__file__).resolve().parent / "templates"
 FRAMEWORK_ROOT = Path(__file__).resolve().parents[1] / "frameworks"
@@ -175,7 +176,8 @@ class UnifiedReportGenerator:
                 ("defender", "DEF-001"),
                 ("updates", "UPD-001"),
             ):
-                status_summary[key][_rule_status(endpoint["findings"], rule_id)] += 1
+                status = endpoint["bitLocker"]["status"] if key == "bitLocker" else _rule_status(endpoint["findings"], rule_id)
+                status_summary[key][status] += 1
         assessment_limitations = []
         for endpoint in endpoints:
             for limitation in endpoint["coverageLimitations"]:
@@ -263,7 +265,7 @@ class UnifiedReportGenerator:
         framework_rows = _framework_rows(fleet_findings)
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.3.0",
+            "reportVersion": "CSA-5.3.1",
             "generatedAt": generated_at,
             "dataClassification": "Confidential - Security Assessment Data",
             "containsPersonalData": True,
@@ -347,6 +349,7 @@ class UnifiedReportGenerator:
                 "mainLimitations": main_limitations,
             },
             "cve": cve,
+            "softwareVulnerabilityEvaluation": cve["softwareVulnerabilityEvaluation"],
             "vulnerabilityExposure": vulnerability_exposure,
             "software": software,
             "softwareIntelligence": software_intelligence,
@@ -389,7 +392,7 @@ class UnifiedReportGenerator:
                 "limitations": (
                     "Controls requiring elevated access remain coverage gaps and "
                     "are not converted into failures. Active Validation was not run. "
-                    "CVE coverage is reported independently from core passive coverage."
+                    "Software vulnerability evaluation scope is reported independently from core passive coverage."
                 ),
             },
             "integrity": {
@@ -844,6 +847,7 @@ def _aggregate_cve(
             or int(item.get("possibleUniqueCves", 0) or 0) > 0
         ),
         "coveragePercent": coverage,
+        "softwareVulnerabilityEvaluation": _software_vulnerability_evaluation(eligible, evaluated, coverage),
         "coverageComplete": coverage_complete,
         "coverageStatement": _cve_coverage_statement(
             status, coverage, len(unique_ids)
@@ -1146,6 +1150,32 @@ def _endpoint_cve_summary(endpoint: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
+def _software_vulnerability_evaluation(eligible: int, evaluated: int, percent: float) -> dict[str, Any]:
+    """Name the existing instance ratio without changing CVE engine semantics."""
+
+    remaining = max(0, eligible - evaluated)
+    return {
+        "label": "Software fully evaluated for known vulnerabilities",
+        "unit": "endpoint_product_version_instances",
+        "eligibleInstances": eligible,
+        "fullyEvaluatedInstances": evaluated,
+        "notFullyEvaluatedInstances": remaining,
+        "percent": percent,
+        "ratio": f"{evaluated} of {eligible} eligible software instances",
+        "explanation": (
+            "This metric shows how much CVE-eligible installed software CSA could fully "
+            "evaluate against known vulnerability data. It does not represent the "
+            "percentage of all CVEs discovered."
+        ),
+        "limitation": (
+            f"{remaining} CVE-eligible software instances were not fully evaluated. "
+            "This limits the completeness of software vulnerability assessment and "
+            "does not mean that those products are vulnerable."
+            if remaining else "No eligible software instances remain partially or unevaluated."
+        ),
+    }
+
+
 def _cve_coverage_statement(status: str, coverage: float, count: int) -> str:
     """Explain clean, incomplete and unevaluated CVE states distinctly."""
 
@@ -1155,8 +1185,8 @@ def _cve_coverage_statement(status: str, coverage: float, count: int) -> str:
         return "Vulnerability status was not evaluated."
     if coverage < 100.0 or status != "COMPLETE":
         return (
-            "CVE results are incomplete. Counts apply only to successfully "
-            "evaluated products."
+            "Software vulnerability assessment is incomplete. Confirmed CVEs remain "
+            "valid findings even where software analysis is only partially complete."
         )
     return "CVE analysis completed for all eligible software products."
 
@@ -1233,7 +1263,7 @@ def _assessment_risk(
             "Incomplete coverage reduces certainty; it does not lower or "
             "increase the rating automatically."
             if not cve.get("coverageComplete", False)
-            else "No CVE coverage modifier was applied."
+            else "No software vulnerability evaluation scope modifier was applied."
         ),
         "reason": reason,
     }
@@ -1301,6 +1331,16 @@ def _executive_endpoint_metrics(
     return {
         "assessedEndpoints": len(endpoints),
         "bitLockerEnabledEndpoints": bitlocker_enabled,
+        "bitLockerNotEnabledEndpoints": sum(
+            endpoint.get("bitLocker", {}).get("status") == "FAIL" for endpoint in endpoints
+        ),
+        "bitLockerNotEvaluatedEndpoints": sum(
+            endpoint.get("bitLocker", {}).get("status", "NOT_EVALUATED") not in {"PASS", "FAIL", "ERROR"}
+            for endpoint in endpoints
+        ),
+        "bitLockerErrorEndpoints": sum(
+            endpoint.get("bitLocker", {}).get("status") == "ERROR" for endpoint in endpoints
+        ),
         "dailyUserLocalAdminEndpoints": daily_user_local_admin,
     }
 
@@ -1395,7 +1435,7 @@ def _collected_system_information(evidence: dict[str, Any]) -> dict[str, Any]:
             "User profiles": len(users["userProfiles"]),
         },
         "security": {
-            "BitLocker": _setting_display(settings.get("BITLOCKER_OS_PROTECTION")),
+            "BitLocker": resolve_bitlocker(settings.get("BITLOCKER_OS_PROTECTION"))["displayLabel"],
             "TPM": _setting_display(settings.get("TPM_READY")),
             "Secure Boot": _setting_display(settings.get("SECURE_BOOT_ENABLED")),
             "Microsoft Defender": _setting_display(settings.get("DEFENDER_ENABLED")),
@@ -1569,8 +1609,14 @@ def _setting_value(
         "endpointProtection",
         "networkConfiguration",
     ):
-        for setting in evidence.get(section, {}).get("settings", []):
-            if setting.get("settingId") == setting_id:
+        section_value = evidence.get(section)
+        if not isinstance(section_value, dict):
+            continue
+        settings = section_value.get("settings", [])
+        if not isinstance(settings, list):
+            continue
+        for setting in settings:
+            if isinstance(setting, dict) and setting.get("settingId") == setting_id:
                 return setting.get("effectiveValue"), setting
     return None, {}
 
@@ -1629,22 +1675,20 @@ def _dedupe_rows(
 
 
 def _bitlocker_detail(evidence: dict[str, Any]) -> dict[str, Any]:
-    value, setting = _setting_value(evidence, "BITLOCKER_OS_PROTECTION")
-    metadata = setting.get("metadata", {}) if setting else {}
-    collection_status = str(
-        setting.get("collectionStatus", "NOT_AVAILABLE")
-    ) if setting else "NOT_AVAILABLE"
-    status = "NOT_EVALUATED"
-    if collection_status == "PARTIAL":
-        status = "PARTIAL"
-    elif collection_status == "FAILED":
-        status = "ERROR"
-    elif collection_status == "SUCCESS":
-        status = "PASS" if value is True else "FAIL" if value is False else "NOT_EVALUATED"
+    _value, setting = _setting_value(evidence, "BITLOCKER_OS_PROTECTION")
+    metadata = setting.get("metadata", {})
+    metadata = metadata if isinstance(metadata, dict) else {}
+    conclusion = resolve_bitlocker(setting)
     volumes = []
     seen: set[str] = set()
-    for item in evidence.get("diskEncryption", {}).get("settings", []):
+    disk_encryption = evidence.get("diskEncryption")
+    disk_encryption = disk_encryption if isinstance(disk_encryption, dict) else {}
+    settings = disk_encryption.get("settings")
+    for item in settings if isinstance(settings, list) else []:
+        if not isinstance(item, dict):
+            continue
         item_metadata = item.get("metadata", {})
+        item_metadata = item_metadata if isinstance(item_metadata, dict) else {}
         mount = str(item_metadata.get("mountPoint", ""))
         if not mount or mount in seen:
             continue
@@ -1658,12 +1702,11 @@ def _bitlocker_detail(evidence: dict[str, Any]) -> dict[str, Any]:
             "provider": item_metadata.get("provider", item.get("provider", "UNKNOWN")),
         })
     return {
-        "status": status,
+        **conclusion,
         "mountPoint": metadata.get("mountPoint", "Unknown"),
         "provider": metadata.get("provider", setting.get("provider", "Unknown") if setting else "Unknown"),
         "confidence": setting.get("confidence", 0) if setting else 0,
         "configured": metadata.get("configured"),
-        "protectionEnabled": metadata.get("protectionEnabled", value),
         "encryptionState": metadata.get("encryptionState", "UNKNOWN"),
         "encryptionPercentage": metadata.get("encryptionPercentage"),
         "fallbacksAttempted": metadata.get("fallbacksAttempted", []),

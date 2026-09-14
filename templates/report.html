@@ -429,11 +429,12 @@
           <p class="notice warning">CVE scan completed with partial or incomplete results.</p>
         {% endif %}
         {% if not cve_summary.coverage_complete %}
-          <p class="notice warning">CVE coverage is incomplete because some eligible products could not be evaluated.</p>
+          <p class="notice warning">Some CVE-eligible software was not fully evaluated. This limits assessment completeness and does not mean those products are vulnerable.</p>
         {% endif %}
+        <p>This provider-stage metric shows how much eligible software was evaluated by the vulnerability provider; it does not measure end-to-end software evaluation. It does not represent the percentage of all CVEs discovered.</p>
         <div class="summary-grid compact">
           <div><span>Technical scan</span><strong>{{ "Complete" if cve_summary.scan_complete else "Incomplete" }}</strong></div>
-          <div><span>Coverage</span><strong>{{ "Complete" if cve_summary.coverage_complete else "Incomplete" }}</strong></div>
+          <div><span>Software vulnerability evaluation scope</span><strong>{{ "Complete" if cve_summary.coverage_complete else "Incomplete" }}</strong></div>
           {% if cve_enrichment %}
             <div><span>Known exploited CVEs</span><strong>{{ cve_enrichment.unique_known_exploited_cves }}</strong></div>
             <div><span>Known exploited software/CVE matches</span><strong>{{ cve_enrichment.known_exploited_assessment_count }}</strong></div>
@@ -449,7 +450,7 @@
           <div><span>Products scanned</span><strong>{{ cve_summary.scanned_products }}</strong></div>
           <div><span>Eligible products</span><strong>{{ cve_summary.eligible_products }}</strong></div>
           <div><span>Evaluated products</span><strong>{{ cve_summary.evaluated_products }}</strong></div>
-          <div><span>Coverage percent</span><strong>{{ cve_summary.coverage_percent }}%</strong></div>
+          <div><span>Software evaluated by vulnerability provider</span><strong>{{ cve_summary.evaluated_products }} of {{ cve_summary.eligible_products }} eligible products</strong><small>{{ cve_summary.coverage_percent }}%</small></div>
           <div><span>Products with CPE</span><strong>{{ cve_summary.products_with_cpe }}</strong></div>
           <div><span>Products without CPE</span><strong>{{ cve_summary.products_without_cpe }}</strong></div>
           <div><span>Ambiguous CPE</span><strong>{{ cve_summary.ambiguous_cpe_matches }}</strong></div>

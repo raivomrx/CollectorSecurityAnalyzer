@@ -411,10 +411,10 @@ class SoftwareCoverageReportTests(unittest.TestCase):
             ROOT / "csa_lab" / "templates" / "unified.html"
         ).read_text(encoding="utf-8")
         for label in (
-            "Software Security Coverage",
+            "Software vulnerability assessment scope",
             "Software products discovered",
             "Reliably identified",
-            "Unknown / unmapped instances",
+            "Software not yet fully identified for vulnerability analysis",
             "Source trust",
             "cve.nvdUrl",
             "cve.vendorAdvisoryUrls",

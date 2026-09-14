@@ -91,7 +91,7 @@ def _legacy_security_settings(source: dict[str, Any], collected_at: datetime) ->
 
     settings: list[SecuritySettingEvidence] = []
     if "Bitlocker-C" in source:
-        settings.append(_setting("BITLOCKER_OS_PROTECTION", "Encryption", bool(source.get("Bitlocker-C")), collected_at, "Bitlocker-C", confidence=70))
+        settings.append(_setting("BITLOCKER_OS_PROTECTION", "Encryption", source.get("Bitlocker-C"), collected_at, "Bitlocker-C", confidence=70))
     defender_state = safe_get(source, "Windows Defender.ProductState")
     if defender_state not in (None, ""):
         settings.append(_setting("DEFENDER_ENABLED", "Defender", str(defender_state).casefold() == "on", collected_at, "Windows Defender.ProductState", confidence=70))

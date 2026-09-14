@@ -6,12 +6,11 @@ import logging
 from typing import Any
 
 from analysis_context import AnalysisContext
-from collector_schema.enums import CollectionStatus
+from evidence.bitlocker import resolve_bitlocker
 from risk import Finding, Severity, Status
 from rules.base import BaseRule
 from rules.categories import RuleCategory
 from rules.metadata import RuleMetadata
-from utils import safe_get
 
 LOGGER = logging.getLogger(__name__)
 
@@ -58,42 +57,30 @@ class BitLockerRule(BaseRule):
                     "fallbacks_attempted": setting.metadata.get("fallbacksAttempted", []),
                     "raw_evidence": setting.metadata.get("rawEvidence"),
                 }
-                if setting.collection_status == CollectionStatus.PARTIAL:
-                    return [
-                        Finding(
-                            rule_id=self.id,
-                            severity=Severity.INFO,
-                            status=Status.PARTIAL,
-                            evidence=detail,
-                            score=0,
-                        )
-                    ]
-                if setting.collection_status == CollectionStatus.FAILED:
-                    return self.error("BitLocker evidence collection failed")
-                if setting.collection_status != CollectionStatus.SUCCESS:
-                    return [
-                        Finding(
-                            rule_id=self.id,
-                            severity=Severity.INFO,
-                            status=Status.NOT_EVALUATED,
-                            evidence=detail,
-                            score=0,
-                        )
-                    ]
-                enabled = bool(setting.effective_value)
+                conclusion = resolve_bitlocker({
+                    "settingId": setting.setting_id,
+                    "collectionStatus": setting.collection_status.value,
+                    "effectiveValue": setting.effective_value,
+                    "metadata": setting.metadata,
+                })
+                detail["bitlocker_state"] = conclusion["state"]
+                detail["reason"] = conclusion["reason"]
+                status = Status(conclusion["status"])
                 return [
                     Finding(
                         rule_id=self.id,
-                        severity=Severity.LOW if enabled else Severity.HIGH,
-                        status=Status.PASS if enabled else Status.FAIL,
+                        severity=Severity.HIGH if status == Status.FAIL else Severity.LOW if status == Status.PASS else Severity.INFO,
+                        status=status,
                         evidence=detail,
                         affected_asset="system_drive",
-                        score=0 if enabled else 20,
+                        score=20 if status == Status.FAIL else 0,
                     )
                 ]
             if context and context.evidence_registry:
                 return self.not_evaluated(["BITLOCKER_OS_PROTECTION"])
-            enabled = bool(safe_get(data, "Bitlocker-C", False))
+            enabled = data.get("Bitlocker-C")
+            if not isinstance(enabled, bool):
+                return self.not_evaluated(["BITLOCKER_OS_PROTECTION"])
             if enabled:
                 return [
                     Finding(
