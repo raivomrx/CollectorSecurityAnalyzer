@@ -7,7 +7,7 @@ from rules.categories import RuleCategory
 from rules.windows.common import SettingRuleSpec, create_setting_rule
 
 SPECS = [
-    SettingRuleSpec("DEV-001", "Secure Boot disabled", RuleCategory.DEVICE_SECURITY, "SECURE_BOOT_ENABLED", True, Severity.HIGH),
+    SettingRuleSpec("DEV-001", "Secure Boot state", RuleCategory.DEVICE_SECURITY, "SECURE_BOOT_ENABLED", True, Severity.HIGH),
     SettingRuleSpec("DEV-002", "TPM unavailable or not ready", RuleCategory.DEVICE_SECURITY, "TPM_READY", True, Severity.HIGH),
     SettingRuleSpec("DEV-003", "VBS disabled", RuleCategory.DEVICE_SECURITY, "VBS_RUNNING", True, Severity.MEDIUM),
     SettingRuleSpec("DEV-004", "Credential Guard disabled", RuleCategory.DEVICE_SECURITY, "CREDENTIAL_GUARD_RUNNING", True, Severity.MEDIUM),

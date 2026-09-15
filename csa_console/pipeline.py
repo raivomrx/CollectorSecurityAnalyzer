@@ -161,6 +161,7 @@ class ConsoleAnalysisPipeline:
         *,
         run_cve: bool = False,
         cve_progress_callback: Callable[[dict], None] | None = None,
+        nvd_api_key: str | None = None,
     ) -> EndpointAnalysis:
         """Rerun analysis and persist failure after any pipeline exception."""
 
@@ -170,6 +171,7 @@ class ConsoleAnalysisPipeline:
                 submission_id,
                 run_cve=run_cve,
                 cve_progress_callback=cve_progress_callback,
+                nvd_api_key=nvd_api_key,
             )
         except Exception:
             if run_cve:
@@ -183,6 +185,7 @@ class ConsoleAnalysisPipeline:
         *,
         run_cve: bool = False,
         cve_progress_callback: Callable[[dict], None] | None = None,
+        nvd_api_key: str | None = None,
     ) -> EndpointAnalysis:
         """Implement endpoint reanalysis after accepted evidence validation."""
 
@@ -249,6 +252,7 @@ class ConsoleAnalysisPipeline:
                 privacy_mode="strict",
                 analysis_metadata=cve_metadata,
                 cve_progress_callback=cve_progress_callback,
+                nvd_api_key=nvd_api_key,
             )
         except Exception:
             if run_cve:
@@ -312,7 +316,7 @@ class ConsoleAnalysisPipeline:
                     }
                 )
             ),
-            analysis_engine_version="CSA-5.3.1",
+            analysis_engine_version="CSA-5.4.0",
             cve_analysis_status=str(
                 cve_metadata.get("status", "NOT_PERFORMED")
             ),

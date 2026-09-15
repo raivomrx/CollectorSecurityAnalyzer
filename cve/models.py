@@ -124,6 +124,7 @@ class CveProductEvaluation:
     failure_stage: str | None = None
     failure_reason: str | None = None
     retryable: bool = False
+    discovery_trace: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -149,3 +150,4 @@ class CveScanSummary:
     product_evaluations: list[CveProductEvaluation] = field(
         default_factory=list
     )
+    telemetry: dict[str, Any] = field(default_factory=dict)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -50,6 +51,7 @@ class VulnerabilityEnrichmentService:
         self.providers = providers
         self.prioritization_weights = prioritization_weights or {}
         self.enrich_not_affected = enrich_not_affected
+        self.provider_seconds: dict[str, float] = {}
 
     def enrich_summary(
         self,
@@ -182,6 +184,7 @@ class VulnerabilityEnrichmentService:
         for provider in self.providers:
             state = execution_states[provider.name]
             state.attempts += 1
+            started = time.perf_counter()
             try:
                 enrichment = provider.enrich(cve_id)
                 if enrichment is not None:
@@ -193,6 +196,8 @@ class VulnerabilityEnrichmentService:
                 LOGGER.exception("Provider failed for CVE ID")
                 state.succeeded = False
                 state.errors.append(f"{cve_id}: provider exception")
+            finally:
+                self.provider_seconds[provider.name] = self.provider_seconds.get(provider.name, 0.0) + time.perf_counter() - started
         return enrichments
 
     def _enrich_assessment(

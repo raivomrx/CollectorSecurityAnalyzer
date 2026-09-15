@@ -166,7 +166,7 @@ function Get-CSABitLockerManageBdeVolumes {
 
 function ConvertFrom-CSAShellBitLockerValue {
     param(
-        [Parameter(Mandatory = $true)]$RawValue,
+        [Parameter(Mandatory = $true)][AllowNull()][AllowEmptyString()]$RawValue,
         [string]$MountPoint = $env:SystemDrive,
         [string]$VolumeType = "OperatingSystem"
     )
@@ -185,8 +185,9 @@ function ConvertFrom-CSAShellBitLockerValue {
         7 = @{ Protection = $false; Configured = $false; State = "OFF_NO_TURN_ON"; Status = "SUCCESS" }
         8 = @{ Protection = $null; Configured = $true; State = "PRE_PROVISIONED"; Status = "PARTIAL" }
     }
-    if (-not $mapping.ContainsKey($numeric)) { return $null }
-    $item = $mapping[$numeric]
+    $item = if ($mapping.ContainsKey($numeric)) { $mapping[$numeric] } else {
+        @{ Protection = $null; Configured = $false; State = "UNKNOWN"; Status = "PARTIAL" }
+    }
     return [pscustomobject]@{
         MountPoint = $MountPoint
         VolumeType = $VolumeType
@@ -306,6 +307,7 @@ function Get-CSABitLockerEvidence {
     $errors = @()
     $providers = @()
     $attempts = @()
+    $partialStates = @()
     $explicitPrimary = $PSBoundParameters.ContainsKey("VolumeProvider")
     $explicitSupport = $PSBoundParameters.ContainsKey("BitLockerSupported")
     $supported = if ($null -ne $BitLockerSupported) {
@@ -323,6 +325,8 @@ function Get-CSABitLockerEvidence {
                 { Get-BitLockerVolume -ErrorAction Stop }
             }
         }
+    } else {
+        $attempts += New-CSABitLockerAttempt "Get-BitLockerVolume" "NOT_AVAILABLE"
     }
     if (
         (-not $explicitPrimary -and -not ($explicitSupport -and -not $supported)) -or
@@ -376,15 +380,26 @@ function Get-CSABitLockerEvidence {
                     }
             )
             if ($volumes.Count -eq 0) {
-                $attempts += [ordered]@{ provider = $providerName; status = "NOT_AVAILABLE" }
+                $attempts += New-CSABitLockerAttempt $providerName "NOT_AVAILABLE"
                 continue
             }
-            $attempts += [ordered]@{ provider = $providerName; status = "SUCCESS" }
+            $states = @()
             foreach ($volume in $volumes) {
                 $state = ConvertTo-CSABitLockerState `
                     -Volume $volume `
                     -Provider $providerName `
                     -Confidence $providerConfidence
+                $states += $state
+            }
+            $systemStates = @($states | Where-Object { $_.VolumeType -eq "OperatingSystem" })
+            $authoritative = @($systemStates | Where-Object { $_.CollectionStatus -eq "SUCCESS" -and $_.ProtectionEnabled -is [bool] })
+            $attemptStatus = if ($authoritative.Count -gt 0) { "SUCCESS" } else { "PARTIAL" }
+            $attempts += New-CSABitLockerAttempt $providerName $attemptStatus -States $states -Confidence $providerConfidence -Selected ($authoritative.Count -gt 0)
+            if ($authoritative.Count -eq 0) {
+                $partialStates += $states
+                continue
+            }
+            foreach ($state in $states) {
                 $state.ProviderAttempts = @($attempts)
                 Add-CSABitLockerVolumeSettings -State $state -Settings $settings
             }
@@ -396,20 +411,20 @@ function Get-CSABitLockerEvidence {
                 -StartedAt $startedAt `
                 -Status $resultStatus
         } catch [System.UnauthorizedAccessException] {
-            $attempts += [ordered]@{ provider = $providerName; status = "ACCESS_DENIED" }
+            $attempts += New-CSABitLockerAttempt $providerName "ACCESS_DENIED"
             $errors += New-CSACollectionError `
                 "BitLocker" `
                 "ACCESS_DENIED" `
                 "CSA-BITLOCKER-PROVIDER-ACCESS-DENIED" `
-                "$providerName`: $($_.Exception.Message)"
+                "$providerName`: access denied"
         } catch {
             $status = Resolve-CSAExceptionStatus $_
-            $attempts += [ordered]@{ provider = $providerName; status = $status }
+            $attempts += New-CSABitLockerAttempt $providerName $status
             $errors += New-CSACollectionError `
                 "BitLocker" `
                 $status `
                 "CSA-BITLOCKER-PROVIDER-FAILED" `
-                "$providerName`: $($_.Exception.Message)"
+                "$providerName`: provider failed"
         }
     }
 
@@ -422,12 +437,24 @@ function Get-CSABitLockerEvidence {
         } else {
             $null
         }
+        $attempts += New-CSABitLockerAttempt "DEVICE_ENCRYPTION_POLICY" $(if ($null -eq $configured) { "NOT_AVAILABLE" } else { "PARTIAL" })
     } catch {
+        $attempts += New-CSABitLockerAttempt "DEVICE_ENCRYPTION_POLICY" (Resolve-CSAExceptionStatus $_)
         $errors += New-CSACollectionError `
             "BitLocker" `
             (Resolve-CSAExceptionStatus $_) `
             "CSA-BITLOCKER-REGISTRY-FAILED" `
-            $_.Exception.Message
+            "Device encryption policy could not be read."
+    }
+    if ($partialStates.Count -gt 0) {
+        # Preserve the best observed transitional/unknown state without turning
+        # it into authoritative protection or blocking subsequent providers.
+        $partial = @($partialStates | Where-Object { $_.VolumeType -eq "OperatingSystem" } | Select-Object -First 1)
+        if ($partial.Count -gt 0) {
+            $partial[0].ProviderAttempts = @($attempts)
+            Add-CSABitLockerVolumeSettings -State $partial[0] -Settings $settings
+            return New-CSAModuleResult -Module "BitLocker" -Settings $settings.ToArray() -Errors $errors -StartedAt $startedAt -Status "PARTIAL"
+        }
     }
     if ($null -ne $configured) {
         $metadata = @{
@@ -440,6 +467,7 @@ function Get-CSABitLockerEvidence {
             protectionEnabled = $null
             encryptionState = "UNKNOWN"
             encryptionPercentage = $null
+            fallbacksAttempted = @($attempts)
         }
         $settings.Add(
             (New-CSASetting "BITLOCKER_OS_PROTECTION" "Encryption" $null "REGISTRY" "PARTIAL" 60 "DEVICE_ENCRYPTION_POLICY" "BitLocker.RequireDeviceEncryption" -ConfiguredValue ([bool]$configured) -Metadata $metadata)
@@ -466,12 +494,31 @@ function Get-CSABitLockerEvidence {
             "CSA-BITLOCKER-NOT-EVALUATED" `
             "No provider returned reliable BitLocker protection evidence."
     }
+    $settings.Add((New-CSASetting "BITLOCKER_OS_PROTECTION" "Encryption" $null "RUNTIME_STATE" $finalStatus 0 "CSA provider chain" "ProviderAttempts" -Metadata @{
+        volumeType = "OperatingSystem"; mountPoint = [string]$env:SystemDrive
+        protectionEnabled = $null; encryptionState = "UNKNOWN"; fallbacksAttempted = @($attempts)
+    }))
     return New-CSAModuleResult `
         -Module "BitLocker" `
         -Settings $settings.ToArray() `
         -Errors $errors `
         -StartedAt $startedAt `
         -Status $finalStatus
+}
+
+function New-CSABitLockerAttempt {
+    param([string]$Provider, [string]$Status, [object[]]$States = @(), [int]$Confidence = 0, [bool]$Selected = $false)
+    $system = @($States | Where-Object { $_.VolumeType -eq "OperatingSystem" } | Select-Object -First 1)
+    $raw = if ($system.Count -gt 0) { $system[0].RawEvidence } else { $null }
+    [ordered]@{
+        provider = $Provider; status = $Status; executionStatus = $Status
+        rawStateAvailable = ($system.Count -gt 0)
+        rawState = if ($null -ne $raw) { $raw } else { $null }
+        parsedState = if ($system.Count -gt 0) { $system[0].EncryptionState } else { "UNKNOWN" }
+        protectionEnabled = if ($system.Count -gt 0) { $system[0].ProtectionEnabled } else { $null }
+        errorCategory = if ($Status -in @("SUCCESS", "PARTIAL")) { $null } else { $Status }
+        confidence = $Confidence; selectedAsAuthoritative = $Selected
+    }
 }
 
 Export-ModuleMember -Function Get-CSABitLockerEvidence, ConvertFrom-CSAManageBdeOutput, ConvertFrom-CSAShellBitLockerValue

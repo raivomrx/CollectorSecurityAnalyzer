@@ -33,7 +33,8 @@ PRODUCT_PATTERNS = (
     (r"^anydesk\b", "AnyDesk"),
     (r"^forticlient\b", "FortiClient"),
     (r"^java 8(?: update)?\b", "Java 8"),
-    (r"^microsoft edge\b", "Microsoft Edge"),
+    (r"^microsoft edge webview2 runtime\b", "Microsoft Edge WebView2 Runtime"),
+    (r"^microsoft edge(?:\s+[\d.]+)?$", "Microsoft Edge"),
     (r"^google chrome\b", "Google Chrome"),
 )
 DISCOVERY_EXCLUSIONS = (
@@ -69,6 +70,8 @@ def normalize_product(
     exact_result = _match_exact_alias(text, aliases)
     if exact_result is not None:
         return exact_result
+    if re.search(r"\b(?:helper|updater|update helper|add-in)\b", text, re.IGNORECASE):
+        return NormalizationResult(value=text, confidence=0, reason="component_identity_required")
     pattern_result = _match_product_pattern(text)
     if pattern_result is not None:
         return pattern_result

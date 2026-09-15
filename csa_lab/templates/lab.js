@@ -228,6 +228,7 @@
     root.append(heading, list);
     const evaluations = item.cveSummary?.productEvaluations || [];
     appendCvePipeline(root, evaluations);
+    appendCveTelemetry(root, item.cveSummary?.telemetry);
     root.classList.remove("hidden");
   }
 
@@ -268,6 +269,20 @@
         row.append(cell);
       });
       body.append(row);
+      if (evaluation.discoveryTrace?.queries?.length) {
+        const traceRow = document.createElement("tr");
+        const traceCell = document.createElement("td");
+        traceCell.colSpan = values.length;
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.textContent = `${evaluation.displayName}: CPE discovery trace`;
+        const trace = document.createElement("pre");
+        trace.textContent = JSON.stringify(evaluation.discoveryTrace, null, 2);
+        details.append(summary, trace);
+        traceCell.append(details);
+        traceRow.append(traceCell);
+        body.append(traceRow);
+      }
     });
     table.append(head, body);
     wrapper.append(table);
@@ -301,6 +316,7 @@
     const pipelineRoot = $("advanced-cve-pipeline");
     pipelineRoot.replaceChildren();
     payload.endpoints.forEach((endpoint) => {
+      appendCveTelemetry(pipelineRoot, endpoint.cveSummary?.telemetry);
       appendCvePipeline(
         pipelineRoot,
         endpoint.cveSummary?.productEvaluations || [],
@@ -600,7 +616,46 @@
   $("show-report").addEventListener("click", () => action("show-report"));
   $("export-archive").addEventListener("click", exportArchive);
   $("offline-file").addEventListener("change", importOffline);
-  $("settings-button").addEventListener("click", () => $("settings-dialog").showModal());
+  function appendCveTelemetry(root, telemetry) {
+    if (!telemetry) return;
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = `CVE diagnostics — ${Number(telemetry.totalAnalysisSeconds || telemetry.cveScanSeconds || 0).toFixed(2)} s`;
+    const pre = document.createElement("pre");
+    pre.textContent = JSON.stringify(telemetry, null, 2);
+    details.append(summary, pre);
+    root.append(details);
+  }
+
+  function showNvdStatus(data) {
+    $("nvd-key-status").textContent = `NVD API key: ${data.configured ? "configured" : "not configured"}. Source: ${data.source}.`;
+    $("nvd-remove").disabled = !data.savedKey;
+  }
+
+  async function nvdAction(action) {
+    const key = action === "save" ? $("nvd-api-key").value : undefined;
+    $("nvd-api-key").value = "";
+    ["nvd-save", "nvd-remove", "nvd-test"].forEach((id) => { $(id).disabled = true; });
+    $("nvd-connection-status").textContent = action === "test" ? "Testing NVD connection…" : "Saving configuration…";
+    try {
+      const data = await request("/api/v1/nvd-settings", { method: "POST", body: { action, key } });
+      showNvdStatus(data);
+      $("nvd-connection-status").textContent = data.message || "Configuration updated.";
+    } catch (error) {
+      $("nvd-connection-status").textContent = error.message;
+    } finally {
+      $("nvd-save").disabled = false;
+      $("nvd-test").disabled = false;
+      try { showNvdStatus(await request("/api/v1/nvd-settings")); } catch (_) { /* Keep last safe status. */ }
+    }
+  }
+  $("nvd-save").addEventListener("click", () => nvdAction("save"));
+  $("nvd-remove").addEventListener("click", () => nvdAction("remove"));
+  $("nvd-test").addEventListener("click", () => nvdAction("test"));
+  $("settings-button").addEventListener("click", async () => {
+    $("settings-dialog").showModal();
+    try { showNvdStatus(await request("/api/v1/nvd-settings")); } catch (error) { $("nvd-key-status").textContent = error.message; }
+  });
   document.querySelectorAll('input[name="theme"]').forEach((input) => {
     input.addEventListener("change", () => saveTheme(input.value));
   });

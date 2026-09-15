@@ -1,0 +1,21 @@
+{
+  "adobe|adobe lightroom classic": {
+    "vendor": "adobe",
+    "product": "lightroom",
+    "sw_edition": "classic",
+    "query": "Adobe Lightroom Classic",
+    "source": "https://nvd.nist.gov/vuln/detail/CVE-2021-40776"
+  },
+  "adobe|adobe premiere pro": {
+    "vendor": "adobe",
+    "product": "premiere_pro",
+    "query": "Adobe Premiere Pro",
+    "source": "https://nvd.nist.gov/vuln/detail/CVE-2020-9653"
+  },
+  "the document foundation|libreoffice": {
+    "vendor": "libreoffice",
+    "product": "libreoffice",
+    "query": "LibreOffice",
+    "source": "https://www.libreoffice.org/about-us/security/advisories/"
+  }
+}

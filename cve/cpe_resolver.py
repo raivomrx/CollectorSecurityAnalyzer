@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
@@ -43,6 +44,7 @@ class CpeResolution:
     candidate_count: int
     status: str
     reason: str | None = None
+    trace: dict[str, Any] = field(default_factory=dict)
 
 
 class CpeResolver:
@@ -59,6 +61,8 @@ class CpeResolver:
 
         self.client = client
         self.mappings = _load_mappings(mapping_path)
+        self.discovery_aliases = _load_mappings(DEFAULT_MAPPING_PATH.with_name("cpe_discovery_aliases.json"))
+        self.metrics = {"localMappingSeconds": 0.0, "cpeDiscoverySeconds": 0.0, "resolutionMemoryHits": 0}
         self.minimum_confidence = minimum_confidence
         self.ambiguous_score_difference = ambiguous_score_difference
         self._resolution_cache: dict[str, CpeResolution] = {}
@@ -72,13 +76,16 @@ class CpeResolver:
         """Resolve a product and retain the candidate decision for audit."""
 
         cache_key = (
-            f"{software.normalized_vendor}|{software.normalized_product}"
+            f"{software.normalized_vendor}|{software.normalized_product}|{software.normalized_version}"
         ).casefold()
         cached = self._resolution_cache.get(cache_key)
         if cached is not None:
+            self.metrics["resolutionMemoryHits"] += 1
             return cached
 
+        started = time.perf_counter()
         local = self._resolve_local(software)
+        self.metrics["localMappingSeconds"] += time.perf_counter() - started
         if local is not None:
             LOGGER.info(
                 "CPE resolved: %s, confidence=%s, source=%s",
@@ -99,14 +106,32 @@ class CpeResolver:
             )
             self._resolution_cache[cache_key] = resolution
             return resolution
-        candidates = self._resolve_nvd(software)
+        trace: dict[str, Any] = {
+            "normalizedVendor": software.normalized_vendor,
+            "normalizedProduct": software.normalized_product,
+            "displayName": software.product, "installedVersion": software.version,
+            "queries": [], "topCandidates": [], "candidateCount": 0,
+            "selectedCandidate": None, "terminalStatus": "ATTEMPTED",
+        }
+        started = time.perf_counter()
+        try:
+            candidates = self._resolve_nvd(software, trace)
+        except Exception as error:
+            trace["terminalStatus"] = "FAILED"
+            trace["rejectionReason"] = "Remote CPE provider failed; see provider status"
+            error.discovery_trace = trace
+            raise
+        finally:
+            self.metrics["cpeDiscoverySeconds"] += time.perf_counter() - started
         if not candidates:
             resolution = CpeResolution(
                 None,
                 0,
                 "NO_RELIABLE_MAPPING",
-                "NVD CPE search returned no reliable candidate",
+                "NVD candidates did not establish vendor, product and edition identity",
+                trace,
             )
+            trace.update(terminalStatus=resolution.status, rejectionReason=resolution.reason)
             self._resolution_cache[cache_key] = resolution
             return resolution
         candidates = _collapse_equivalent_candidates(candidates)
@@ -114,14 +139,16 @@ class CpeResolver:
         active = [candidate for candidate in candidates if not candidate.deprecated]
         ranked = active or candidates
         best = ranked[0]
-        if best.confidence < self.minimum_confidence:
+        if not active or best.confidence < self.minimum_confidence:
             resolution = CpeResolution(
                 None,
                 len(ranked),
                 "NO_RELIABLE_MAPPING",
-                f"Best CPE confidence {best.confidence} is below "
-                f"{self.minimum_confidence}",
+                "Only deprecated candidates were found" if not active else
+                f"Best CPE confidence {best.confidence} is below {self.minimum_confidence}",
+                trace,
             )
+            trace.update(terminalStatus=resolution.status, rejectionReason=resolution.reason)
             self._resolution_cache[cache_key] = resolution
             return resolution
         if (
@@ -136,10 +163,13 @@ class CpeResolver:
                 len(ranked),
                 "AMBIGUOUS",
                 "Top CPE candidates are too close to select reliably",
+                trace,
             )
+            trace.update(terminalStatus=resolution.status, rejectionReason=resolution.reason)
             self._resolution_cache[cache_key] = resolution
             return resolution
-        resolution = CpeResolution(best, len(ranked), "SUCCESS")
+        trace.update(terminalStatus="SUCCESS", selectedCandidate=best.cpe_name, rejectionReason=None)
+        resolution = CpeResolution(best, len(ranked), "SUCCESS", trace=trace)
         self._resolution_cache[cache_key] = resolution
         return resolution
 
@@ -183,34 +213,61 @@ class CpeResolver:
             source="LOCAL_MAPPING",
         )
 
-    def _resolve_nvd(self, software: SoftwareProduct) -> list[CpeCandidate]:
+    def _resolve_nvd(self, software: SoftwareProduct, trace: dict[str, Any]) -> list[CpeCandidate]:
         """Resolve using the NVD CPE API."""
 
         assert self.client is not None
-        query = f"{software.normalized_vendor} {software.normalized_product}".strip()
-        products = self.client.get_cpes({"keywordSearch": query, "keywordExactMatch": ""})
+        alias = self.discovery_aliases.get(
+            f"{software.normalized_vendor}|{software.normalized_product}".casefold(), {}
+        )
+        queries = list(dict.fromkeys(query.strip() for query in (
+            str(alias.get("query", "")), software.normalized_product,
+            f"{software.normalized_vendor} {software.normalized_product}", software.product,
+        ) if query.strip()))
         candidates: list[CpeCandidate] = []
-        for product in products:
-            cpe = product.get("cpe", product)
-            cpe_name = str(cpe.get("cpeName", ""))
-            title = _read_title(cpe)
-            vendor, cpe_product, version = parse_cpe23(cpe_name)
-            confidence = _score_candidate(software, vendor, cpe_product, title)
-            if confidence < 65:
-                continue
-            candidates.append(
-                CpeCandidate(
-                    cpe_name=cpe_name,
-                    title=title,
-                    vendor=vendor,
-                    product=cpe_product,
-                    version=version if version not in {"*", "-"} else None,
-                    deprecated=bool(cpe.get("deprecated", False)),
-                    confidence=confidence,
-                    match_status=_status_for_confidence(confidence),
-                    source="NVD_CPE_API",
-                )
-            )
+        seen: set[str] = set()
+        for query in queries:
+            attempt = {"query": query, "status": "ATTEMPTED", "candidateCount": 0}
+            trace["queries"].append(attempt)
+            products = self.client.get_cpes({"keywordSearch": query})
+            attempt.update(status="SUCCESS", candidateCount=len(products))
+            for product in products:
+                cpe = product.get("cpe", product)
+                cpe_name = str(cpe.get("cpeName", ""))
+                if cpe_name in seen:
+                    continue
+                seen.add(cpe_name)
+                parsed = parse_cpe23_components(cpe_name)
+                title = _read_title(cpe)
+                confidence, reason = _identity_confidence(software, parsed, title, alias)
+                diagnostic = {
+                    "cpe": cpe_name, "title": title,
+                    "vendor": parsed.vendor if parsed else "", "product": parsed.product if parsed else "",
+                    "edition": parsed.edition if parsed else "", "softwareEdition": parsed.sw_edition if parsed else "",
+                    "confidence": confidence, "deprecated": bool(cpe.get("deprecated", False)),
+                    "vendorIdentity": "CONFIRMED" if confidence >= 45 else "NOT_CONFIRMED",
+                    "productIdentity": "CONFIRMED" if reason is None else "NOT_CONFIRMED",
+                    "installedVersionAvailable": bool(parsed and parsed.version == software.normalized_version),
+                    "rejectionReason": reason,
+                }
+                trace["topCandidates"].append(diagnostic)
+                if parsed is None or reason:
+                    continue
+                candidates.append(CpeCandidate(
+                    cpe_name=cpe_name, title=title, vendor=parsed.vendor, product=parsed.product,
+                    version=parsed.version if parsed.version not in {"*", "-"} else None,
+                    deprecated=diagnostic["deprecated"], confidence=confidence,
+                    match_status=_status_for_confidence(confidence), source="NVD_CPE_API",
+                ))
+            ranked = sorted(_collapse_equivalent_candidates(candidates), key=lambda item: -item.confidence)
+            active = [item for item in ranked if not item.deprecated]
+            if active and active[0].confidence >= 95 and (
+                len(active) == 1 or active[0].confidence - active[1].confidence >= self.ambiguous_score_difference
+            ):
+                break
+        trace["candidateCount"] = len(seen)
+        trace["topCandidates"] = sorted(trace["topCandidates"], key=lambda item: (-item["confidence"], item["cpe"]))[:20]
+        trace["aliasSource"] = alias.get("source")
         return candidates
 
 
@@ -338,6 +395,43 @@ def _load_mappings(path: str | Path) -> dict[str, Any]:
     return json.loads(mapping_path.read_text(encoding="utf-8"))
 
 
+def _identity_confidence(
+    software: SoftwareProduct, parsed: ParsedCpe23 | None, title: str,
+    alias: dict[str, Any],
+) -> tuple[int, str | None]:
+    """Require vendor AND product identity; titles cannot compensate for either."""
+
+    if parsed is None or parsed.part != "a":
+        return 0, "Not a valid application CPE"
+    expected_vendor = str(alias.get("vendor", software.normalized_vendor))
+    vendor_score = _component_score(expected_vendor, parsed.vendor, exact=50, similar=45)
+    if vendor_score < 45:
+        return 0, "Vendor identity not established"
+    expected_product = str(alias.get("product", software.normalized_product))
+
+    def product_key(value: str) -> str:
+        key = _identity_key(value)
+        for vendor in (software.normalized_vendor, expected_vendor):
+            prefix = _identity_key(vendor) + " "
+            if key.startswith(prefix):
+                key = key[len(prefix):]
+        return key
+
+    if product_key(expected_product) != product_key(parsed.product):
+        return vendor_score, "Product family or component identity differs"
+    expected_edition = alias.get("sw_edition")
+    if expected_edition and parsed.sw_edition != expected_edition:
+        return vendor_score, "Required software edition was not established"
+    if not expected_edition and parsed.sw_edition not in {"*", "-"}:
+        if _identity_key(parsed.sw_edition) not in _identity_key(software.product).split():
+            return vendor_score, "Specific software edition is not evidenced by inventory"
+    if parsed.edition not in {"*", "-"} and _identity_key(parsed.edition) not in _identity_key(software.product).split():
+        return vendor_score, "Specific product edition is not evidenced by inventory"
+    # A title corroborates a matched identity, but never establishes one alone.
+    title_score = 10 if product_key(expected_product) in product_key(title) else 5
+    return min(100, vendor_score + 35 + title_score), None
+
+
 def _score_candidate(software: SoftwareProduct, vendor: str, product: str, title: str) -> int:
     """Score a CPE API candidate."""
 
@@ -374,7 +468,7 @@ def _collapse_equivalent_candidates(
         parsed = parse_cpe23_components(candidate.cpe_name)
         if parsed is None:
             continue
-        key = (parsed.part, parsed.vendor, parsed.product)
+        key = (parsed.part, parsed.vendor, parsed.product, parsed.edition, parsed.sw_edition, parsed.target_sw, parsed.target_hw, parsed.language, parsed.other)
         grouped.setdefault(key, []).append(candidate)
 
     collapsed: list[CpeCandidate] = []
@@ -390,6 +484,9 @@ def _collapse_equivalent_candidates(
             parsed.part,
             parsed.vendor,
             parsed.product,
+            edition=parsed.edition, sw_edition=parsed.sw_edition,
+            target_sw=parsed.target_sw, target_hw=parsed.target_hw,
+            language=parsed.language, other=parsed.other,
         )
         collapsed.append(
             CpeCandidate(

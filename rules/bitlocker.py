@@ -20,7 +20,7 @@ class BitLockerRule(BaseRule):
 
     metadata = RuleMetadata(
         id="BIT-001",
-        title="BitLocker Enabled",
+        title="BitLocker protection",
         version="1.0",
         author="CSA",
         category=RuleCategory.ENCRYPTION,

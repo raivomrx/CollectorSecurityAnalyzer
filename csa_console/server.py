@@ -201,7 +201,7 @@ def _handler_factory(
     limiter = _RateLimiter()
 
     class SubmissionHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Lab/5.3.1"
+        server_version = "CSA-Lab/5.4.0"
         protocol_version = "HTTP/1.1"
 
         def do_GET(self) -> None:

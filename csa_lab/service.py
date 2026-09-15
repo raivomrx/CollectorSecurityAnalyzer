@@ -17,6 +17,7 @@ import zipfile
 from collections.abc import Callable
 from dataclasses import fields
 from pathlib import Path
+from csa_lab.secrets import NvdSecretStore
 from typing import Any
 
 from csa_console.audit import ConsoleAuditLog
@@ -93,9 +94,43 @@ class LabApplicationService:
         self._secret = self._load_or_create_join_secret()
         self._application_audit().append(
             "application_started",
-            {"version": "5.3.1", "processId": os.getpid()},
+            {"version": "5.4.0", "processId": os.getpid()},
         )
         self.detect_recovery_items()
+
+    def nvd_settings(self) -> dict:
+        """Return configuration presence, never the stored credential."""
+        return NvdSecretStore(self.storage.root.parent).status()
+
+    def configure_nvd(self, action: str, key: str | None = None) -> dict:
+        store = NvdSecretStore(self.storage.root.parent)
+        if action == "save":
+            store.save(key)
+        elif action == "remove":
+            store.remove()
+        elif action == "test":
+            from cve.client import NvdClient, NVD_CVE_ENDPOINT
+
+            class ProbeCache:
+                def get(self, cache_key):
+                    return None
+
+                def set(self, *args):
+                    pass
+
+            try:
+                client = NvdClient(api_key=store.load(), cache=ProbeCache(), timeout=10, max_retries=0)
+                try:
+                    client._get_json(NVD_CVE_ENDPOINT, {"resultsPerPage": 1})
+                finally:
+                    client.session.close()
+            except Exception:
+                return {**store.status(), "connection": "FAILED", "message": "NVD connection failed. Check the key activation, network and provider availability."}
+            return {**store.status(), "connection": "SUCCESS", "message": "NVD connection succeeded."}
+        else:
+            raise ValueError("Unknown NVD settings action")
+        self._application_audit().append("nvd_key_configuration_changed", {"savedKey": store.status()["savedKey"]})
+        return store.status()
 
     def load_ui_preferences(self) -> dict[str, str]:
         """Load validated local UI preferences outside assessment evidence."""
@@ -861,6 +896,7 @@ class LabApplicationService:
                 submission_id,
                 run_cve=True,
                 cve_progress_callback=endpoint_progress,
+                nvd_api_key=NvdSecretStore(self.storage.root.parent).load(),
             )
             if result.cve_analysis_status == "COMPLETE":
                 completed += 1
@@ -1115,7 +1151,7 @@ class LabApplicationService:
         summary = {
             "schemaVersion": "5.2",
             "generatedAt": utc_text(),
-            "applicationVersion": "5.2",
+            "applicationVersion": "5.4.0",
             "assessmentCount": len(assessments),
             "assessments": assessments,
             "containsEvidence": False,
@@ -1419,7 +1455,7 @@ def _sanitize_diagnostic_log(value: str) -> str:
     """Remove credentials, network identities and local paths from logs."""
 
     sanitized = re.sub(
-        r"(?i)\b(token|password|secret|private[_ ]?key)"
+        r"(?i)\b(token|password|secret|private[_ ]?key|(?:nvd[_ ]?)?api[_ ]?key)"
         r"\s*[=:]\s*[^\s,;]+",
         r"\1=[REDACTED]",
         value,

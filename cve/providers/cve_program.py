@@ -202,6 +202,7 @@ class CveProgramProvider(VulnerabilityDataProvider):
         self.sleep = sleep
         self.cache = cache or CveProgramCache(source_identity=self._source_identity())
         self._records_loaded = 0
+        self.metrics = {"cveProgramCacheHits": 0, "cveProgramCacheMisses": 0, "cveProgramRequests": 0, "cveProgramStaleHits": 0}
         self._used_stale_cache = False
         self._partial = False
         self._error_message: str | None = None
@@ -263,7 +264,9 @@ class CveProgramProvider(VulnerabilityDataProvider):
 
         cached = self.cache.get(cve_id)
         if cached is not None:
+            self.metrics["cveProgramCacheHits"] += 1
             return cached, False
+        self.metrics["cveProgramCacheMisses"] += 1
         url = f"{self.raw_base_url}/{cve_record_relative_path(cve_id).as_posix()}"
         try:
             data = self._get_remote_json(url)
@@ -274,6 +277,7 @@ class CveProgramProvider(VulnerabilityDataProvider):
         except Exception:
             stale = self.cache.get_stale(cve_id) if self.allow_stale_cache else None
             if stale is not None:
+                self.metrics["cveProgramStaleHits"] += 1
                 LOGGER.warning("Using stale CVE Program cache")
                 self._used_stale_cache = True
                 self._partial = True
@@ -286,6 +290,7 @@ class CveProgramProvider(VulnerabilityDataProvider):
         last_error: Exception | None = None
         for attempt in range(self.max_retries + 1):
             try:
+                self.metrics["cveProgramRequests"] += 1
                 response = self.session.get(url, timeout=self.timeout)
                 if response.status_code == 404:
                     return None

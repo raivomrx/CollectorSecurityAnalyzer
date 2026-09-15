@@ -107,7 +107,7 @@ def _admin_handler_factory(application: LabAdminServer):
     service = application.service
 
     class AdminHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Lab-Admin/5.3.1"
+        server_version = "CSA-Lab-Admin/5.4.0"
         protocol_version = "HTTP/1.1"
 
         def do_GET(self) -> None:
@@ -129,6 +129,8 @@ def _admin_handler_factory(application: LabAdminServer):
                     )
                 elif path == "/api/v1/preferences":
                     self._json(HTTPStatus.OK, service.load_ui_preferences())
+                elif path == "/api/v1/nvd-settings":
+                    self._json(HTTPStatus.OK, service.nvd_settings())
                 elif path == "/api/v1/assessments":
                     self._json(
                         HTTPStatus.OK,
@@ -239,6 +241,10 @@ def _admin_handler_factory(application: LabAdminServer):
                     )
                     return
                 if not path.startswith("/api/v1/assessments/"):
+                    if path == "/api/v1/nvd-settings":
+                        data = self._read_json(MAX_JSON)
+                        self._json(HTTPStatus.OK, service.configure_nvd(str(data.get("action", "")), data.get("key")))
+                        return
                     if path == "/api/v1/preferences":
                         data = self._read_json(MAX_JSON)
                         self._json(

@@ -29,7 +29,7 @@ $CollectionProfilePath = if ([string]::IsNullOrWhiteSpace($CollectionProfilePath
 } else {
     $CollectionProfilePath
 }
-$collectorVersion = "5.3.1"
+$collectorVersion = "5.4.0"
 $started = (Get-Date).ToUniversalTime()
 $moduleRoot = Join-Path $PSScriptRoot "modules"
 $manifestPath = Join-Path $PSScriptRoot "evidence-manifest.json"

@@ -32,13 +32,19 @@ class NvdClient:
         cache: NvdCache | None = None,
         session: requests.Session | None = None,
         limiter: SlidingWindowRateLimiter | None = None,
+        api_key: str | None = None,
     ) -> None:
         """Create a configured NVD client."""
 
         self.timeout = timeout
         self.max_retries = max_retries
         self.cache_ttl_hours = cache_ttl_hours
-        self.api_key = os.getenv(api_key_env_var)
+        self.api_key = api_key if api_key is not None else os.getenv(api_key_env_var)
+        self.metrics = {
+            "nvdApiKeyConfigured": bool(self.api_key), "nvdRequests": 0,
+            "rateLimitWaitSeconds": 0.0, "cpeCacheHits": 0, "cpeCacheMisses": 0,
+            "cveCacheHits": 0, "cveCacheMisses": 0, "nvdCveRetrievalSeconds": 0.0,
+        }
         self.cache = NvdCache() if cache is None else cache
         self.session = requests.Session() if session is None else session
         self.limiter = limiter or SlidingWindowRateLimiter(
@@ -55,7 +61,11 @@ class NvdClient:
     def get_cves(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         """Return CVE vulnerabilities from NVD."""
 
-        data = self._get_paginated(NVD_CVE_ENDPOINT, params, "vulnerabilities")
+        started = time.perf_counter()
+        try:
+            data = self._get_paginated(NVD_CVE_ENDPOINT, params, "vulnerabilities")
+        finally:
+            self.metrics["nvdCveRetrievalSeconds"] += time.perf_counter() - started
         return [item for item in data if isinstance(item, dict)]
 
     def _get_paginated(
@@ -88,9 +98,12 @@ class NvdClient:
 
         cache_key = NvdCache.make_key(endpoint, params)
         cached = self.cache.get(cache_key)
+        cache_label = "cpe" if endpoint == NVD_CPE_ENDPOINT else "cve"
         if cached is not None:
+            self.metrics[cache_label + "CacheHits"] += 1
             LOGGER.info("NVD cache hit: endpoint=%s", _endpoint_label(endpoint))
             return cached
+        self.metrics[cache_label + "CacheMisses"] += 1
 
         headers = {"User-Agent": USER_AGENT}
         if self.api_key:
@@ -99,7 +112,10 @@ class NvdClient:
         last_error: Exception | None = None
         for attempt in range(self.max_retries + 1):
             try:
+                waiting = time.perf_counter()
                 self.limiter.acquire()
+                self.metrics["rateLimitWaitSeconds"] += time.perf_counter() - waiting
+                self.metrics["nvdRequests"] += 1
                 response = self.session.get(
                     endpoint,
                     params=params,
@@ -107,12 +123,14 @@ class NvdClient:
                     timeout=self.timeout,
                 )
                 if response.status_code == 429:
+                    waiting = time.perf_counter()
                     self.limiter.retry_after(response.headers.get("Retry-After"))
-                    raise _http_error(endpoint, response, retryable=True)
+                    self.metrics["rateLimitWaitSeconds"] += time.perf_counter() - waiting
+                    raise _http_error(endpoint, response, retryable=True, secret=self.api_key)
                 if response.status_code >= 500:
-                    raise _http_error(endpoint, response, retryable=True)
+                    raise _http_error(endpoint, response, retryable=True, secret=self.api_key)
                 if 400 <= response.status_code < 500:
-                    raise _http_error(endpoint, response, retryable=False)
+                    raise _http_error(endpoint, response, retryable=False, secret=self.api_key)
                 response.raise_for_status()
                 data = response.json()
                 if not isinstance(data, dict):
@@ -166,12 +184,12 @@ def _endpoint_label(endpoint: str) -> str:
     return "UNKNOWN"
 
 
-def _http_error(endpoint: str, response: requests.Response, retryable: bool) -> NvdRequestError:
+def _http_error(endpoint: str, response: requests.Response, retryable: bool, secret: str | None = None) -> NvdRequestError:
     """Build a structured HTTP error without leaking request details."""
 
     label = _endpoint_label(endpoint)
     status = response.status_code
-    summary = _safe_response_summary(response)
+    summary = _safe_response_summary(response, secret)
     return NvdRequestError(
         f"NVD request failed: endpoint={label} status={status} summary={summary}",
         retryable=retryable,
@@ -180,10 +198,12 @@ def _http_error(endpoint: str, response: requests.Response, retryable: bool) -> 
     )
 
 
-def _safe_response_summary(response: requests.Response) -> str:
+def _safe_response_summary(response: requests.Response, secret: str | None = None) -> str:
     """Return a short sanitized response summary."""
 
     text = getattr(response, "text", "") or getattr(response, "reason", "") or ""
+    if secret:
+        text = str(text).replace(secret, "[REDACTED]")
     summary = re.sub(r"\s+", " ", str(text)).strip()
     if not summary:
         summary = "no response summary"

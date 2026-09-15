@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -87,9 +88,11 @@ def analyze_file(
     active_plan_digest: str | None = None,
     analysis_metadata: dict[str, Any] | None = None,
     cve_progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    nvd_api_key: str | None = None,
 ) -> tuple[list[AuditFinding], int, SoftwareInventory, Path]:
     """Analyze a collector JSON file and generate an HTML report."""
 
+    analysis_started = time.perf_counter()
     input_path = Path(path)
     if validate_input and input_path.suffix.casefold() == ".tmp":
         raise ValueError("Atomic incomplete collector output rejected")
@@ -123,6 +126,7 @@ def analyze_file(
         refresh_cve_cache,
         cve_debug,
         cve_progress_callback,
+        api_key=nvd_api_key,
     )
     _emit_cve_progress(
         cve_progress_callback,
@@ -234,6 +238,8 @@ def analyze_file(
     LOGGER.info("Security Score: %s", score)
     LOGGER.info("HTML report generated: %s", report_path)
     LOGGER.info("Framework analysis generated: %s", analysis_path)
+    if analysis_metadata is not None and context.cve_summary is not None:
+        analysis_metadata.setdefault("telemetry", {})["totalAnalysisSeconds"] = time.perf_counter() - analysis_started
     return audit_findings, score, software_inventory, report_path
 
 
@@ -392,6 +398,7 @@ def _cve_analysis_metadata(
         **base_metadata,
         "status": status,
         "timestamp": utc_text(),
+        "telemetry": dict(summary.telemetry),
         "installedSoftwareRecords": summary.scanned_products,
         "normalizedProducts": summary.unique_products,
         "cveEligibleProducts": summary.eligible_products,
@@ -781,6 +788,7 @@ def _product_evaluation_dict(evaluation: Any) -> dict[str, Any]:
 
     return {
         "productKey": evaluation.product_key,
+        "discoveryTrace": getattr(evaluation, "discovery_trace", {}),
         "displayName": evaluation.display_name,
         "version": evaluation.version,
         "normalizationStatus": evaluation.normalization_status,
@@ -877,6 +885,7 @@ def _run_cve_scan(
     refresh_cve_cache: bool,
     cve_debug: bool,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    api_key: str | None = None,
 ) -> None:
     """Run the CVE scan and store results on the analysis context."""
 
@@ -894,7 +903,7 @@ def _run_cve_scan(
     else:
         cache.clear_expired()
 
-    has_api_key = bool(__import__("os").getenv(str(cve_config.get("ApiKeyEnvironmentVariable", "NVD_API_KEY"))))
+    has_api_key = bool(api_key if api_key is not None else __import__("os").getenv(str(cve_config.get("ApiKeyEnvironmentVariable", "NVD_API_KEY"))))
     rate_config_key = "RateLimitWithApiKey" if has_api_key else "RateLimitWithoutApiKey"
     rate_config = cve_config.get(rate_config_key, {})
     if not isinstance(rate_config, dict):
@@ -912,6 +921,7 @@ def _run_cve_scan(
             api_key_env_var=str(cve_config.get("ApiKeyEnvironmentVariable", "NVD_API_KEY")),
             cache=cache,
             limiter=limiter,
+            api_key=api_key,
         )
         resolver = CpeResolver(
             client=client,
@@ -1006,11 +1016,12 @@ def _run_cve_enrichment(
     if not isinstance(priority_config, dict):
         priority_config = {}
     try:
-        context.cve_enrichment = VulnerabilityEnrichmentService(
+        service = VulnerabilityEnrichmentService(
             providers=providers,
             prioritization_weights=priority_config,
             enrich_not_affected=bool(enrichment_config.get("EnrichNotAffected", False)),
-        ).enrich_summary(
+        )
+        context.cve_enrichment = service.enrich_summary(
             context.cve_summary,
             progress_callback=lambda details: _emit_cve_progress(
                 progress_callback,
@@ -1020,6 +1031,12 @@ def _run_cve_enrichment(
                 **details,
             ),
         )
+        context.cve_summary.telemetry.update({
+            "cveProgramSeconds": service.provider_seconds.get("CVE Program", 0.0),
+            "cisaKevSeconds": service.provider_seconds.get("CISA KEV", 0.0),
+        })
+        for provider in providers:
+            context.cve_summary.telemetry.update(getattr(provider, "metrics", {}))
     except Exception:
         LOGGER.exception("CVE enrichment failed")
         context.cve_enrichment = None

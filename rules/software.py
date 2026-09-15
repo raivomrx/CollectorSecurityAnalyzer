@@ -20,13 +20,13 @@ class SoftwareInventoryRule(BaseRule):
 
     metadata = RuleMetadata(
         id="SW-001",
-        title="Unknown Software Detected",
+        title="Software not reliably identified for security analysis",
         version="1.0",
         author="CSA",
         category=RuleCategory.SOFTWARE,
         severity=Severity.MEDIUM,
         enabled=True,
-        description="Checks whether software inventory contains unknown products.",
+        description="Inventory entries exist, but some vendor/product identities may not be reliable enough for security analysis. This is an assessment-coverage limitation, not evidence of malware.",
     )
 
     def check(

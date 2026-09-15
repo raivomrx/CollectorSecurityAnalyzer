@@ -217,7 +217,7 @@ class CapabilityAndSessionTests(Sprint5TestCase):
         manifest = verify_collector_package(output)
         self.assertEqual(manifest["sessionId"], self.session.session_id)
         self.assertEqual(manifest["collectorVersion"], COLLECTOR_VERSION)
-        self.assertEqual(COLLECTOR_VERSION, "5.3.1")
+        self.assertEqual(COLLECTOR_VERSION, "5.4.0")
         self.assertIn("collectorBuildCommit", manifest)
         self.assertTrue(
             str(manifest["collectorBuildDigest"]).startswith("sha256:")

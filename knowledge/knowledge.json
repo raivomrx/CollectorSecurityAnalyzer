@@ -5,7 +5,7 @@
   },
   "entries": {
     "BIT-001": {
-      "title": "BitLocker is disabled",
+      "title": "BitLocker protection",
       "description": "The operating system drive is not protected with BitLocker encryption.",
       "risk": "Data can be accessed if the device is lost or stolen.",
       "recommendation": "Enable BitLocker for the system drive.",
@@ -155,8 +155,8 @@
       ]
     },
     "SW-001": {
-      "title": "Unknown software detected",
-      "description": "The software inventory contains products that could not be normalized with high confidence.",
+      "title": "Software not reliably identified for security analysis",
+      "description": "The software inventory entry exists, but CSA could not establish a sufficiently reliable vendor/product identity for security analysis. This is an assessment-coverage limitation and is not itself evidence of malware.",
       "risk": "Unknown software reduces asset visibility and can prevent accurate CVE, EOL, and unsupported software checks.",
       "recommendation": "Review unknown software entries and add approved aliases to the Software Intelligence Engine.",
       "frameworks": {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -53,6 +54,7 @@ class CveService:
     ) -> CveScanSummary:
         """Scan a software inventory for CVEs."""
 
+        scan_started = time.perf_counter()
         unique_products = _deduplicate(inventory.products)
         eligible_total = sum(1 for item in unique_products if _is_eligible(item))
         LOGGER.info("CVE scan started: %s unique software products", len(unique_products))
@@ -113,6 +115,7 @@ class CveService:
                     evaluation.cpe_candidate_count = resolution.candidate_count
                     evaluation.product_mapping_status = resolution.status
                     evaluation.provider_reason = resolution.reason
+                    evaluation.discovery_trace = getattr(resolution, "trace", {})
                 else:
                     cpe = self.resolver.resolve(software)
                     evaluation.cpe_candidate_count = 1 if cpe else 0
@@ -193,6 +196,7 @@ class CveService:
                     product_assessments.append(assessment)
                 _complete_evaluation(evaluation, product_assessments)
             except Exception as error:
+                evaluation.discovery_trace = getattr(error, "discovery_trace", evaluation.discovery_trace)
                 LOGGER.exception("CVE scan failed for a product")
                 endpoint = getattr(error, "endpoint_label", None)
                 if endpoint == "CPES" or evaluation.product_mapping_status == "NOT_RUN":
@@ -247,6 +251,10 @@ class CveService:
             summary.possible_vulnerabilities,
             summary.not_evaluated,
         )
+        summary.telemetry = {
+            **getattr(self.client, "metrics", {}), **getattr(self.resolver, "metrics", {}),
+            "cveScanSeconds": time.perf_counter() - scan_started,
+        }
         return summary
 
 

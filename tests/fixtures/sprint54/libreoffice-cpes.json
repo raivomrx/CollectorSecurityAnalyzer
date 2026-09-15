@@ -1,0 +1,63 @@
+[
+  {
+    "cpe": {
+      "deprecated": false,
+      "cpeName": "cpe:2.3:a:libreoffice:libreoffice:3.5.2:*:*:*:*:*:*:*",
+      "cpeNameId": "B2FD9CB0-5DFE-4868-8AE8-0C82E356F8D4",
+      "lastModified": "2016-08-31T18:18:39.983",
+      "created": "2012-06-20T14:47:12.837",
+      "titles": [
+        {
+          "title": "LibreOffice 3.5.2",
+          "lang": "en"
+        }
+      ],
+      "refs": [
+        {
+          "ref": "https://www.libreoffice.org/download/libreoffice-fresh/",
+          "type": "Version"
+        },
+        {
+          "ref": "https://www.libreoffice.org/",
+          "type": "Vendor"
+        }
+      ]
+    }
+  },
+  {
+    "cpe": {
+      "deprecated": false,
+      "cpeName": "cpe:2.3:a:libreoffice:libreoffice:3.3.202:*:*:*:*:*:*:*",
+      "cpeNameId": "8FAB6128-A916-452D-80A0-B36393BCD50C",
+      "lastModified": "2012-06-21T19:07:42.113",
+      "created": "2012-06-21T19:07:42.113",
+      "titles": [
+        {
+          "title": "Libreoffice 3.3.202",
+          "lang": "en"
+        }
+      ]
+    }
+  },
+  {
+    "cpe": {
+      "deprecated": false,
+      "cpeName": "cpe:2.3:a:libreoffice:libreoffice:4.2.4:*:*:*:*:*:*:*",
+      "cpeNameId": "5D2663CE-DEB6-4604-BF87-24282CF68DF8",
+      "lastModified": "2014-07-10T13:54:05.030",
+      "created": "2014-07-07T14:22:28.810",
+      "titles": [
+        {
+          "title": "LibreOffice 4.2.4",
+          "lang": "en"
+        }
+      ],
+      "refs": [
+        {
+          "ref": "http://www.libreoffice.org/",
+          "type": "Vendor"
+        }
+      ]
+    }
+  }
+]

@@ -179,7 +179,7 @@ def _evaluate_cpe_match(
     if _key(parsed.vendor) != _key(cpe.vendor) or _key(parsed.product) != _key(cpe.product):
         return _not_affected("CPE product mismatch")
 
-    environment_result = _evaluate_environment(parsed, environment_data)
+    environment_result = _evaluate_environment(parsed, environment_data, cpe)
     if environment_result is not None:
         return environment_result
 
@@ -251,7 +251,7 @@ def _evaluate_applicability_constraint(
 ) -> EvaluationResult:
     """Evaluate a non-vulnerable CPE used as an AND applicability constraint."""
 
-    environment_result = _evaluate_environment(parsed, environment_data)
+    environment_result = _evaluate_environment(parsed, environment_data, cpe)
     if environment_result is not None:
         return environment_result
 
@@ -354,6 +354,7 @@ def _platform_product_matches(criteria_product: str, observed_os: str) -> bool:
 def _evaluate_environment(
     parsed: Any,
     environment_data: dict[str, Any] | None,
+    cpe: CpeCandidate | None = None,
 ) -> EvaluationResult | None:
     """Evaluate CPE environment components that constrain applicability."""
 
@@ -363,6 +364,17 @@ def _evaluate_environment(
             continue
 
         observed = _read_environment_value(environment_data, keys)
+        # Software edition belongs to the validated application identity, not
+        # the host Windows edition. Preserve this constraint (e.g. Classic).
+        if component == "sw_edition" and parsed.part == "a" and cpe is not None:
+            identity = parse_cpe23_components(cpe.cpe_name)
+            if (identity is not None and identity.part == "a"
+                    and _key(identity.vendor) == _key(parsed.vendor)
+                    and _key(identity.product) == _key(parsed.product)
+                    and identity.sw_edition not in {"*", "-"}):
+                if _key(criteria_value) != _key(identity.sw_edition):
+                    return _not_affected("CPE software edition does not match validated product identity")
+                continue
         if observed is None:
             return _not_evaluated(f"CPE environment component {component} cannot be confirmed")
         if not _environment_matches(component, criteria_value, observed):

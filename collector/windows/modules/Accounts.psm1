@@ -12,13 +12,16 @@ function ConvertTo-CSAUserClassification {
 }
 
 function Get-CSAAccountsEvidence {
-    param([string]$PrivacyMode = "Standard")
+    param([string]$PrivacyMode = "Standard", [scriptblock]$PasswordPolicyProvider = $null)
 
     $startedAt = (Get-Date).ToUniversalTime()
     $settings = @()
     $errors = @()
     $warnings = @()
     $moduleStatus = ""
+    $passwordPolicy = Get-CSAPasswordPolicyEvidence -Provider $PasswordPolicyProvider
+    $settings += $passwordPolicy.Settings
+    $errors += $passwordPolicy.Errors
     if (-not (Get-Command Get-LocalUser -ErrorAction SilentlyContinue)) {
         $errorItem = New-CSACollectionError "Accounts" "NOT_SUPPORTED" "CSA-ACCOUNTS-NOT-SUPPORTED" "Microsoft.PowerShell.LocalAccounts cmdlets are unavailable."
         return New-CSAModuleResult -Module "Accounts" -Errors @($errorItem) -StartedAt $startedAt -Status "NOT_SUPPORTED"
@@ -101,28 +104,9 @@ function Get-CSAAccountsEvidence {
             $settings += New-CSASetting "USER_PROFILES" "Accounts" @() "RUNTIME_STATE" "NOT_AVAILABLE" 0 "Win32_UserProfile" "LocalProfiles" -ErrorCode "CSA-USER-PROFILES-NOT-AVAILABLE"
         }
 
-        $netAccounts = @(& net.exe accounts 2>$null)
-        $numericValues = @($netAccounts | ForEach-Object {
-            if ($_ -match ':\s*(\d+|Never)\s*$') { $Matches[1] }
-        })
-        if ($numericValues.Count -ge 7) {
-            $maxAge = if ($numericValues[0] -eq "Never") { 0 } else { [int]$numericValues[0] }
-            $minimumLength = [int]$numericValues[3]
-            $history = [int]$numericValues[4]
-            $threshold = [int]$numericValues[5]
-            $lockoutDuration = [int]$numericValues[6]
-            $settings += New-CSASetting "PASSWORD_POLICY_MINIMUM_LENGTH" "Accounts" $minimumLength "LOCAL_POLICY" "SUCCESS" 70 "net accounts" "MinimumPasswordLength"
-            $settings += New-CSASetting "PASSWORD_POLICY_MIN_LENGTH" "Accounts" $minimumLength "LOCAL_POLICY" "SUCCESS" 70 "net accounts" "MinimumPasswordLength"
-            $settings += New-CSASetting "PASSWORD_POLICY_MAXIMUM_AGE_DAYS" "Accounts" $maxAge "LOCAL_POLICY" "SUCCESS" 70 "net accounts" "MaximumPasswordAge"
-            $settings += New-CSASetting "PASSWORD_POLICY_HISTORY" "Accounts" $history "LOCAL_POLICY" "SUCCESS" 70 "net accounts" "PasswordHistoryLength"
-            $settings += New-CSASetting "ACCOUNT_LOCKOUT_THRESHOLD" "Accounts" $threshold "LOCAL_POLICY" "SUCCESS" 70 "net accounts" "LockoutThreshold"
-            $settings += New-CSASetting "ACCOUNT_LOCKOUT_DURATION_MINUTES" "Accounts" $lockoutDuration "LOCAL_POLICY" "SUCCESS" 70 "net accounts" "LockoutDuration"
-        } else {
-            $warnings += "Password policy output could not be parsed reliably."
-        }
     } catch [System.UnauthorizedAccessException] {
         $errors += New-CSACollectionError "Accounts" "ACCESS_DENIED" "CSA-ACCOUNTS-ACCESS-DENIED" $_.Exception.Message
-        return New-CSAModuleResult -Module "Accounts" -Settings $settings -Errors $errors -Warnings $warnings -StartedAt $startedAt -Status "ACCESS_DENIED"
+        return New-CSAModuleResult -Module "Accounts" -Settings $settings -Errors $errors -Warnings $warnings -StartedAt $startedAt -Status $(if (@($settings | Where-Object { $_.collectionStatus -eq "SUCCESS" }).Count -gt 0) { "PARTIAL" } else { "ACCESS_DENIED" })
     } catch {
         $moduleStatus = Resolve-CSAExceptionStatus $_
         $errors += New-CSACollectionError "Accounts" $moduleStatus "CSA-ACCOUNTS-COLLECTION-FAILED" $_.Exception.Message
@@ -130,4 +114,86 @@ function Get-CSAAccountsEvidence {
     New-CSAModuleResult -Module "Accounts" -Settings $settings -Errors $errors -Warnings $warnings -StartedAt $startedAt -Status $moduleStatus
 }
 
-Export-ModuleMember -Function Get-CSAAccountsEvidence
+
+function Invoke-CSANetUserModals {
+    param([int]$Level)
+    if (-not ("CSA.Native.PasswordPolicy" -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace CSA.Native {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct UserModals0 {
+        public uint MinimumLength, MaximumAge, MinimumAge, ForceLogoff, HistoryLength;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct UserModals3 {
+        public uint LockoutDuration, ObservationWindow, LockoutThreshold;
+    }
+    public static class PasswordPolicy {
+        [DllImport("Netapi32.dll", CharSet = CharSet.Unicode)]
+        private static extern uint NetUserModalsGet(string server, uint level, out IntPtr buffer);
+        [DllImport("Netapi32.dll")]
+        private static extern uint NetApiBufferFree(IntPtr buffer);
+        public static object Read(uint level) {
+            IntPtr buffer = IntPtr.Zero;
+            try {
+                uint result = NetUserModalsGet(null, level, out buffer);
+                if (result == 5) throw new UnauthorizedAccessException("Password policy access denied");
+                if (result != 0) throw new System.ComponentModel.Win32Exception((int)result);
+                if (buffer == IntPtr.Zero) throw new InvalidOperationException("Policy API returned no buffer");
+                if (level == 0) return Marshal.PtrToStructure(buffer, typeof(UserModals0));
+                if (level == 3) return Marshal.PtrToStructure(buffer, typeof(UserModals3));
+                throw new ArgumentOutOfRangeException("level");
+            } finally { if (buffer != IntPtr.Zero) NetApiBufferFree(buffer); }
+        }
+    }
+}
+'@
+    }
+    [CSA.Native.PasswordPolicy]::Read([uint32]$Level)
+}
+
+function Get-CSAPasswordPolicyEvidence {
+    param([scriptblock]$Provider = $null)
+    $settings = @()
+    $errors = @()
+    $levels = @(
+        @{ Level = 0; Fields = @(
+            @{ Id = "PASSWORD_POLICY_MINIMUM_LENGTH"; Name = "MinimumLength"; Divisor = 1 },
+            @{ Id = "PASSWORD_POLICY_MIN_LENGTH"; Name = "MinimumLength"; Divisor = 1 },
+            @{ Id = "PASSWORD_POLICY_MINIMUM_AGE_DAYS"; Name = "MinimumAge"; Divisor = 86400 },
+            @{ Id = "PASSWORD_POLICY_MAXIMUM_AGE_DAYS"; Name = "MaximumAge"; Divisor = 86400 },
+            @{ Id = "PASSWORD_POLICY_HISTORY"; Name = "HistoryLength"; Divisor = 1 }
+        ) },
+        @{ Level = 3; Fields = @(
+            @{ Id = "ACCOUNT_LOCKOUT_THRESHOLD"; Name = "LockoutThreshold"; Divisor = 1 },
+            @{ Id = "ACCOUNT_LOCKOUT_DURATION_MINUTES"; Name = "LockoutDuration"; Divisor = 60 },
+            @{ Id = "ACCOUNT_LOCKOUT_OBSERVATION_WINDOW_MINUTES"; Name = "ObservationWindow"; Divisor = 60 }
+        ) }
+    )
+    foreach ($spec in $levels) {
+        try {
+            $policy = if ($null -ne $Provider) { & $Provider $spec.Level } else { Invoke-CSANetUserModals -Level $spec.Level }
+            $levelSettings = @()
+            foreach ($field in $spec.Fields) {
+                $raw = $policy.($field.Name)
+                if ($null -eq $raw -or $raw -is [bool] -or $raw -is [string] -or [double]$raw -lt 0 -or [double]$raw -gt [uint32]::MaxValue) { throw "Invalid structured policy value" }
+                $forever = ([uint64]$raw -eq [uint32]::MaxValue)
+                $value = if ($forever) { 0 } else { [double]$raw / $field.Divisor }
+                $levelSettings += New-CSASetting $field.Id "Accounts" $value "LOCAL_POLICY" "SUCCESS" 95 "NetUserModalsGet" ("Level{0}/{1}" -f $spec.Level, $field.Name) -Metadata @{ rawValue = [uint64]$raw; timeForever = $forever; scope = "Local account password policy, not actual password strength" }
+            }
+            $settings += $levelSettings
+        } catch {
+            $status = Resolve-CSAExceptionStatus $_
+            if ($status -eq "FAILED") { $status = "NOT_AVAILABLE" }
+            $errors += New-CSACollectionError "Accounts" $status "CSA-PASSWORD-POLICY-UNAVAILABLE" ("Structured password policy level {0} unavailable; no localized-text inference used." -f $spec.Level)
+            foreach ($field in $spec.Fields) {
+                $settings += New-CSASetting $field.Id "Accounts" $null "LOCAL_POLICY" $status 0 "NetUserModalsGet" ("Level{0}/{1}" -f $spec.Level, $field.Name)
+            }
+        }
+    }
+    return @{ Settings = $settings; Errors = $errors }
+}
+
+Export-ModuleMember -Function Get-CSAAccountsEvidence, Get-CSAPasswordPolicyEvidence

@@ -1,0 +1,197 @@
+[
+  {
+    "cpe": {
+      "deprecated": false,
+      "cpeName": "cpe:2.3:a:adobe:premiere_pro_cs4:4.0.1:*:*:*:*:*:*:*",
+      "cpeNameId": "AB267C57-870C-44BC-BD39-F830FE1CCC22",
+      "lastModified": "2010-01-07T16:08:16.857",
+      "created": "2010-01-07T16:08:16.857",
+      "titles": [
+        {
+          "title": "Adobe Premiere Pro CS4 4.0.1",
+          "lang": "en"
+        }
+      ]
+    }
+  },
+  {
+    "cpe": {
+      "deprecated": false,
+      "cpeName": "cpe:2.3:a:adobe:premiere_pro_cs4:4.1.0:*:*:*:*:*:*:*",
+      "cpeNameId": "FD40677E-E5AB-45BC-A242-FB632F811192",
+      "lastModified": "2010-01-07T16:08:17.043",
+      "created": "2010-01-07T16:08:17.043",
+      "titles": [
+        {
+          "title": "Adobe Premiere Pro CS4 4.1.0",
+          "lang": "en"
+        }
+      ]
+    }
+  },
+  {
+    "cpe": {
+      "deprecated": false,
+      "cpeName": "cpe:2.3:a:adobe:premiere_pro_cs4:4.2.0:*:*:*:*:*:*:*",
+      "cpeNameId": "A43EA4A9-4790-415C-B327-AE0E6B3844F4",
+      "lastModified": "2010-01-07T16:08:17.230",
+      "created": "2010-01-07T16:08:17.230",
+      "titles": [
+        {
+          "title": "Adobe Premiere Pro CS4 4.2.0",
+          "lang": "en"
+        }
+      ]
+    }
+  },
+  {
+    "cpe": {
+      "deprecated": false,
+      "cpeName": "cpe:2.3:a:adobe:premiere_pro_cs3:3.0.1:*:*:*:*:*:*:*",
+      "cpeNameId": "45C75B74-F2C9-43A1-B713-B41B1D6937BF",
+      "lastModified": "2010-01-07T16:08:17.607",
+      "created": "2010-01-07T16:08:17.607",
+      "titles": [
+        {
+          "title": "Adobe Premiere Pro CS3 3.0.1",
+          "lang": "en"
+        }
+      ]
+    }
+  },
+  {
+    "cpe": {
+      "deprecated": false,
+      "cpeName": "cpe:2.3:a:adobe:premiere_pro_cs3:3.1:*:*:*:*:*:*:*",
+      "cpeNameId": "1885D535-BDB5-4CF6-A1BB-0DAD958976A6",
+      "lastModified": "2010-01-07T16:08:17.793",
+      "created": "2010-01-07T16:08:17.793",
+      "titles": [
+        {
+          "title": "Adobe Premiere Pro CS3 3.1",
+          "lang": "en"
+        }
+      ]
+    }
+  },
+  {
+    "cpe": {
+      "deprecated": false,
+      "cpeName": "cpe:2.3:a:adobe:premiere_pro_cs3:3.1.1:*:*:*:*:*:*:*",
+      "cpeNameId": "1C45D845-E7CC-4508-A2A2-6C1B7380DB75",
+      "lastModified": "2010-01-07T16:08:17.963",
+      "created": "2010-01-07T16:08:17.963",
+      "titles": [
+        {
+          "title": "Adobe Premiere Pro CS3 3.1.1",
+          "lang": "en"
+        }
+      ]
+    }
+  },
+  {
+    "cpe": {
+      "deprecated": false,
+      "cpeName": "cpe:2.3:a:adobe:premiere_pro_cc:-:*:*:*:*:*:*:*",
+      "cpeNameId": "38790D41-ABA2-4B7A-BCC9-393D51968795",
+      "lastModified": "2020-04-15T18:06:21.137",
+      "created": "2020-04-15T18:06:21.137",
+      "titles": [
+        {
+          "title": "Adobe Premiere Pro CC",
+          "lang": "en"
+        }
+      ],
+      "refs": [
+        {
+          "ref": "https://helpx.adobe.com/security/products/premiere_pro/apsb19-33.html",
+          "type": "Advisory"
+        }
+      ]
+    }
+  },
+  {
+    "cpe": {
+      "deprecated": false,
+      "cpeName": "cpe:2.3:a:adobe:premiere_pro_cc:13.1.2:*:*:*:*:*:*:*",
+      "cpeNameId": "1E4321A7-49DC-463A-85F8-720839952F3B",
+      "lastModified": "2020-04-15T18:06:21.450",
+      "created": "2020-04-15T18:06:21.450",
+      "titles": [
+        {
+          "title": "Adobe Premiere Pro CC 13.1.2",
+          "lang": "en"
+        }
+      ],
+      "refs": [
+        {
+          "ref": "https://helpx.adobe.com/security/products/premiere_pro/apsb19-33.html",
+          "type": "Advisory"
+        }
+      ]
+    }
+  },
+  {
+    "cpe": {
+      "deprecated": false,
+      "cpeName": "cpe:2.3:a:adobe:premiere_pro:14.1:*:*:*:*:*:*:*",
+      "cpeNameId": "60B19933-7679-4ECE-8A73-4775898CC638",
+      "lastModified": "2020-07-01T17:04:53.167",
+      "created": "2020-07-01T17:04:53.167",
+      "titles": [
+        {
+          "title": "Adobe Premiere Pro 14.1",
+          "lang": "en"
+        }
+      ],
+      "refs": [
+        {
+          "ref": "https://helpx.adobe.com/security/products/premiere_pro/apsb20-27.html",
+          "type": "Advisory"
+        }
+      ]
+    }
+  },
+  {
+    "cpe": {
+      "deprecated": false,
+      "cpeName": "cpe:2.3:a:adobe:premiere_pro:14.2:*:*:*:*:*:*:*",
+      "cpeNameId": "AB83788B-1321-41B4-8636-CF85AFA3147A",
+      "lastModified": "2020-07-01T17:04:53.260",
+      "created": "2020-07-01T17:04:53.260",
+      "titles": [
+        {
+          "title": "Adobe Premiere Pro 14.2",
+          "lang": "en"
+        }
+      ],
+      "refs": [
+        {
+          "ref": "https://helpx.adobe.com/security/products/premiere_pro/apsb20-27.html",
+          "type": "Advisory"
+        }
+      ]
+    }
+  },
+  {
+    "cpe": {
+      "deprecated": false,
+      "cpeName": "cpe:2.3:a:adobe:premiere_pro:14.4:*:*:*:*:*:*:*",
+      "cpeNameId": "A6C1B3A1-9DD4-421B-9462-E4F7BA8EB215",
+      "lastModified": "2020-11-02T18:05:47.847",
+      "created": "2020-11-02T18:05:47.847",
+      "titles": [
+        {
+          "title": "Adobe Premiere Pro 14.4",
+          "lang": "en"
+        }
+      ],
+      "refs": [
+        {
+          "ref": "https://helpx.adobe.com/premiere-pro/using/whats-new/2020-5.html",
+          "type": "Product"
+        }
+      ]
+    }
+  }
+]

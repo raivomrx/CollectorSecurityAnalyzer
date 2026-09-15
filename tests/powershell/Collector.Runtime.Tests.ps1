@@ -342,10 +342,13 @@ Describe "CSA Windows Collector runtime evidence contracts" {
             $result.CollectedEvidenceCount | Should -Be 16
         }
 
-        It "returns NOT_AVAILABLE when no fixed volumes apply" {
+        It "retains unknown OS protection when no provider enumerates volumes" {
             $result = Resolve-TestModuleResult "BitLocker" (Get-CSABitLockerEvidence -VolumeProvider { @() } -BitLockerSupported $true)
             $result.Status | Should -Be "NOT_AVAILABLE"
-            $result.ExpectedEvidenceCount | Should -Be 0
+            $result.ExpectedEvidenceCount | Should -Be 8
+            $result.CollectedEvidenceCount | Should -Be 0
+            $result.Settings[0].effectiveValue | Should -BeNullOrEmpty
+            $result.Settings[0].metadata.fallbacksAttempted.Count | Should -BeGreaterThan 0
         }
 
         It "preserves NOT_SUPPORTED" {
@@ -403,7 +406,9 @@ Describe "CSA Windows Collector runtime evidence contracts" {
             (ConvertFrom-CSAShellBitLockerValue -RawValue 2).ProtectionEnabled | Should -BeFalse
             (ConvertFrom-CSAShellBitLockerValue -RawValue 3).CollectionStatus | Should -Be "PARTIAL"
             (ConvertFrom-CSAShellBitLockerValue -RawValue 5).EncryptionState | Should -Be "SUSPENDED"
-            $null -eq (ConvertFrom-CSAShellBitLockerValue -RawValue 99) | Should -BeTrue
+            $unknown = ConvertFrom-CSAShellBitLockerValue -RawValue 99
+            $unknown.CollectionStatus | Should -Be "PARTIAL"
+            $null -eq $unknown.ProtectionEnabled | Should -BeTrue
         }
 
         It "uses Shell property after manage-bde returns no evidence" {

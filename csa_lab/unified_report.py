@@ -21,6 +21,7 @@ from frameworks.loader import load_pack
 from frameworks.models import FrameworkPack
 from knowledge.repository import KnowledgeRepository
 from evidence.bitlocker import resolve_bitlocker
+from evidence.credential_posture import credential_posture
 
 TEMPLATE_ROOT = Path(__file__).resolve().parent / "templates"
 FRAMEWORK_ROOT = Path(__file__).resolve().parents[1] / "frameworks"
@@ -265,7 +266,7 @@ class UnifiedReportGenerator:
         framework_rows = _framework_rows(fleet_findings)
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.3.1",
+            "reportVersion": "CSA-5.4.0",
             "generatedAt": generated_at,
             "dataClassification": "Confidential - Security Assessment Data",
             "containsPersonalData": True,
@@ -627,6 +628,10 @@ class UnifiedReportGenerator:
             "softwareIntelligence": software_intelligence,
             "unsupportedSoftwareCount": unsupported_count,
             "bitLocker": bitlocker,
+            "credentialPosture": credential_posture([
+                setting for group in ("networkConfiguration", "securityPolicies", "endpointProtection")
+                for setting in evidence.get(group, {}).get("settings", [])
+            ]),
             "securityControls": _security_control_summary(
                 findings, bitlocker, evidence
             ),
@@ -910,6 +915,7 @@ def _cve_relationships(
                             cve.get("affectedVersionRange", "")
                         ),
                         "knownExploited": bool(cve.get("cisaKev", False)),
+                        "priority": cve.get("priority", cve.get("priorityLevel")),
                         "software": str(software.get("displayName", "Unknown")),
                         "installedVersion": str(
                             software.get("displayVersion") or "Unknown"
@@ -1795,7 +1801,7 @@ def _vulnerability_exposure(
                 "possible": len(row["possible"]),
                 "highestCvss": row["highestCvss"],
                 "knownExploited": len(row["knownExploited"]),
-                "cves": [row["cves"][key] for key in sorted(row["cves"])],
+                "cves": sorted(row["cves"].values(), key=_cve_security_order),
                 "detailAnchor": sorted(row["softwareAnchors"])[0],
             }
         )
@@ -1807,6 +1813,19 @@ def _vulnerability_exposure(
             item["software"],
             item["installedVersion"],
         ),
+    )
+
+
+def _cve_security_order(cve: dict[str, Any]) -> tuple:
+    confirmed = cve.get("applicability") == "CONFIRMED"
+    priority = cve.get("priority")
+    if isinstance(priority, dict):
+        priority = priority.get("level")
+    return (
+        SEVERITY_ORDER.get(str(cve.get("severity", "UNKNOWN")).upper(), 5),
+        -int(confirmed and bool(cve.get("knownExploited"))), -int(confirmed),
+        {"P1": 1, "P2": 2, "P3": 3, "P4": 4}.get(str(priority), 5),
+        -float(cve.get("cvss") or 0), str(cve.get("cveId", "")),
     )
 
 

@@ -227,6 +227,7 @@
         <button type="button" class="settings-tab" data-tab="tls">TLS Certificate</button>
         <button type="button" class="settings-tab" data-tab="collector">Collector</button>
         <button type="button" class="settings-tab" data-tab="reporting">Reporting</button>
+        <button type="button" class="settings-tab" data-tab="nvd">Vulnerability Intelligence</button>
         <button type="button" class="settings-tab" data-tab="privacy">Privacy</button>
         <button type="button" class="settings-tab" data-tab="advanced">Advanced</button>
       </div>
@@ -245,8 +246,17 @@
         <section data-panel="storage" class="hidden"><h3>Storage</h3><p>Assessment data is stored outside the installation directory with restricted access.</p></section>
         <section data-panel="network" class="hidden"><h3>Network</h3><p>CSA uses the interface and source subnet confirmed in each assessment.</p></section>
         <section data-panel="tls" class="hidden"><h3>TLS Certificate</h3><p>Generated assessment certificates are the current fallback. Collector identity validation is pinned and cannot be bypassed.</p></section>
-        <section data-panel="collector" class="hidden"><h3>Collector</h3><p>Collector 5.3.1, Standard Privileges Assessment profile, offline fallback enabled by default.</p><p>If Windows application control blocks execution, record the exact Windows Security message. Do not disable Smart App Control as the default remediation. Use a trusted, signed CSA Collector build or contact the assessment administrator.</p></section>
+        <section data-panel="collector" class="hidden"><h3>Collector</h3><p>Collector 5.4.0, Standard Privileges Assessment profile, offline fallback enabled by default.</p><p>If Windows application control blocks execution, record the exact Windows Security message. Do not disable Smart App Control as the default remediation. Use a trusted, signed CSA Collector build or contact the assessment administrator.</p></section>
         <section data-panel="reporting" class="hidden"><h3>Reporting</h3><p>The unified self-contained HTML report is the primary output.</p></section>
+        <section data-panel="nvd" class="hidden">
+          <h3>NVD vulnerability intelligence</h3>
+          <p id="nvd-key-status" role="status">Loading configuration status…</p>
+          <p>An optional NVD API key permits a higher request rate. CSA also works without a key.</p>
+          <label>NVD API key<input id="nvd-api-key" type="password" autocomplete="off" spellcheck="false" maxlength="128" placeholder="Enter a new or replacement key"></label>
+          <div class="button-row"><button id="nvd-save" type="button">Set / Replace key</button><button id="nvd-remove" type="button">Remove saved key</button><button id="nvd-test" type="button">Test NVD connection</button></div>
+          <p>The saved key is protected for your Windows user and is never displayed again or included in reports and exports. The NVD_API_KEY environment variable remains supported when no saved key exists.</p>
+          <p id="nvd-connection-status" role="status"></p>
+        </section>
         <section data-panel="privacy" class="hidden"><h3>Privacy</h3><p>Strict privacy validation is mandatory. Sensitive evidence is quarantined.</p></section>
         <section data-panel="advanced" class="hidden">
           <h3>Advanced</h3>

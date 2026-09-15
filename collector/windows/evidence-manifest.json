@@ -107,7 +107,9 @@
         {"id": "UNRESOLVED_LOCAL_ADMINISTRATOR_COUNT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "UNRESOLVED_LOCAL_ADMINISTRATOR_COUNT", "canonical": true},
         {"id": "PASSWORD_POLICY_MAXIMUM_AGE_DAYS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "PASSWORD_POLICY_MAXIMUM_AGE_DAYS", "canonical": true},
         {"id": "PASSWORD_POLICY_HISTORY", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "PASSWORD_POLICY_HISTORY", "canonical": true},
-        {"id": "ACCOUNT_LOCKOUT_DURATION_MINUTES", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "ACCOUNT_LOCKOUT_DURATION_MINUTES", "canonical": true}
+        {"id": "ACCOUNT_LOCKOUT_DURATION_MINUTES", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "ACCOUNT_LOCKOUT_DURATION_MINUTES", "canonical": true},
+        {"id": "PASSWORD_POLICY_MINIMUM_AGE_DAYS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "PASSWORD_POLICY_MINIMUM_AGE_DAYS", "canonical": true},
+        {"id": "ACCOUNT_LOCKOUT_OBSERVATION_WINDOW_MINUTES", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "ACCOUNT_LOCKOUT_OBSERVATION_WINDOW_MINUTES", "canonical": true}
       ]
     },
     {
