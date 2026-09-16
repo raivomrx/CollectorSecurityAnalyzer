@@ -1824,7 +1824,7 @@ def _cve_security_order(cve: dict[str, Any]) -> tuple:
     return (
         SEVERITY_ORDER.get(str(cve.get("severity", "UNKNOWN")).upper(), 5),
         -int(confirmed and bool(cve.get("knownExploited"))), -int(confirmed),
-        {"P1": 1, "P2": 2, "P3": 3, "P4": 4}.get(str(priority), 5),
+        {"P1": 1, "P2": 2, "P3": 3, "P4": 4}.get(str(priority).split("_", 1)[0], 5),
         -float(cve.get("cvss") or 0), str(cve.get("cveId", "")),
     )
 

@@ -444,6 +444,10 @@ def _cve_analysis_metadata(
             kev_ids=kev_ids,
             product_evaluations=summary.product_evaluations,
             source_resolutions=source_resolutions,
+            priorities={
+                (_cve_product_key(item.base_assessment.software), item.base_assessment.cve.cve_id): item.priority.level.value
+                for item in (enrichment.assessments if enrichment is not None else [])
+            },
         ),
     }
 
@@ -457,6 +461,7 @@ def _software_results(
     kev_ids: set[str],
     product_evaluations: list[Any] | None = None,
     source_resolutions: dict[tuple[str, str], dict[str, Any]] | None = None,
+    priorities: dict[tuple[str, str], str] | None = None,
 ) -> list[dict[str, Any]]:
     """Build report-safe software/CVE/lifecycle relationships."""
 
@@ -503,6 +508,7 @@ def _software_results(
                         item.matched_criteria
                     ),
                     "cisaKev": item.cve.cve_id in kev_ids,
+                    "priority": (priorities or {}).get((_cve_product_key(item.software), item.cve.cve_id)),
                     "fixedVersions": [],
                     "vendorAdvisoryUrls": list(
                         item.cve.vendor_advisory_urls

@@ -27,6 +27,10 @@ cannot inherit the main product identity. Completed Audacity evaluation with zer
 matching vulnerabilities remains a clean evaluated result, even in an otherwise
 partial assessment.
 
+The Audacity discovery alias uses the active NVD `audacityteam:audacity` family;
+the deprecated `audacity:audacity` row is retained as a negative fixture. This
+preserves Audacity 2.4.2's completed zero-match result through current discovery.
+
 ## BitLocker
 
 The provider sequence is Get-BitLockerVolume, Win32_EncryptableVolume, manage-bde,
@@ -100,6 +104,30 @@ persistent positive/negative caches, DPAPI lifecycle, HTTP CSRF and key secrecy,
 password-control semantics and accepted evidence through report rendering.
 `tests/powershell/Sprint54.Tests.ps1` covers provider fallback and isolation.
 Existing Illustrator/CNA and risk regressions remain in the full suite.
+
+Local final verification: **435 Python tests passed; 75 Pester tests passed**.
+The user authorized reusing the existing HOME evidence rather than recollecting
+HOME. That unchanged 118-record, 86-eligible dataset improved from 12 to **19 fully
+evaluated instances**, with **450 confirmed unique CVEs** (previously 387).
+Lightroom Classic 8.4, Premiere Pro 13.1.3 and LibreOffice 25.8.3.2 completed with
+16, 44 and 1 confirmed CVE respectively. Audacity 2.4.2 completed with zero matches.
+The WebView2 result remains unevaluated independently of the Edge browser.
+HOME's missing old BitLocker/password evidence is not invented by reanalysis.
+
+Fresh standard-user collection was performed on **RAIVO-TEST**, not HOME. Its
+BitLocker Shell property returned 1 after earlier provider failures. The measured
+empty-cache run took **1733.198 s**, and the immediate warm run **7.567 s**.
+No NVD API key was configured. The cold run made 275 NVD requests and spent
+1269.037 s waiting for rate limits; the warm run made zero NVD and CVE Program
+requests. This is a measured bottleneck, not a claim that cold scanning became
+faster. After the final Audacity/priority corrections, HOME's cached reanalysis
+took **3.951 s**, with zero NVD/CVE Program requests.
+
+The packaged application startup, settings endpoint and discovery alias asset
+were checked locally. The NVD settings dialog was inspected in the browser.
+The report preview was blocked by the browser client; generated HTML/model and
+report integration assertions were verified, without claiming visual inspection
+of the final report.
 
 HOME evidence, complete remaining-product lists, timing artifacts and generated
 client reports stay in ignored local acceptance storage. Public fixture data is

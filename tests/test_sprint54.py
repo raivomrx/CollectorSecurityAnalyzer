@@ -42,7 +42,7 @@ class PublicFixtureClient:
             if token in query:
                 return fixture(f"{token}-cpes.json")
         if query == "audacity":
-            return [_cpe_product("audacity", "audacity", "2.4.2", "Audacity 2.4.2")]
+            return fixture("audacity-cpes.json")
         # A helper is deliberately offered its parent. Selection must reject it.
         if "ccleaner" in query:
             return [_cpe_product("piriform", "ccleaner", "6.0", "CCleaner")]
@@ -110,6 +110,7 @@ class Sprint54IdentityTests(unittest.TestCase):
         detail = _cve_analysis_metadata(AnalysisContext(raw_data={}, software_inventory=inventory, cve_summary=summary, cve_enrichment=enrichment))["softwareResults"][0]["cveDetails"][0]
         self.assertEqual(detail["cveId"], "CVE-2021-40776")
         self.assertEqual(detail["sourceResolution"]["status"], "AUTHORITATIVE_CONFIRMED")
+        self.assertEqual(detail["priority"], enrichment.assessments[0].priority.level.value)
         self.assertIn("https://helpx.adobe.com/security/products/lightroom/apsb21-97.html", detail["vendorAdvisoryUrls"])
         trace = summary.product_evaluations[0].discovery_trace
         self.assertTrue(trace["queries"])
@@ -161,6 +162,8 @@ class Sprint54IdentityTests(unittest.TestCase):
         self.assertEqual(by_name["Microsoft Edge WebView2 Runtime"]["cveEvaluationStatus"], "NOT_EVALUATED")
         self.assertEqual(by_name["CCleaner Update Helper"]["cveEvaluationStatus"], "NOT_EVALUATED")
         self.assertEqual(by_name["Audacity"]["cveEvaluationStatus"], "NO_KNOWN_VULNERABILITIES")
+        self.assertIn(":audacityteam:audacity:", by_name["Audacity"]["cpe"])
+        self.assertEqual(by_name["Audacity"]["cvePipeline"]["terminalStatus"], "COMPLETED")
         self.assertEqual(len(_software_matrix([{"displayName": "HOME", "softwareResults": rows}])["rows"]), 4)
 
     def test_ambiguity_and_rejections_are_auditable(self):
@@ -340,6 +343,11 @@ class Sprint54PostureTests(unittest.TestCase):
             {"cveId": "unknown", "severity": "UNKNOWN"},
         ]
         self.assertEqual([row["cveId"] for row in sorted(reversed(rows), key=_cve_security_order)], ["critical", "high-kev", "high-score", "high-possible", "medium", "low", "unknown"])
+
+    def test_actual_priority_enum_values_precede_cvss_within_same_severity(self):
+        rows = [{"cveId": "urgent", "severity": "HIGH", "applicability": "CONFIRMED", "priority": "P2_URGENT", "cvss": 7.1},
+                {"cveId": "planned", "severity": "HIGH", "applicability": "CONFIRMED", "priority": "P3_PLANNED", "cvss": 8.8}]
+        self.assertEqual([row["cveId"] for row in sorted(reversed(rows), key=_cve_security_order)], ["urgent", "planned"])
 
 
 class Sprint54ReportIntegrationTests(Sprint5TestCase):

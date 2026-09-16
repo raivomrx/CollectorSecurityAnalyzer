@@ -1,4 +1,10 @@
 {
+  "audacity|audacity": {
+    "vendor": "audacityteam",
+    "product": "audacity",
+    "query": "Audacity",
+    "source": "https://nvd.nist.gov/products/cpe/search/results?keyword=Audacity"
+  },
   "adobe|adobe lightroom classic": {
     "vendor": "adobe",
     "product": "lightroom",

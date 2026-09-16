@@ -3,6 +3,12 @@
 Retrieved 2026-09-15 from the public NVD API and CVE Program repository.
 These files contain public vulnerability/catalog data, not HOME evidence.
 
+`audacity-cpes.json` was added on 2026-09-16 from the same public CPE endpoint
+with `keywordSearch=Audacity`. It includes the deprecated `audacity:audacity`
+identity and active `audacityteam:audacity` version rows. A live query for the
+active 2.4.2 CPE returned zero vulnerability records, independently verifying the
+completed clean-state control.
+
 * CPE candidates: `https://services.nvd.nist.gov/rest/json/cpes/2.0` with
   `keywordSearch=Adobe Lightroom Classic`, `Adobe Premiere Pro`, and `LibreOffice`.
   Representative rows retain original NVD fields, including edition, deprecation

@@ -1,0 +1,65 @@
+[
+  {
+    "cpe": {
+      "deprecated": true,
+      "cpeName": "cpe:2.3:a:audacity:audacity:1.2.6:*:*:*:*:*:*:*",
+      "cpeNameId": "4D12B29D-8155-462C-B169-E5458E976B0C",
+      "lastModified": "2022-02-07T18:18:20.777",
+      "created": "2009-02-10T15:51:51.150",
+      "titles": [
+        {
+          "title": "Audacity 1.2.6",
+          "lang": "en"
+        }
+      ],
+      "deprecatedBy": [
+        {
+          "cpeName": "cpe:2.3:a:audacityteam:audacity:1.2.6:*:*:*:*:*:*:*",
+          "cpeNameId": "5D7DEF4B-8BFE-43FF-88D5-BDF1898C8987"
+        }
+      ]
+    }
+  },
+  {
+    "cpe": {
+      "deprecated": false,
+      "cpeName": "cpe:2.3:a:audacityteam:audacity:2.4.2:*:*:*:*:*:*:*",
+      "cpeNameId": "CC1030DE-CBA4-4AAC-BC27-CFD4CE4CBCE2",
+      "lastModified": "2020-08-03T16:17:44.163",
+      "created": "2020-08-03T16:17:44.163",
+      "titles": [
+        {
+          "title": "Audacity Team Audacity 2.4.2",
+          "lang": "en"
+        }
+      ],
+      "refs": [
+        {
+          "ref": "https://wiki.audacityteam.org/wiki/Audacity_Versions",
+          "type": "Version"
+        }
+      ]
+    }
+  },
+  {
+    "cpe": {
+      "deprecated": false,
+      "cpeName": "cpe:2.3:a:audacityteam:audacity:3.0.4:*:*:*:*:*:*:*",
+      "cpeNameId": "15D467F9-94B8-4DD0-913D-F527CEE205B4",
+      "lastModified": "2022-10-27T16:05:04.333",
+      "created": "2022-10-27T16:04:35.127",
+      "titles": [
+        {
+          "title": "Audacity Team Audacity 3.0.4",
+          "lang": "en"
+        }
+      ],
+      "refs": [
+        {
+          "ref": "https://wiki.audacityteam.org/wiki/Audacity_Versions",
+          "type": "Version"
+        }
+      ]
+    }
+  }
+]
