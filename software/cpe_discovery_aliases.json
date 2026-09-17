@@ -18,6 +18,24 @@
     "query": "Adobe Premiere Pro",
     "source": "https://nvd.nist.gov/vuln/detail/CVE-2020-9653"
   },
+  "notepad++|notepad++": {
+    "vendor": "notepad-plus-plus",
+    "product": "notepad++",
+    "query": "Notepad++",
+    "source": "https://nvd.nist.gov/products/cpe/detail/507250DF-3021-4FE7-BCED-DC39A20A8DBB"
+  },
+  "microsoft|visual studio code": {
+    "vendor": "microsoft",
+    "product": "visual_studio_code",
+    "query": "Microsoft Visual Studio Code",
+    "source": "https://nvd.nist.gov/products/cpe/detail/17E6E37C-9DD9-4446-A44B-29A9129CDF25"
+  },
+  "nvidia|nvidia graphics driver": {
+    "vendor": "nvidia",
+    "product": "gpu_display_driver",
+    "query": "NVIDIA GPU Display Driver",
+    "source": "https://nvd.nist.gov/products/cpe/search/results?keyword=cpe%3A2.3%3Aa%3Anvidia%3Agpu_display_driver"
+  },
   "the document foundation|libreoffice": {
     "vendor": "libreoffice",
     "product": "libreoffice",

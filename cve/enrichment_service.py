@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import logging
 import time
+from threading import Event
 from collections.abc import Callable
 from typing import Any
 
 from cve.cna_applicability import evaluate_cna_applicability
+from cve.exceptions import CveScanCancelled
 from cve.enrichment_models import (
     ApplicabilityResolutionStatus,
     EnrichedCveAssessment,
@@ -57,6 +59,7 @@ class VulnerabilityEnrichmentService:
         self,
         summary: CveScanSummary,
         progress_callback: EnrichmentProgressCallback | None = None,
+        cancel_event: Event | None = None,
     ) -> EnrichedCveScanSummary:
         """Enrich a CVE scan summary."""
 
@@ -85,6 +88,8 @@ class VulnerabilityEnrichmentService:
             current_cve="",
         )
         for assessment in summary.assessments:
+            if cancel_event is not None and cancel_event.is_set():
+                raise CveScanCancelled("CVE scan cancelled")
             if not self.enrich_not_affected and assessment.applicability not in ENRICHED_STATUSES:
                 continue
             cve_id = assessment.cve.cve_id
@@ -97,6 +102,8 @@ class VulnerabilityEnrichmentService:
                     current_cve=cve_id,
                 )
                 cache[cve_id] = self._load_enrichments(cve_id, execution_states)
+                if cancel_event is not None and cancel_event.is_set():
+                    raise CveScanCancelled("CVE scan cancelled")
                 cves_processed += 1
                 _notify_progress(
                     progress_callback,

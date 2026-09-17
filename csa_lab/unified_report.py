@@ -113,6 +113,7 @@ class UnifiedReportGenerator:
                     f"software-{_slug(endpoint['submissionId'])}-"
                     f"{_slug(str(software.get('productKey') or software.get('displayName')))}"
                 )
+                software["productLabel"] = _product_label(software)
         fleet_findings = [
             self._fleet_finding(item) for item in fleet.fleet_findings
         ]
@@ -266,7 +267,7 @@ class UnifiedReportGenerator:
         framework_rows = _framework_rows(fleet_findings)
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.4.0",
+            "reportVersion": "CSA-5.4.1",
             "generatedAt": generated_at,
             "dataClassification": "Confidential - Security Assessment Data",
             "containsPersonalData": True,
@@ -1982,9 +1983,13 @@ def _software_intelligence_coverage(
     products = _deduplicated_software_instances(software_results)
     discovered = len(products)
     normalized = sum(
+        1 for item in products
+        if int(item.get("normalizationConfidence", 0) or 0) >= 95
+    )
+    identified = sum(
         1
         for item in products
-        if int(item.get("normalizationConfidence", 0) or 0) >= 95
+        if _software_identified(item)
     )
     eligible = sum(
         1
@@ -2029,6 +2034,7 @@ def _software_intelligence_coverage(
         "productsDiscovered": installation_records,
         "endpointProductInstances": discovered,
         "normalizedConfidently": normalized,
+        "identifiedForSecurityAnalysis": identified,
         "cveEligible": eligible,
         "cveEvaluated": evaluated,
         "lifecycleEvaluated": lifecycle_evaluated,
@@ -2038,7 +2044,7 @@ def _software_intelligence_coverage(
         "confirmedVulnerableProductInstances": confirmed_vulnerable,
         "confirmedCves": len(confirmed_cves),
         "identificationCoveragePercent": (
-            round((normalized / discovered) * 100, 1)
+            round((identified / discovered) * 100, 1)
             if discovered else 100.0
         ),
         "eligibleCveCoveragePercent": (
@@ -2058,10 +2064,8 @@ def _aggregate_software_intelligence(
     """Aggregate instance and fleet-unique software coverage separately."""
 
     rows = [
-        endpoint.get("softwareIntelligence")
-        or _software_intelligence_coverage(
-            list(endpoint.get("softwareResults", []))
-        )
+        _software_intelligence_coverage(list(endpoint["softwareResults"]))
+        if "softwareResults" in endpoint else endpoint.get("softwareIntelligence", {})
         for endpoint in endpoints
     ]
     aggregate = {
@@ -2071,6 +2075,7 @@ def _aggregate_software_intelligence(
             "productsDiscovered",
             "endpointProductInstances",
             "normalizedConfidently",
+            "identifiedForSecurityAnalysis",
             "cveEligible",
             "cveEvaluated",
             "lifecycleEvaluated",
@@ -2094,7 +2099,7 @@ def _aggregate_software_intelligence(
             "uniqueReliablyIdentified": sum(
                 1
                 for item in fleet_products
-                if int(item.get("normalizationConfidence", 0) or 0) >= 95
+                if _software_identified(item)
             ),
             "uniqueCveEligible": sum(
                 1 for item in fleet_products
@@ -2127,7 +2132,7 @@ def _aggregate_software_intelligence(
     discovered = aggregate["endpointProductInstances"]
     eligible = aggregate["cveEligible"]
     aggregate["identificationCoveragePercent"] = (
-        round((aggregate["normalizedConfidently"] / discovered) * 100, 1)
+        round((aggregate["identifiedForSecurityAnalysis"] / discovered) * 100, 1)
         if discovered else 100.0
     )
     aggregate["eligibleCveCoveragePercent"] = (
@@ -2195,20 +2200,29 @@ def _software_result_rank(item: dict[str, Any]) -> tuple[int, int, int]:
 
 
 def _software_is_unknown_or_unmapped(item: dict[str, Any]) -> bool:
-    """Return whether product identity lacks a reliable terminal mapping."""
+    """Return whether security-analysis identity is still unconfirmed."""
 
-    mapping = str(
-        item.get("cvePipeline", {}).get("productMappingStatus", "NOT_RUN")
+    return not _software_identified(item)
+
+
+def _software_identified(item: dict[str, Any]) -> bool:
+    """Count security identity only after a reliable product mapping."""
+
+    pipeline = item.get("cvePipeline", {})
+    return bool(
+        pipeline.get("productMappingStatus") == "SUCCESS"
+        or pipeline.get("terminalStatus") == "COMPLETED"
     )
-    return (
-        int(item.get("normalizationConfidence", 0) or 0) < 95
-        and mapping != "SUCCESS"
-    ) or mapping in {
-        "NO_RELIABLE_MAPPING",
-        "AMBIGUOUS",
-        "AMBIGUOUS_MAPPING",
-        "FAILED",
-    }
+
+
+def _product_label(item: dict[str, Any]) -> str:
+    """Avoid rendering an installed version twice in the software table."""
+
+    name = str(item.get("displayName") or "Unknown")
+    version = str(item.get("displayVersion") or "").strip()
+    if version and name.casefold().endswith(" " + version.casefold()):
+        return name[:-(len(version) + 1)].strip()
+    return name
 
 
 def _software_is_cve_eligible(item: dict[str, Any]) -> bool:
@@ -2299,6 +2313,8 @@ def _remediation_plan(
     for action in priority_actions:
         grouped[action["action"].casefold()] = dict(action)
     for finding in findings:
+        if finding.get("ruleId") == "CVE-001" and finding.get("kind") != "SOFTWARE_CVE":
+            continue
         recommendation = str(finding.get("recommendation", "")).strip()
         if not recommendation or recommendation == "Unknown":
             continue

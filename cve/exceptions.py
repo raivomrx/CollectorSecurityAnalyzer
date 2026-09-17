@@ -27,3 +27,7 @@ class NvdRequestError(CveEngineError):
 
 class CveCacheError(CveEngineError):
     """Raised when the CVE cache cannot be used."""
+
+
+class CveScanCancelled(CveEngineError):
+    """Raised when the operator cancels a CVE scan."""

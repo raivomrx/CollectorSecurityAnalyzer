@@ -107,7 +107,7 @@ def _admin_handler_factory(application: LabAdminServer):
     service = application.service
 
     class AdminHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Lab-Admin/5.4.0"
+        server_version = "CSA-Lab-Admin/5.4.1"
         protocol_version = "HTTP/1.1"
 
         def do_GET(self) -> None:
@@ -302,6 +302,8 @@ def _admin_handler_factory(application: LabAdminServer):
                         HTTPStatus.ACCEPTED,
                         {"progress": progress},
                     )
+                elif action == "cve-analysis-cancel":
+                    self._json(HTTPStatus.OK, {"progress": service.cancel_cve_analysis(assessment_id)})
                 elif action == "report":
                     data = self._read_json(MAX_JSON)
                     report = service.generate_unified_report(

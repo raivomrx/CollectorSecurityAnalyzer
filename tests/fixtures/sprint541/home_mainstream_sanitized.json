@@ -1,0 +1,10 @@
+{
+  "sourceShape": "Sanitized from the existing HOME Windows 11 software inventory",
+  "privacy": "No computer names, user names, paths or account identifiers",
+  "software": [
+    {"publisher": "Notepad++ Team", "displayName": "Notepad++ (32-bit x86)", "displayVersion": "7.8.8", "expectedProduct": "Notepad++"},
+    {"publisher": "Microsoft Corporation", "displayName": "Microsoft Visual Studio Code (User)", "displayVersion": "1.137.0", "expectedProduct": "Visual Studio Code"},
+    {"publisher": "Microsoft Corporation", "displayName": "Microsoft Teams", "displayVersion": "1.4.00.32771", "expectedProduct": "Microsoft Teams"},
+    {"publisher": "NVIDIA Corporation", "displayName": "NVIDIA Graphics Driver 466.11", "displayVersion": "466.11", "expectedProduct": "NVIDIA Graphics Driver"}
+  ]
+}

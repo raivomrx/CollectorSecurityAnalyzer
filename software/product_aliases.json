@@ -31,5 +31,9 @@
   "PuTTY release 0.78 (64-bit)": "PuTTY",
   "Python 3.12.4 (64-bit)": "Python",
   "qBittorrent": "qBittorrent",
-  "Wireshark 4.4.7 x64": "Wireshark"
+  "Wireshark 4.4.7 x64": "Wireshark",
+  "Notepad++": "Notepad++",
+  "Microsoft Visual Studio Code": "Visual Studio Code",
+  "Microsoft Teams": "Microsoft Teams",
+  "NVIDIA Graphics Driver": "NVIDIA Graphics Driver"
 }

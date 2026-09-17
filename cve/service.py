@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
+from threading import Event
 from collections.abc import Callable
 from typing import Any
 
 from cve.applicability import evaluate_applicability
 from cve.client import NvdClient
 from cve.cpe_resolver import CpeResolver, replace_cpe23_version
-from cve.exceptions import NvdRequestError
+from cve.exceptions import CveScanCancelled, NvdRequestError
 from cve.models import (
     ApplicabilityStatus,
     CpeMatchStatus,
@@ -51,6 +53,7 @@ class CveService:
         inventory: SoftwareInventory,
         raw_data: dict[str, Any] | None = None,
         progress_callback: CveProgressCallback | None = None,
+        cancel_event: Event | None = None,
     ) -> CveScanSummary:
         """Scan a software inventory for CVEs."""
 
@@ -66,6 +69,12 @@ class CveService:
         eligible_products = 0
         evaluated_products = 0
         product_evaluations: list[CveProductEvaluation] = []
+        current: dict[str, Any] = {"current_product": "", "current_version": "", "products_processed": 0}
+        if isinstance(self.client, NvdClient):
+            self.client.cancel_event = cancel_event
+            self.client.progress_callback = lambda details: _notify(
+                progress_callback, **current, products_total=eligible_total, **details
+            )
 
         _notify(
             progress_callback,
@@ -75,6 +84,8 @@ class CveService:
         )
 
         for software in unique_products:
+            if cancel_event is not None and cancel_event.is_set():
+                raise CveScanCancelled("CVE scan cancelled")
             product_key = _product_key(software)
             eligible = _is_eligible(software)
             evaluation = CveProductEvaluation(
@@ -97,6 +108,8 @@ class CveService:
                 continue
 
             eligible_products += 1
+            current.update(current_product=software.product, current_version=software.version,
+                           products_processed=eligible_products - 1)
             _notify(
                 progress_callback,
                 phase="MAPPING_PRODUCT",
@@ -110,7 +123,11 @@ class CveService:
                     self.resolver, "resolve_with_trace", None
                 )
                 if callable(resolution_method):
-                    resolution = resolution_method(software)
+                    resolution = (
+                        resolution_method(software, raw_data)
+                        if isinstance(self.resolver, CpeResolver)
+                        else resolution_method(software)
+                    )
                     cpe = resolution.candidate
                     evaluation.cpe_candidate_count = resolution.candidate_count
                     evaluation.product_mapping_status = resolution.status
@@ -173,12 +190,24 @@ class CveService:
                     current_product=software.product,
                     current_version=software.version,
                 )
-                cve_items = self.client.get_cves(
-                    _cve_query(cpe.cpe_name, software.normalized_version)
+                discovered_family = cpe.source == "NVD_CPE_API_DISCOVERY"
+                catalogued_version = bool(
+                    evaluation.discovery_trace.get("installedVersionCatalogued")
                 )
+                if discovered_family and not catalogued_version:
+                    query = {"virtualMatchString": cpe.cpe_name}
+                    evaluation.discovery_trace["providerQueryMode"] = "FAMILY_RANGE"
+                else:
+                    query_version = (
+                        software.version
+                        if re.fullmatch(r"\d+(?:\.\d+)+", software.version)
+                        else software.normalized_version
+                    )
+                    query = _cve_query(cpe.cpe_name, query_version)
+                    evaluation.discovery_trace["providerQueryMode"] = "INSTALLED_VERSION"
+                cve_items = self.client.get_cves(query)
                 evaluation.provider_query_status = "SUCCESS"
                 evaluation.provider_reason = None
-                evaluated_products += 1
                 records = parse_cve_items(cve_items)
                 evaluation.records_received = len(records)
                 _notify(
@@ -195,6 +224,10 @@ class CveService:
                     assessments.append(assessment)
                     product_assessments.append(assessment)
                 _complete_evaluation(evaluation, product_assessments)
+                if evaluation.terminal_status == "COMPLETED":
+                    evaluated_products += 1
+            except CveScanCancelled:
+                raise
             except Exception as error:
                 evaluation.discovery_trace = getattr(error, "discovery_trace", evaluation.discovery_trace)
                 LOGGER.exception("CVE scan failed for a product")

@@ -11,7 +11,7 @@ from typing import Any
 
 from utils import parse_date
 from software.models import NormalizationResult, SoftwareProduct
-from software.version import normalize_version
+from software.version import compare_versions, normalize_version
 
 LOGGER = logging.getLogger(__name__)
 SOFTWARE_DIR = Path(__file__).resolve().parent
@@ -62,6 +62,8 @@ def normalize_vendor(
 def normalize_product(
     product: Any,
     aliases_path: str | Path = DEFAULT_PRODUCT_ALIASES_PATH,
+    *,
+    version: Any = None,
 ) -> NormalizationResult:
     """Normalize a software product name."""
 
@@ -72,25 +74,19 @@ def normalize_product(
         return exact_result
     if re.search(r"\b(?:helper|updater|update helper|add-in)\b", text, re.IGNORECASE):
         return NormalizationResult(value=text, confidence=0, reason="component_identity_required")
-    pattern_result = _match_product_pattern(text)
+    cleaned = _canonical_display_name(text, version)
+    cleaned_exact = _match_exact_alias(cleaned, aliases)
+    if cleaned_exact is not None:
+        return NormalizationResult(
+            value=cleaned_exact.value, confidence=95, reason="display_name_canonicalized"
+        )
+    pattern_result = _match_product_pattern(cleaned)
     if pattern_result is not None:
         return pattern_result
-    result = _match_alias(text, aliases)
+    result = _match_alias(cleaned, aliases)
     if result is not None:
         return result
-
-    cleaned = _remove_architecture_suffix(text)
-    if cleaned != text:
-        cleaned_result = _match_alias(cleaned, aliases)
-        if cleaned_result is not None:
-            return NormalizationResult(
-                value=cleaned_result.value,
-                confidence=min(cleaned_result.confidence, 95),
-                reason="fuzzy",
-            )
-        return NormalizationResult(value=cleaned, confidence=0, reason="unknown")
-
-    return NormalizationResult(value=text, confidence=0, reason="unknown")
+    return NormalizationResult(value=cleaned, confidence=0, reason="unknown")
 
 
 def normalize_software(
@@ -108,7 +104,7 @@ def normalize_software(
     """Build a normalized SoftwareProduct from raw inventory values."""
 
     vendor_result = normalize_vendor(vendor)
-    product_result = normalize_product(product)
+    product_result = normalize_product(product, version=version)
     confidence = _calculate_confidence(vendor_result, product_result)
     discovery_eligible = _is_discovery_candidate(
         vendor_result,
@@ -256,10 +252,22 @@ def _match_alias(text: str, aliases: dict[str, str]) -> NormalizationResult | No
     return None
 
 
-def _remove_architecture_suffix(value: str) -> str:
-    """Remove common architecture suffixes from product names."""
+def _canonical_display_name(value: str, version: Any) -> str:
+    """Remove only evidenced packaging, scope and installed-version suffixes."""
 
-    return re.sub(r"\s*\((?:32|64)-bit\)\s*$", "", value, flags=re.IGNORECASE).strip()
+    cleaned = value
+    suffix = r"\s*(?:\((?:32-bit(?: x86)?|64-bit(?: x64)?|x86|x64|arm64|user|machine|system)\)|\b(?:x86|x64|arm64)\b)\s*$"
+    while True:
+        reduced = re.sub(suffix, "", cleaned, flags=re.IGNORECASE).strip()
+        if reduced == cleaned:
+            break
+        cleaned = reduced
+    installed = str(version or "").strip()
+    if installed and re.fullmatch(r"\d+(?:\.\d+)+", installed):
+        embedded = re.search(r"\s+(\d+(?:\.\d+)+)$", cleaned)
+        if embedded and compare_versions(embedded.group(1), installed) == 0:
+            cleaned = cleaned[:embedded.start()].strip()
+    return cleaned
 
 
 def _match_product_pattern(value: str) -> NormalizationResult | None:

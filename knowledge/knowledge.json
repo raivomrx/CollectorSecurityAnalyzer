@@ -30,7 +30,7 @@
       ]
     },
     "DEF-001": {
-      "title": "Windows Defender is disabled",
+      "title": "Microsoft Defender antivirus state",
       "description": "Microsoft Defender Antivirus is not enabled or its state is unknown.",
       "risk": "Malware may execute without endpoint protection detecting or blocking it.",
       "recommendation": "Turn on Microsoft Defender Antivirus and verify protection status.",
@@ -55,7 +55,7 @@
       ]
     },
     "FW-001": {
-      "title": "Windows Firewall profile is disabled",
+      "title": "Windows Firewall profile state",
       "description": "One or more Windows Firewall profiles are not enabled.",
       "risk": "Unrestricted inbound connectivity can increase exposure to network attacks.",
       "recommendation": "Enable Domain, Private, and Public firewall profiles unless an approved exception exists.",
@@ -80,7 +80,7 @@
       ]
     },
     "ADM-001": {
-      "title": "Local administrators require review",
+      "title": "Local administrator membership",
       "description": "Local administrator membership is missing or exceeds the expected baseline.",
       "risk": "Excessive local administrator rights can enable privilege escalation and persistence.",
       "recommendation": "Review local administrators and keep only approved required accounts.",
@@ -105,7 +105,7 @@
       ]
     },
     "NET-001": {
-      "title": "Public network profile detected",
+      "title": "Active network profile category",
       "description": "The active network connection is using the Public profile.",
       "risk": "A wrong network profile can apply unsuitable firewall and sharing behavior.",
       "recommendation": "Use Private or Domain profile when appropriate.",
@@ -130,7 +130,7 @@
       ]
     },
     "UPD-001": {
-      "title": "Windows Updates are missing or stale",
+      "title": "Windows Update installation recency",
       "description": "The last successful update installation is missing or older than the accepted threshold.",
       "risk": "Missing security updates can leave known vulnerabilities exploitable.",
       "recommendation": "Install current Windows updates and verify successful installation telemetry.",
@@ -155,10 +155,10 @@
       ]
     },
     "SW-001": {
-      "title": "Software not reliably identified for security analysis",
-      "description": "The software inventory entry exists, but CSA could not establish a sufficiently reliable vendor/product identity for security analysis. This is an assessment-coverage limitation and is not itself evidence of malware.",
+      "title": "Software identity coverage",
+      "description": "Assesses whether installed software has a reliable vendor and product identity for security analysis. An unidentified entry is a coverage limitation and is not itself evidence of malware.",
       "risk": "Unknown software reduces asset visibility and can prevent accurate CVE, EOL, and unsupported software checks.",
-      "recommendation": "Review unknown software entries and add approved aliases to the Software Intelligence Engine.",
+      "recommendation": "Verify the publisher, product and version against installed software and vendor documentation. Update the reviewed identity mapping where evidence supports it; an unmapped entry is not automatically malicious.",
       "frameworks": {
         "E-ITS": ["EITS-ASSET-001"],
         "CIS": ["CIS-1.1"],

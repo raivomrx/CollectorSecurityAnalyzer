@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -13,7 +14,11 @@ from sqlite3 import Connection
 from typing import Any
 
 LOGGER = logging.getLogger(__name__)
-DEFAULT_CACHE_PATH = Path(__file__).resolve().parent.parent / "cache" / "nvd_cache.sqlite3"
+DEFAULT_CACHE_PATH = (
+    Path(os.environ["LOCALAPPDATA"]) / "CSA" / "cache" / "nvd_cache.sqlite3"
+    if os.environ.get("LOCALAPPDATA")
+    else Path.home() / ".csa-lab" / "cache" / "nvd_cache.sqlite3"
+)
 SCHEMA_VERSION = "nvd-api-2.0"
 
 
@@ -101,6 +106,10 @@ class NvdCache:
                     "DELETE FROM nvd_cache WHERE expires_at <= ?",
                     (_utc_now().isoformat(),),
                 )
+                connection.execute(
+                    "DELETE FROM cpe_catalog WHERE expires_at <= ?",
+                    (_utc_now().isoformat(),),
+                )
                 return cursor.rowcount
         except sqlite3.Error:
             LOGGER.exception("CVE cache database error")
@@ -112,8 +121,45 @@ class NvdCache:
         try:
             with self._connect() as connection:
                 connection.execute("DELETE FROM nvd_cache")
+                connection.execute("DELETE FROM cpe_catalog")
         except sqlite3.Error:
             LOGGER.exception("CVE cache database error")
+
+    def get_cpe_catalog(self, identity: str) -> list[dict[str, Any]] | None:
+        """Read a synchronized CPE discovery result for one product family."""
+
+        try:
+            with self._connect() as connection:
+                row = connection.execute(
+                    "SELECT products_json FROM cpe_catalog WHERE identity = ? AND expires_at > ?",
+                    (identity, _utc_now().isoformat()),
+                ).fetchone()
+            if row is None:
+                return None
+            products = json.loads(row[0])
+            if not isinstance(products, list) or any(
+                not isinstance(product, dict) for product in products
+            ):
+                LOGGER.warning("Invalid CPE catalog entry ignored")
+                return None
+            return products
+        except (sqlite3.Error, ValueError, TypeError):
+            LOGGER.exception("CPE catalog read failed; live discovery will be attempted")
+            return None
+
+    def set_cpe_catalog(self, identity: str, products: list[dict[str, Any]]) -> None:
+        """Persist a bounded NVD discovery snapshot, including negative results."""
+
+        now = _utc_now()
+        ttl = timedelta(hours=72 if not products else 24 * 14)
+        try:
+            with self._connect() as connection:
+                connection.execute(
+                    "INSERT OR REPLACE INTO cpe_catalog (identity, products_json, expires_at) VALUES (?, ?, ?)",
+                    (identity, json.dumps(products), (now + ttl).isoformat()),
+                )
+        except sqlite3.Error:
+            LOGGER.exception("CPE catalog write failed")
 
     def _ensure_schema(self) -> None:
         """Create the cache table."""
@@ -130,6 +176,13 @@ class NvdCache:
                     expires_at TEXT NOT NULL
                 )
                 """
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS cpe_catalog (
+                    identity TEXT PRIMARY KEY,
+                    products_json TEXT NOT NULL,
+                    expires_at TEXT NOT NULL
+                )"""
             )
 
     @contextmanager

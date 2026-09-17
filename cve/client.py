@@ -6,12 +6,14 @@ import logging
 import os
 import re
 import time
+from collections.abc import Callable
+from threading import Event
 from typing import Any
 
 import requests
 
 from cve.cache import NvdCache
-from cve.exceptions import NvdRequestError
+from cve.exceptions import CveScanCancelled, NvdRequestError
 from cve.rate_limiter import SlidingWindowRateLimiter
 
 LOGGER = logging.getLogger(__name__)
@@ -33,6 +35,8 @@ class NvdClient:
         session: requests.Session | None = None,
         limiter: SlidingWindowRateLimiter | None = None,
         api_key: str | None = None,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
+        cancel_event: Event | None = None,
     ) -> None:
         """Create a configured NVD client."""
 
@@ -40,6 +44,8 @@ class NvdClient:
         self.max_retries = max_retries
         self.cache_ttl_hours = cache_ttl_hours
         self.api_key = api_key if api_key is not None else os.getenv(api_key_env_var)
+        self.progress_callback = progress_callback
+        self.cancel_event = cancel_event
         self.metrics = {
             "nvdApiKeyConfigured": bool(self.api_key), "nvdRequests": 0,
             "rateLimitWaitSeconds": 0.0, "cpeCacheHits": 0, "cpeCacheMisses": 0,
@@ -111,10 +117,21 @@ class NvdClient:
 
         last_error: Exception | None = None
         for attempt in range(self.max_retries + 1):
+            self._check_cancelled()
             try:
                 waiting = time.perf_counter()
-                self.limiter.acquire()
+                if isinstance(self.limiter, SlidingWindowRateLimiter):
+                    self.limiter.acquire(
+                        on_wait=lambda remaining: self._progress(
+                            endpoint, "RATE_LIMIT_WAIT", remaining, attempt + 1
+                        ),
+                        cancel_event=self.cancel_event,
+                    )
+                else:
+                    self.limiter.acquire()
                 self.metrics["rateLimitWaitSeconds"] += time.perf_counter() - waiting
+                self._check_cancelled()
+                self._progress(endpoint, "PROVIDER_REQUEST", 0, attempt + 1)
                 self.metrics["nvdRequests"] += 1
                 response = self.session.get(
                     endpoint,
@@ -123,10 +140,21 @@ class NvdClient:
                     timeout=self.timeout,
                 )
                 if response.status_code == 429:
-                    waiting = time.perf_counter()
-                    self.limiter.retry_after(response.headers.get("Retry-After"))
-                    self.metrics["rateLimitWaitSeconds"] += time.perf_counter() - waiting
-                    raise _http_error(endpoint, response, retryable=True, secret=self.api_key)
+                    error = _http_error(endpoint, response, retryable=True, secret=self.api_key)
+                    if attempt < self.max_retries:
+                        waiting = time.perf_counter()
+                        if isinstance(self.limiter, SlidingWindowRateLimiter):
+                            self.limiter.retry_after(
+                                response.headers.get("Retry-After"),
+                                on_wait=lambda remaining: self._progress(
+                                    endpoint, "RATE_LIMIT_WAIT", remaining, attempt + 2
+                                ),
+                                cancel_event=self.cancel_event,
+                            )
+                        else:
+                            self.limiter.retry_after(response.headers.get("Retry-After"))
+                        self.metrics["rateLimitWaitSeconds"] += time.perf_counter() - waiting
+                    raise error
                 if response.status_code >= 500:
                     raise _http_error(endpoint, response, retryable=True, secret=self.api_key)
                 if 400 <= response.status_code < 500:
@@ -143,7 +171,7 @@ class NvdClient:
                     break
                 if attempt >= self.max_retries:
                     break
-                time.sleep(min(2 ** attempt, 8))
+                self._backoff(endpoint, attempt)
             except (requests.ConnectionError, requests.Timeout) as error:
                 last_error = NvdRequestError(
                     f"NVD request failed: endpoint={_endpoint_label(endpoint)} transient network error",
@@ -152,7 +180,7 @@ class NvdClient:
                 )
                 if attempt >= self.max_retries:
                     break
-                time.sleep(min(2 ** attempt, 8))
+                self._backoff(endpoint, attempt)
             except requests.RequestException as error:
                 last_error = NvdRequestError(
                     f"NVD request failed: endpoint={_endpoint_label(endpoint)} network error",
@@ -172,6 +200,34 @@ class NvdClient:
         if isinstance(last_error, NvdRequestError):
             raise last_error
         raise NvdRequestError(str(last_error))
+
+    def _check_cancelled(self) -> None:
+        """Stop a pending scan before another provider request is sent."""
+
+        if self.cancel_event is not None and self.cancel_event.is_set():
+            raise CveScanCancelled("CVE scan cancelled")
+
+    def _progress(self, endpoint: str, phase: str, wait: float, attempt: int) -> None:
+        """Emit safe provider state without disclosing URL parameters or key."""
+
+        if self.progress_callback is not None:
+            self.progress_callback({
+                "phase": phase, "provider": f"NVD {_endpoint_label(endpoint)}",
+                "wait_seconds": wait, "retry_attempt": attempt,
+            })
+
+    def _backoff(self, endpoint: str, attempt: int) -> None:
+        """Wait between transient retries with live cancellation."""
+
+        seconds = min(2 ** attempt, 8)
+        if isinstance(self.limiter, SlidingWindowRateLimiter):
+            self.limiter._wait(
+                seconds,
+                lambda remaining: self._progress(endpoint, "RETRY_WAIT", remaining, attempt + 2),
+                self.cancel_event,
+            )
+        else:
+            time.sleep(seconds)
 
 
 def _endpoint_label(endpoint: str) -> str:

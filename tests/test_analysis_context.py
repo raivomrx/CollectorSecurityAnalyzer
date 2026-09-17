@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import analyzer
+from cve.cache import NvdCache
 from analysis_context import AnalysisContext
 from evidence.registry import WindowsEvidenceRegistry
 from risk import Status
@@ -31,7 +32,9 @@ class AnalysisContextTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = Path(temp_dir) / "output"
-            with patch("analyzer.build_inventory", wraps=build_inventory) as mocked:
+            with patch("analyzer.build_inventory", wraps=build_inventory) as mocked, patch(
+                "analyzer.NvdCache", side_effect=lambda: NvdCache(Path(temp_dir) / "nvd.sqlite3")
+            ):
                 analyzer.analyze_file("samples/EE-D3147.json", output_dir=output_dir)
 
         self.assertEqual(mocked.call_count, 1)
@@ -91,7 +94,8 @@ class AnalysisContextTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = Path(temp_dir) / "output"
-            analyzer.analyze_file("samples/EE-D3147.json", output_dir=output_dir)
+            with patch("analyzer.NvdCache", side_effect=lambda: NvdCache(Path(temp_dir) / "nvd.sqlite3")):
+                analyzer.analyze_file("samples/EE-D3147.json", output_dir=output_dir)
             analysis_path = output_dir / "EE-D3147.analysis.json"
             document = json.loads(analysis_path.read_text(encoding="utf-8"))
 

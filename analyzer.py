@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import time
+from threading import Event
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,7 @@ from config import load_config
 from csa_console.identifiers import utc_text
 from cve.cache import NvdCache
 from cve.client import NvdClient
+from cve.exceptions import CveScanCancelled
 from cve.cpe_resolver import CpeResolver
 from cve.enrichment_service import VulnerabilityEnrichmentService
 from cve.providers.cisa_kev import (
@@ -89,6 +91,7 @@ def analyze_file(
     analysis_metadata: dict[str, Any] | None = None,
     cve_progress_callback: Callable[[dict[str, Any]], None] | None = None,
     nvd_api_key: str | None = None,
+    cve_cancel_event: Event | None = None,
 ) -> tuple[list[AuditFinding], int, SoftwareInventory, Path]:
     """Analyze a collector JSON file and generate an HTML report."""
 
@@ -127,7 +130,10 @@ def analyze_file(
         cve_debug,
         cve_progress_callback,
         api_key=nvd_api_key,
+        cancel_event=cve_cancel_event,
     )
+    if cve_cancel_event is not None and cve_cancel_event.is_set():
+        raise CveScanCancelled("CVE scan cancelled")
     _emit_cve_progress(
         cve_progress_callback,
         phase="ENRICHING",
@@ -150,7 +156,10 @@ def analyze_file(
         refresh_enrichment_cache=refresh_enrichment_cache,
         cvelist_path=cvelist_path,
         progress_callback=cve_progress_callback,
+        cancel_event=cve_cancel_event,
     )
+    if cve_cancel_event is not None and cve_cancel_event.is_set():
+        raise CveScanCancelled("CVE scan cancelled")
     _emit_cve_progress(
         cve_progress_callback,
         phase="FINALIZING",
@@ -892,6 +901,7 @@ def _run_cve_scan(
     cve_debug: bool,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     api_key: str | None = None,
+    cancel_event: Event | None = None,
 ) -> None:
     """Run the CVE scan and store results on the analysis context."""
 
@@ -903,19 +913,19 @@ def _run_cve_scan(
         context.cve_summary = None
         return
 
-    cache = NvdCache()
-    if refresh_cve_cache:
-        cache.clear_all()
-    else:
-        cache.clear_expired()
-
     has_api_key = bool(api_key if api_key is not None else __import__("os").getenv(str(cve_config.get("ApiKeyEnvironmentVariable", "NVD_API_KEY"))))
     rate_config_key = "RateLimitWithApiKey" if has_api_key else "RateLimitWithoutApiKey"
     rate_config = cve_config.get(rate_config_key, {})
     if not isinstance(rate_config, dict):
         rate_config = {}
 
+    client: NvdClient | None = None
     try:
+        cache = NvdCache()
+        if refresh_cve_cache:
+            cache.clear_all()
+        else:
+            cache.clear_expired()
         limiter = SlidingWindowRateLimiter(
             requests=int(rate_config.get("Requests", 50 if has_api_key else 5)),
             window_seconds=int(rate_config.get("WindowSeconds", 30)),
@@ -943,10 +953,16 @@ def _run_cve_scan(
             context.software_inventory,
             context.raw_data,
             progress_callback,
+            cancel_event=cancel_event,
         )
+    except CveScanCancelled:
+        raise
     except Exception as error:
         LOGGER.exception("CVE service failed")
         context.cve_summary = empty_summary(scan_complete=False, message=str(error))
+    finally:
+        if client is not None:
+            client.session.close()
 
 
 def _emit_cve_progress(
@@ -971,6 +987,7 @@ def _run_cve_enrichment(
     refresh_enrichment_cache: bool,
     cvelist_path: str | Path | None,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    cancel_event: Event | None = None,
 ) -> None:
     """Run multi-source CVE enrichment when enabled."""
 
@@ -1036,6 +1053,7 @@ def _run_cve_enrichment(
                 products_total=context.cve_summary.eligible_products,
                 **details,
             ),
+            cancel_event=cancel_event,
         )
         context.cve_summary.telemetry.update({
             "cveProgramSeconds": service.provider_seconds.get("CVE Program", 0.0),
@@ -1043,6 +1061,8 @@ def _run_cve_enrichment(
         })
         for provider in providers:
             context.cve_summary.telemetry.update(getattr(provider, "metrics", {}))
+    except CveScanCancelled:
+        raise
     except Exception:
         LOGGER.exception("CVE enrichment failed")
         context.cve_enrichment = None

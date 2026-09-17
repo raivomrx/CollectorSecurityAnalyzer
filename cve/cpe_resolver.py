@@ -14,6 +14,7 @@ from typing import Any
 from cve.client import NvdClient
 from cve.models import CpeCandidate, CpeMatchStatus
 from software.models import SoftwareProduct
+from software.version import compare_versions
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_MAPPING_PATH = Path(__file__).resolve().parent.parent / "software" / "cpe_mappings.json"
@@ -62,7 +63,11 @@ class CpeResolver:
         self.client = client
         self.mappings = _load_mappings(mapping_path)
         self.discovery_aliases = _load_mappings(DEFAULT_MAPPING_PATH.with_name("cpe_discovery_aliases.json"))
-        self.metrics = {"localMappingSeconds": 0.0, "cpeDiscoverySeconds": 0.0, "resolutionMemoryHits": 0}
+        self.metrics = {
+            "localMappingSeconds": 0.0, "cpeDiscoverySeconds": 0.0,
+            "resolutionMemoryHits": 0, "cpeCatalogHits": 0,
+            "cpeCatalogMisses": 0, "remoteCpeQueries": 0,
+        }
         self.minimum_confidence = minimum_confidence
         self.ambiguous_score_difference = ambiguous_score_difference
         self._resolution_cache: dict[str, CpeResolution] = {}
@@ -72,11 +77,17 @@ class CpeResolver:
 
         return self.resolve_with_trace(software).candidate
 
-    def resolve_with_trace(self, software: SoftwareProduct) -> CpeResolution:
+    def resolve_with_trace(
+        self,
+        software: SoftwareProduct,
+        raw_data: dict[str, Any] | None = None,
+    ) -> CpeResolution:
         """Resolve a product and retain the candidate decision for audit."""
 
+        operating_system = _collector_os(raw_data)
         cache_key = (
-            f"{software.normalized_vendor}|{software.normalized_product}|{software.normalized_version}"
+            f"{software.normalized_vendor}|{software.normalized_product}|"
+            f"{software.normalized_version}|{operating_system}"
         ).casefold()
         cached = self._resolution_cache.get(cache_key)
         if cached is not None:
@@ -134,10 +145,31 @@ class CpeResolver:
             trace.update(terminalStatus=resolution.status, rejectionReason=resolution.reason)
             self._resolution_cache[cache_key] = resolution
             return resolution
+        versioned_candidates = candidates
         candidates = _collapse_equivalent_candidates(candidates)
         candidates.sort(key=lambda candidate: candidate.confidence, reverse=True)
         active = [candidate for candidate in candidates if not candidate.deprecated]
-        ranked = active or candidates
+        platform_match = [
+            item for item in active
+            if operating_system and _target_sw(item) == operating_system
+        ]
+        generic = [item for item in active if _target_sw(item) == "*"]
+        eligible = platform_match or generic
+        if not eligible and active:
+            reason = (
+                "CPE platform is constrained but collector OS does not confirm it"
+                if not operating_system else
+                "CPE platform differs from the collected operating system"
+            )
+            trace.update(terminalStatus="NO_RELIABLE_MAPPING", rejectionReason=reason,
+                         collectorOperatingSystem=operating_system)
+            resolution = CpeResolution(None, len(active), "NO_RELIABLE_MAPPING", reason, trace)
+            self._resolution_cache[cache_key] = resolution
+            return resolution
+        # Prefer an evidenced OS-specific family; otherwise avoid plugin/mobile variants.
+        neutral = [item for item in eligible if _is_neutral_family(item)]
+        ranked = platform_match or neutral or eligible or candidates
+        trace["collectorOperatingSystem"] = operating_system
         best = ranked[0]
         if not active or best.confidence < self.minimum_confidence:
             resolution = CpeResolution(
@@ -168,6 +200,13 @@ class CpeResolver:
             trace.update(terminalStatus=resolution.status, rejectionReason=resolution.reason)
             self._resolution_cache[cache_key] = resolution
             return resolution
+        selected = parse_cpe23_components(best.cpe_name)
+        trace["installedVersionCatalogued"] = any(
+            _same_cpe_family(selected, parse_cpe23_components(item.cpe_name))
+            and _catalog_version_matches(software.version, item.version)
+            for item in versioned_candidates
+            if not item.deprecated
+        )
         trace.update(terminalStatus="SUCCESS", selectedCandidate=best.cpe_name, rejectionReason=None)
         resolution = CpeResolution(best, len(ranked), "SUCCESS", trace=trace)
         self._resolution_cache[cache_key] = resolution
@@ -214,57 +253,71 @@ class CpeResolver:
         )
 
     def _resolve_nvd(self, software: SoftwareProduct, trace: dict[str, Any]) -> list[CpeCandidate]:
-        """Resolve using the NVD CPE API."""
+        """Resolve one canonical family query against the persistent CPE catalog."""
 
         assert self.client is not None
         alias = self.discovery_aliases.get(
             f"{software.normalized_vendor}|{software.normalized_product}".casefold(), {}
         )
-        queries = list(dict.fromkeys(query.strip() for query in (
-            str(alias.get("query", "")), software.normalized_product,
-            f"{software.normalized_vendor} {software.normalized_product}", software.product,
-        ) if query.strip()))
+        query = str(alias.get("query") or software.normalized_product).strip()
+        identity = f"{software.normalized_vendor}|{software.normalized_product}|{query}".casefold()
+        catalog = getattr(getattr(self.client, "cache", None), "get_cpe_catalog", None)
+        save = getattr(getattr(self.client, "cache", None), "set_cpe_catalog", None)
         candidates: list[CpeCandidate] = []
         seen: set[str] = set()
-        for query in queries:
-            attempt = {"query": query, "status": "ATTEMPTED", "candidateCount": 0}
-            trace["queries"].append(attempt)
+        attempt = {"query": query, "status": "ATTEMPTED", "candidateCount": 0}
+        trace["queries"].append(attempt)
+        products = catalog(identity) if callable(catalog) else None
+        trace["catalogHit"] = products is not None
+        if products is None:
+            self.metrics["cpeCatalogMisses"] += 1
+            self.metrics["remoteCpeQueries"] += 1
             products = self.client.get_cpes({"keywordSearch": query})
-            attempt.update(status="SUCCESS", candidateCount=len(products))
-            for product in products:
-                cpe = product.get("cpe", product)
-                cpe_name = str(cpe.get("cpeName", ""))
-                if cpe_name in seen:
-                    continue
-                seen.add(cpe_name)
-                parsed = parse_cpe23_components(cpe_name)
-                title = _read_title(cpe)
-                confidence, reason = _identity_confidence(software, parsed, title, alias)
-                diagnostic = {
-                    "cpe": cpe_name, "title": title,
-                    "vendor": parsed.vendor if parsed else "", "product": parsed.product if parsed else "",
-                    "edition": parsed.edition if parsed else "", "softwareEdition": parsed.sw_edition if parsed else "",
-                    "confidence": confidence, "deprecated": bool(cpe.get("deprecated", False)),
-                    "vendorIdentity": "CONFIRMED" if confidence >= 45 else "NOT_CONFIRMED",
-                    "productIdentity": "CONFIRMED" if reason is None else "NOT_CONFIRMED",
-                    "installedVersionAvailable": bool(parsed and parsed.version == software.normalized_version),
-                    "rejectionReason": reason,
-                }
-                trace["topCandidates"].append(diagnostic)
-                if parsed is None or reason:
-                    continue
-                candidates.append(CpeCandidate(
-                    cpe_name=cpe_name, title=title, vendor=parsed.vendor, product=parsed.product,
-                    version=parsed.version if parsed.version not in {"*", "-"} else None,
-                    deprecated=diagnostic["deprecated"], confidence=confidence,
-                    match_status=_status_for_confidence(confidence), source="NVD_CPE_API",
-                ))
-            ranked = sorted(_collapse_equivalent_candidates(candidates), key=lambda item: -item.confidence)
-            active = [item for item in ranked if not item.deprecated]
-            if active and active[0].confidence >= 95 and (
-                len(active) == 1 or active[0].confidence - active[1].confidence >= self.ambiguous_score_difference
-            ):
-                break
+            if callable(save):
+                snapshot = []
+                for row in products:
+                    cpe_data = row.get("cpe", row) if isinstance(row, dict) else None
+                    if isinstance(cpe_data, dict):
+                        snapshot.append({"cpe": {
+                            key: value for key, value in cpe_data.items()
+                            if key in {"cpeName", "titles", "deprecated"}
+                        }})
+                save(identity, snapshot)
+        else:
+            self.metrics["cpeCatalogHits"] += 1
+        attempt.update(status="SUCCESS", candidateCount=len(products))
+        for product in products:
+            cpe = product.get("cpe", product) if isinstance(product, dict) else None
+            if not isinstance(cpe, dict):
+                continue
+            cpe_name = str(cpe.get("cpeName", ""))
+            if cpe_name in seen:
+                continue
+            seen.add(cpe_name)
+            parsed = parse_cpe23_components(cpe_name)
+            title = _read_title(cpe)
+            confidence, reason = _identity_confidence(software, parsed, title, alias)
+            diagnostic = {
+                "cpe": cpe_name, "title": title,
+                "vendor": parsed.vendor if parsed else "", "product": parsed.product if parsed else "",
+                "edition": parsed.edition if parsed else "", "softwareEdition": parsed.sw_edition if parsed else "",
+                "confidence": confidence, "deprecated": bool(cpe.get("deprecated", False)),
+                "vendorIdentity": "CONFIRMED" if confidence >= 45 else "NOT_CONFIRMED",
+                "productIdentity": "CONFIRMED" if reason is None else "NOT_CONFIRMED",
+                "installedVersionAvailable": bool(
+                    parsed and _catalog_version_matches(software.version, parsed.version)
+                ),
+                "rejectionReason": reason,
+            }
+            trace["topCandidates"].append(diagnostic)
+            if parsed is None or reason:
+                continue
+            candidates.append(CpeCandidate(
+                cpe_name=cpe_name, title=title, vendor=parsed.vendor, product=parsed.product,
+                version=parsed.version if parsed.version not in {"*", "-"} else None,
+                deprecated=diagnostic["deprecated"], confidence=confidence,
+                match_status=_status_for_confidence(confidence), source="NVD_CPE_API",
+            ))
         trace["candidateCount"] = len(seen)
         trace["topCandidates"] = sorted(trace["topCandidates"], key=lambda item: (-item["confidence"], item["cpe"]))[:20]
         trace["aliasSource"] = alias.get("source")
@@ -468,7 +521,7 @@ def _collapse_equivalent_candidates(
         parsed = parse_cpe23_components(candidate.cpe_name)
         if parsed is None:
             continue
-        key = (parsed.part, parsed.vendor, parsed.product, parsed.edition, parsed.sw_edition, parsed.target_sw, parsed.target_hw, parsed.language, parsed.other)
+        key = (parsed.part, parsed.vendor, parsed.product, parsed.update, parsed.edition, parsed.sw_edition, parsed.target_sw, parsed.target_hw, parsed.language, parsed.other)
         grouped.setdefault(key, []).append(candidate)
 
     collapsed: list[CpeCandidate] = []
@@ -484,7 +537,7 @@ def _collapse_equivalent_candidates(
             parsed.part,
             parsed.vendor,
             parsed.product,
-            edition=parsed.edition, sw_edition=parsed.sw_edition,
+            update=parsed.update, edition=parsed.edition, sw_edition=parsed.sw_edition,
             target_sw=parsed.target_sw, target_hw=parsed.target_hw,
             language=parsed.language, other=parsed.other,
         )
@@ -502,6 +555,66 @@ def _collapse_equivalent_candidates(
             )
         )
     return collapsed
+
+
+def _is_neutral_family(candidate: CpeCandidate) -> bool:
+    """Reject platform/edition-constrained discoveries without collector proof."""
+
+    parsed = parse_cpe23_components(candidate.cpe_name)
+    return bool(parsed and all(
+        value == "*" for value in (
+            parsed.update, parsed.edition, parsed.sw_edition,
+            parsed.target_sw, parsed.target_hw, parsed.language, parsed.other,
+        )
+    ))
+
+
+def _target_sw(candidate: CpeCandidate) -> str:
+    """Return a discovered candidate's explicit target software platform."""
+
+    parsed = parse_cpe23_components(candidate.cpe_name)
+    return parsed.target_sw if parsed is not None else ""
+
+
+def _same_cpe_family(left: ParsedCpe23 | None, right: ParsedCpe23 | None) -> bool:
+    """Require the same CPE identity and environment, excluding version."""
+
+    if left is None or right is None:
+        return False
+    return all(
+        getattr(left, component) == getattr(right, component)
+        for component in (
+            "part", "vendor", "product", "update", "edition", "language",
+            "sw_edition", "target_sw", "target_hw", "other",
+        )
+    )
+
+
+def _catalog_version_matches(installed: str, catalogued: str | None) -> bool:
+    """Compare an installed version with a concrete NVD CPE version."""
+
+    if not catalogued or catalogued in {"*", "-"}:
+        return False
+    if re.fullmatch(r"\d+(?:\.\d+)+", installed) and re.fullmatch(
+        r"\d+(?:\.\d+)+", catalogued
+    ):
+        return compare_versions(installed, catalogued) == 0
+    return installed.casefold() == catalogued.casefold()
+
+
+def _collector_os(raw_data: dict[str, Any] | None) -> str:
+    """Use only explicit collector OS evidence for platform selection."""
+
+    if not isinstance(raw_data, dict):
+        return ""
+    operating_system = raw_data.get("operatingSystem")
+    nested = operating_system.get("name") if isinstance(operating_system, dict) else ""
+    value = str(raw_data.get("OS") or raw_data.get("OSName") or nested or "").casefold()
+    if "windows" in value:
+        return "windows"
+    if "linux" in value:
+        return "linux"
+    return ""
 
 
 def _component_score(

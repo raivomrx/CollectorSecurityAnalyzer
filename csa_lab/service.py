@@ -13,12 +13,15 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import zipfile
 from collections.abc import Callable
 from dataclasses import fields
 from pathlib import Path
-from csa_lab.secrets import NvdSecretStore
 from typing import Any
+
+from csa_lab.secrets import NvdSecretStore
+from cve.exceptions import CveScanCancelled
 
 from csa_console.audit import ConsoleAuditLog
 from csa_console.canonical import read_json, write_canonical_json
@@ -90,11 +93,13 @@ class LabApplicationService:
         self._servers: dict[str, ConsoleHttpsServer] = {}
         self._threads: dict[str, threading.Thread] = {}
         self._cve_jobs: dict[str, dict[str, Any]] = {}
+        self._cve_cancel_events: dict[str, threading.Event] = {}
+        self._cve_started: dict[str, float] = {}
         self._lock = threading.RLock()
         self._secret = self._load_or_create_join_secret()
         self._application_audit().append(
             "application_started",
-            {"version": "5.4.0", "processId": os.getpid()},
+            {"version": "5.4.1", "processId": os.getpid()},
         )
         self.detect_recovery_items()
 
@@ -782,6 +787,7 @@ class LabApplicationService:
         self,
         assessment_id: str,
         progress_callback: Callable[[dict[str, Any]], None] | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> list[EndpointDashboardItem]:
         """Run CVE analysis for every latest completed endpoint."""
 
@@ -808,6 +814,8 @@ class LabApplicationService:
         failed = 0
         endpoint_total = len(latest)
         for endpoint_index, endpoint in enumerate(latest, start=1):
+            if cancel_event is not None and cancel_event.is_set():
+                raise CveScanCancelled("CVE scan cancelled")
             submission_id = str(endpoint["submissionId"])
 
             def endpoint_progress(
@@ -873,6 +881,9 @@ class LabApplicationService:
                         "currentCve": str(
                             details.get("current_cve", "")
                         ),
+                        "provider": str(details.get("provider", "")),
+                        "waitSeconds": float(details.get("wait_seconds", 0) or 0),
+                        "retryAttempt": int(details.get("retry_attempt", 0) or 0),
                     },
                 )
 
@@ -897,6 +908,7 @@ class LabApplicationService:
                 run_cve=True,
                 cve_progress_callback=endpoint_progress,
                 nvd_api_key=NvdSecretStore(self.storage.root.parent).load(),
+                cve_cancel_event=cancel_event,
             )
             if result.cve_analysis_status == "COMPLETE":
                 completed += 1
@@ -926,7 +938,7 @@ class LabApplicationService:
 
         with self._lock:
             current = self._cve_jobs.get(assessment_id)
-            if current and current.get("state") == "RUNNING":
+            if current and current.get("state") in {"RUNNING", "CANCELLING"}:
                 return dict(current)
             latest, _all, _index = FleetAnalyzer(
                 self.storage
@@ -950,6 +962,8 @@ class LabApplicationService:
                 "message": "Preparing CVE analysis",
             }
             self._cve_jobs[assessment_id] = progress
+            self._cve_cancel_events[assessment_id] = threading.Event()
+            self._cve_started[assessment_id] = time.monotonic()
             worker = threading.Thread(
                 target=self._run_cve_job,
                 args=(assessment_id,),
@@ -965,7 +979,7 @@ class LabApplicationService:
 
         self.load_state(assessment_id)
         with self._lock:
-            return dict(
+            result = dict(
                 self._cve_jobs.get(
                     assessment_id,
                     {
@@ -976,6 +990,22 @@ class LabApplicationService:
                     },
                 )
             )
+            if assessment_id in self._cve_started:
+                result["elapsedSeconds"] = int(time.monotonic() - self._cve_started[assessment_id])
+            return result
+
+    def cancel_cve_analysis(self, assessment_id: str) -> dict[str, Any]:
+        """Request an interruptible stop of the active scan."""
+
+        self.load_state(assessment_id)
+        with self._lock:
+            current = self._cve_jobs.get(assessment_id)
+            if current is None or current.get("state") not in {"RUNNING", "CANCELLING"}:
+                raise ValueError("No CVE analysis is running")
+            self._cve_cancel_events[assessment_id].set()
+            current["state"] = "CANCELLING"
+            current["message"] = "Cancelling CVE analysis"
+            return dict(current)
 
     def _run_cve_job(self, assessment_id: str) -> None:
         """Execute a background CVE job and publish a terminal state."""
@@ -984,13 +1014,18 @@ class LabApplicationService:
             with self._lock:
                 current = self._cve_jobs.setdefault(assessment_id, {})
                 current.update(details)
+                if self._cve_cancel_events.get(assessment_id) and self._cve_cancel_events[assessment_id].is_set() and current.get("state") == "RUNNING":
+                    current["state"] = "CANCELLING"
                 current["message"] = _cve_progress_message(current)
 
         try:
             endpoints = self.run_cve_analysis(
                 assessment_id,
                 progress_callback=update,
+                cancel_event=self._cve_cancel_events[assessment_id],
             )
+            if self._cve_cancel_events[assessment_id].is_set():
+                raise CveScanCancelled("CVE scan cancelled")
             statuses = {
                 item.cve_analysis_status
                 for item in endpoints
@@ -1013,6 +1048,11 @@ class LabApplicationService:
                     "currentVersion": "",
                 }
             )
+        except CveScanCancelled:
+            LOGGER.info("CVE analysis cancelled: assessment=%s", assessment_id)
+            self._audit(assessment_id).append("assessment_cve_analysis_cancelled", {})
+            update({"state": "CANCELLED", "result": "CANCELLED", "phase": "CANCELLED",
+                    "message": "CVE analysis cancelled; endpoint results are incomplete"})
         except Exception as error:
             with self._lock:
                 failed_phase = str(
@@ -1036,6 +1076,9 @@ class LabApplicationService:
                     ),
                 }
             )
+        finally:
+            with self._lock:
+                self._cve_cancel_events.pop(assessment_id, None)
 
     def generate_unified_report(
         self,
@@ -1151,7 +1194,7 @@ class LabApplicationService:
         summary = {
             "schemaVersion": "5.2",
             "generatedAt": utc_text(),
-            "applicationVersion": "5.4.0",
+            "applicationVersion": "5.4.1",
             "assessmentCount": len(assessments),
             "assessments": assessments,
             "containsEvidence": False,
@@ -1405,9 +1448,20 @@ def _cve_progress_message(progress: dict[str, Any]) -> str:
     state = str(progress.get("state", "RUNNING"))
     if state == "FAILED":
         return str(progress.get("message", "CVE analysis failed"))
+    if state == "CANCELLED":
+        return "CVE analysis cancelled; endpoint results are incomplete"
+    if state == "CANCELLING":
+        return "Cancelling CVE analysis"
     if state == "COMPLETED":
         result = str(progress.get("result", "COMPLETE"))
         return f"CVE analysis completed with status {result}"
+    phase = str(progress.get("phase", ""))
+    if phase in {"RATE_LIMIT_WAIT", "RETRY_WAIT"}:
+        provider = str(progress.get("provider") or "NVD")
+        seconds = float(progress.get("waitSeconds", 0) or 0)
+        attempt = int(progress.get("retryAttempt", 1) or 1)
+        label = "rate limit" if phase == "RATE_LIMIT_WAIT" else "transient error"
+        return f"{provider}: {label} wait {seconds:.0f}s, attempt {attempt}"
     endpoint_index = int(progress.get("endpointIndex", 0) or 0)
     endpoint_total = int(progress.get("endpointTotal", 0) or 0)
     products_processed = int(progress.get("productsProcessed", 0) or 0)

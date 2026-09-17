@@ -47,6 +47,7 @@ from csa_lab.network import select_default_interface
 from csa_lab.service import LabApplicationService
 from csa_lab.unified_report import UnifiedReportGenerator, _transport_label
 from csa_lab.web import LabAdminServer
+from cve.exceptions import CveScanCancelled
 from tests.test_console_sprint5 import Sprint5TestCase
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -217,7 +218,7 @@ class LabServiceTests(unittest.TestCase):
 
         state = self.service.create_assessment(self.request())
 
-        def run_stub(_assessment_id, progress_callback=None):
+        def run_stub(_assessment_id, progress_callback=None, cancel_event=None):
             assert progress_callback is not None
             progress_callback(
                 {
@@ -285,6 +286,40 @@ class LabServiceTests(unittest.TestCase):
         self.assertEqual(progress["state"], "FAILED")
         self.assertIn("during PREPARING", progress["message"])
         self.assertIn("TypeError", "\n".join(captured.output))
+
+    def test_cve_background_cancellation_reaches_worker(self) -> None:
+        """Cancelling a Lab scan must interrupt the worker and end cleanly."""
+
+        state = self.service.create_assessment(self.request())
+        ready = threading.Event()
+
+        def run_stub(_assessment_id, progress_callback=None, cancel_event=None):
+            progress_callback({"state": "RUNNING", "phase": "RATE_LIMIT_WAIT",
+                               "provider": "NVD CPES", "waitSeconds": 30,
+                               "retryAttempt": 2})
+            ready.set()
+            if cancel_event.wait(2):
+                raise CveScanCancelled("CVE scan cancelled")
+            raise AssertionError("Cancellation was not delivered to the worker")
+
+        with mock.patch(
+            "csa_lab.service.FleetAnalyzer.load_latest_endpoint_data",
+            return_value=([{"submissionId": "SUB-01"}], [], []),
+        ), mock.patch.object(self.service, "run_cve_analysis", side_effect=run_stub):
+            self.service.start_cve_analysis(state.assessment_id)
+            self.assertTrue(ready.wait(2))
+            waiting = self.service.cve_analysis_progress(state.assessment_id)
+            self.assertIn("NVD CPES", waiting["message"])
+            self.assertIn("elapsedSeconds", waiting)
+            cancelling = self.service.cancel_cve_analysis(state.assessment_id)
+            self.assertEqual(cancelling["state"], "CANCELLING")
+            for _ in range(100):
+                progress = self.service.cve_analysis_progress(state.assessment_id)
+                if progress["state"] == "CANCELLED":
+                    break
+                time.sleep(0.01)
+            self.assertEqual(progress["state"], "CANCELLED")
+            self.assertEqual(progress["result"], "CANCELLED")
 
     def test_interface_selection_prefers_physical_private_network(self) -> None:
         interfaces = [
@@ -1202,6 +1237,31 @@ class UnifiedReportTests(Sprint5TestCase):
         )
         self.assertEqual(stored["cveAnalysisStatus"], "FAILED")
         self.assertEqual(stored["cveSummary"]["status"], "FAILED")
+
+    def test_cancelled_cve_retry_is_not_reported_as_provider_failure(self) -> None:
+        """An operator stop remains distinct from a technical scan failure."""
+
+        submission_id = "SUB-CVE-CANCELLED-01"
+        self._accept_and_analyze(submission_id)
+        pipeline = ConsoleAnalysisPipeline(self.storage)
+        with mock.patch(
+            "csa_console.pipeline.analyze_file",
+            side_effect=CveScanCancelled("CVE scan cancelled"),
+        ), self.assertRaises(CveScanCancelled):
+            pipeline.retry_analysis(
+                self.assessment.assessment_id,
+                submission_id,
+                run_cve=True,
+            )
+        stored = self.storage.read_json(
+            self.assessment.assessment_id,
+            "findings",
+            f"{submission_id}.json",
+        )
+        self.assertEqual(stored["cveAnalysisStatus"], "CANCELLED")
+        self.assertEqual(stored["cveSummary"]["status"], "CANCELLED")
+        self.assertFalse(stored["cveSummary"]["coverageComplete"])
+        self.assertEqual(stored["cveSummary"]["coveragePercent"], 0.0)
 
     def test_failed_first_analysis_can_be_retried_from_normalized_data(
         self,

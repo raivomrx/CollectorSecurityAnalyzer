@@ -141,8 +141,8 @@ class NvdClientTests(unittest.TestCase):
                 self.assertIn(f"status={status_code}", str(raised.exception))
                 self.assertIn("short summary", str(raised.exception))
 
-    def test_429_honors_retry_after_header(self) -> None:
-        """Retry-After should be forwarded to the limiter."""
+    def test_429_without_retries_does_not_wait(self) -> None:
+        """Retry-After must not delay a terminal 429 response."""
 
         limiter = _RecordingLimiter()
         client = NvdClient(
@@ -156,7 +156,7 @@ class NvdClientTests(unittest.TestCase):
         with self.assertRaises(NvdRequestError):
             client.get_cves({})
 
-        self.assertEqual(limiter.retry_values, ["7"])
+        self.assertEqual(limiter.retry_values, [])
 
     def test_retryable_http_responses_are_retried(self) -> None:
         """429 and 5xx responses should retry and recover."""

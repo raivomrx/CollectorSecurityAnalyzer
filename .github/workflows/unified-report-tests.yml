@@ -22,6 +22,8 @@ jobs:
         run: python -W error::ResourceWarning -m unittest tests.test_sprint531_semantics tests.test_sprint531_exposure -v
       - name: Verify Sprint 5.4 intelligence, credentials and cache behavior
         run: python -W error::ResourceWarning -m unittest tests.test_sprint54 -v
+      - name: Verify Sprint 5.4.1 product identity and request controls
+        run: python -W error::ResourceWarning -m unittest tests.test_sprint541 -v
       - name: Generate mixed-fleet semantic acceptance report
         run: python scripts/Generate-SemanticsReport.py --output test-artifacts/CSA-Sprint-5.3.1-Semantics.html
       - name: Generate software exposure acceptance report

@@ -602,6 +602,29 @@ class CveEngineTests(unittest.TestCase):
         self.assertEqual(summary.coverage_percent, 100.0)
         self.assertEqual(summary.confirmed_vulnerabilities, 1)
 
+    def test_provider_success_with_uncertain_applicability_is_not_full_coverage(self) -> None:
+        """A wildcard CVE without an affected-version range remains partial."""
+
+        class Client:
+            def get_cves(self, params):
+                payload = _nvd_cve_payload()
+                payload["configurations"][0]["nodes"][0]["cpeMatch"][0].pop(
+                    "versionEndExcluding"
+                )
+                return [{"cve": payload}]
+
+        class Resolver:
+            def resolve(self, software):
+                return _cpe()
+
+        summary = CveService(client=Client(), resolver=Resolver()).scan_inventory(
+            SoftwareInventory(products=[_software()], product_count=1)
+        )
+        self.assertEqual(summary.product_evaluations[0].terminal_status, "PARTIAL")
+        self.assertEqual(summary.evaluated_products, 0)
+        self.assertEqual(summary.coverage_percent, 0.0)
+        self.assertFalse(summary.coverage_complete)
+
     def test_service_queries_nvd_with_the_exact_installed_version(
         self,
     ) -> None:

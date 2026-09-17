@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from pathlib import Path
+from threading import Event
 
 from analyzer import analyze_file
 from csa_console.audit import ConsoleAuditLog
@@ -14,6 +15,7 @@ from csa_console.normalization import normalize_endpoint_package
 from csa_console.package import ValidatedPackage
 from csa_console.serde import model_to_dict
 from csa_console.storage import AssessmentStorage
+from cve.exceptions import CveScanCancelled
 
 
 class ConsoleAnalysisPipeline:
@@ -162,6 +164,7 @@ class ConsoleAnalysisPipeline:
         run_cve: bool = False,
         cve_progress_callback: Callable[[dict], None] | None = None,
         nvd_api_key: str | None = None,
+        cve_cancel_event: Event | None = None,
     ) -> EndpointAnalysis:
         """Rerun analysis and persist failure after any pipeline exception."""
 
@@ -172,7 +175,12 @@ class ConsoleAnalysisPipeline:
                 run_cve=run_cve,
                 cve_progress_callback=cve_progress_callback,
                 nvd_api_key=nvd_api_key,
+                cve_cancel_event=cve_cancel_event,
             )
+        except CveScanCancelled:
+            if run_cve:
+                self.mark_cve_analysis_cancelled(assessment_id, submission_id)
+            raise
         except Exception:
             if run_cve:
                 self.mark_cve_analysis_failed(assessment_id, submission_id)
@@ -186,6 +194,7 @@ class ConsoleAnalysisPipeline:
         run_cve: bool = False,
         cve_progress_callback: Callable[[dict], None] | None = None,
         nvd_api_key: str | None = None,
+        cve_cancel_event: Event | None = None,
     ) -> EndpointAnalysis:
         """Implement endpoint reanalysis after accepted evidence validation."""
 
@@ -253,7 +262,12 @@ class ConsoleAnalysisPipeline:
                 analysis_metadata=cve_metadata,
                 cve_progress_callback=cve_progress_callback,
                 nvd_api_key=nvd_api_key,
+                cve_cancel_event=cve_cancel_event,
             )
+        except CveScanCancelled:
+            if run_cve:
+                self.mark_cve_analysis_cancelled(assessment_id, submission_id)
+            raise
         except Exception:
             if run_cve:
                 self.mark_cve_analysis_failed(assessment_id, submission_id)
@@ -316,7 +330,7 @@ class ConsoleAnalysisPipeline:
                     }
                 )
             ),
-            analysis_engine_version="CSA-5.4.0",
+            analysis_engine_version="CSA-5.4.1",
             cve_analysis_status=str(
                 cve_metadata.get("status", "NOT_PERFORMED")
             ),
@@ -387,6 +401,39 @@ class ConsoleAnalysisPipeline:
             "cve_analysis_failed",
             {"submissionId": submission_id},
         )
+
+    def mark_cve_analysis_cancelled(
+        self,
+        assessment_id: str,
+        submission_id: str,
+    ) -> None:
+        """Record a cancelled scan without misclassifying it as a provider failure."""
+
+        finding_path = self.storage.path(
+            assessment_id, "findings", f"{submission_id}.json"
+        )
+        if not finding_path.exists():
+            return
+        existing = self.load_analysis(assessment_id, submission_id)
+        if existing.get("cveAnalysisStatus") == "CANCELLED":
+            return
+        cancelled = dict(existing)
+        cancelled["cveAnalysisStatus"] = "CANCELLED"
+        cancelled["cveSummary"] = {
+            **dict(existing.get("cveSummary", {})),
+            "status": "CANCELLED",
+            "scanComplete": False,
+            "coverageComplete": False,
+            "coveragePercent": 0.0,
+        }
+        self.storage.write_json(
+            assessment_id,
+            ("findings", f"{submission_id}.json"),
+            cancelled,
+        )
+        ConsoleAuditLog(
+            self.storage.path(assessment_id, "audit", "audit.jsonl")
+        ).append("cve_analysis_cancelled", {"submissionId": submission_id})
 
     def _package_digest(
         self, assessment_id: str, submission_id: str

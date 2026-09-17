@@ -20,13 +20,13 @@ class SoftwareInventoryRule(BaseRule):
 
     metadata = RuleMetadata(
         id="SW-001",
-        title="Software not reliably identified for security analysis",
+        title="Software identity coverage",
         version="1.0",
         author="CSA",
         category=RuleCategory.SOFTWARE,
         severity=Severity.MEDIUM,
         enabled=True,
-        description="Inventory entries exist, but some vendor/product identities may not be reliable enough for security analysis. This is an assessment-coverage limitation, not evidence of malware.",
+        description="Checks whether installed software can be identified reliably for security analysis. Unidentified entries are coverage limitations, not evidence of malware.",
     )
 
     def check(

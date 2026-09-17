@@ -422,8 +422,19 @@
     }
   }
 
+  async function cancelCveAnalysis() {
+    if (!state.currentId) return;
+    try {
+      const data = await request(`/api/v1/assessments/${encodeURIComponent(state.currentId)}/cve-analysis-cancel`, { method: "POST" });
+      renderCveProgress(data.progress);
+      scheduleCveProgressPoll();
+    } catch (error) {
+      showMessage(error.message, true);
+    }
+  }
+
   function renderCveProgress(progress) {
-    const running = progress.state === "RUNNING";
+    const running = ["RUNNING", "CANCELLING"].includes(progress.state);
     state.cveRunning = running;
     $("cve-progress").classList.toggle("hidden", progress.state === "IDLE");
     $("cve-progress-bar").value = Number(progress.percent || 0);
@@ -441,9 +452,15 @@
       ? `CVEs ${progress.cvesProcessed || 0}/${progress.cvesTotal}`
       : "";
     const currentCve = progress.currentCve || "";
-    $("cve-progress-details").textContent = [endpoint, products, current, cves, currentCve].filter(Boolean).join(" | ");
+    const elapsed = running ? `Elapsed ${progress.elapsedSeconds || 0}s` : "";
+    const provider = progress.provider || "";
+    const wait = progress.waitSeconds > 0 ? `Wait ${Math.ceil(progress.waitSeconds)}s` : "";
+    const retry = progress.retryAttempt > 1 ? `Attempt ${progress.retryAttempt}` : "";
+    $("cve-progress-details").textContent = [endpoint, products, current, cves, currentCve, provider, elapsed, wait, retry].filter(Boolean).join(" | ");
     const completed = state.current?.endpoints?.filter((item) => item.status === "COMPLETE").length || 0;
     $("run-cve-analysis").disabled = running || completed === 0;
+    $("cancel-cve-analysis").classList.toggle("hidden", !running);
+    $("cancel-cve-analysis").disabled = progress.state === "CANCELLING";
   }
 
   async function syncCveProgress() {
@@ -452,7 +469,7 @@
     const data = await request(`/api/v1/assessments/${encodeURIComponent(assessmentId)}/cve-analysis-status`);
     if (assessmentId !== state.currentId) return;
     renderCveProgress(data.progress);
-    if (data.progress.state === "RUNNING") scheduleCveProgressPoll();
+    if (["RUNNING", "CANCELLING"].includes(data.progress.state)) scheduleCveProgressPoll();
   }
 
   function scheduleCveProgressPoll() {
@@ -467,7 +484,7 @@
       const data = await request(`/api/v1/assessments/${encodeURIComponent(assessmentId)}/cve-analysis-status`);
       if (assessmentId !== state.currentId) return;
       renderCveProgress(data.progress);
-      if (data.progress.state === "RUNNING") {
+      if (["RUNNING", "CANCELLING"].includes(data.progress.state)) {
         scheduleCveProgressPoll();
         return;
       }
@@ -602,6 +619,7 @@
   });
   $("open-portal").addEventListener("click", () => window.open(state.current.portalUrl, "_blank", "noopener"));
   $("run-cve-analysis").addEventListener("click", runCveAnalysis);
+  $("cancel-cve-analysis").addEventListener("click", cancelCveAnalysis);
   $("generate-report").addEventListener("click", () => generateReport());
   $("cancel-cve-report").addEventListener("click", () => $("cve-report-dialog").close());
   $("generate-without-cve").addEventListener("click", () => {
