@@ -4,6 +4,21 @@
     "includes": ["windows_security.json"]
   },
   "entries": {
+    "AV-001": {
+      "title": "Endpoint malware protection posture",
+      "description": "Evaluates whether an active antivirus product is registered and whether available protection and security intelligence evidence supports a healthy posture.",
+      "risk": "Missing or disabled anti-malware protection can increase exposure to malicious software.",
+      "impact": "Malicious code may execute or persist without the expected endpoint prevention and detection controls.",
+      "recommendation": "Confirm an active, vendor-supported antivirus product, enable real-time protection and update security intelligence; review any evidence gaps before treating the endpoint as protected.",
+      "remediation": "Enable a supported antivirus product, restore real-time protection, update its security intelligence, then collect a new endpoint assessment.",
+      "category": "Malware Protection",
+      "framework_context": "Endpoint anti-malware protection; vendor-specific baseline applicability requires separate review.",
+      "frameworks": {"E-ITS": ["EITS-ENDPOINT-001"], "CIS": ["CIS-10.1"], "Microsoft": []},
+      "references": [
+        {"title": "Windows Security Center product state", "url": "https://learn.microsoft.com/en-us/windows/win32/api/iwscapi/ne-iwscapi-wsc_security_product_state", "vendor": "Microsoft", "type": "Official"},
+        {"title": "Microsoft Defender Antivirus modes", "url": "https://learn.microsoft.com/en-us/defender-endpoint/microsoft-defender-antivirus-windows", "vendor": "Microsoft", "type": "Official"}
+      ]
+    },
     "BIT-001": {
       "title": "BitLocker protection",
       "description": "The operating system drive is not protected with BitLocker encryption.",

@@ -123,6 +123,18 @@ requests. This is a measured bottleneck, not a claim that cold scanning became
 faster. After the final Audacity/priority corrections, HOME's cached reanalysis
 took **3.951 s**, with zero NVD/CVE Program requests.
 
+On 2026-09-17, the existing HOME accepted evidence was analyzed with the NVD
+key configured in CSA Lab's Windows-user DPAPI store. The isolated fresh-cache
+run took **236.948 s** (118 NVD requests, 29.899 s rate-limit wait); its
+immediate warm run took **3.126 s** (zero NVD and CVE Program requests).
+Both runs remained **PARTIAL**, with 19 of 92 eligible products evaluated and
+461 confirmed CVEs. A key improves request throughput but does not itself
+resolve product mapping or applicability gaps. The earlier no-key cold/warm
+timings above are from RAIVO-TEST and an earlier code revision, so the timing
+ratio is indicative rather than a controlled same-dataset A/B comparison.
+The ignored local benchmark stores only aggregate metrics and analysis output;
+all 13 generated files were checked for the raw key, with no match.
+
 The packaged application startup, settings endpoint and discovery alias asset
 were checked locally. The NVD settings dialog was inspected in the browser.
 The report preview was blocked by the browser client; generated HTML/model and

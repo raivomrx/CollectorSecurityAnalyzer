@@ -14,6 +14,7 @@ from risk import Finding, Severity, Status
 from rules.base import BaseRule
 from rules.categories import RuleCategory
 from rules.metadata import RuleMetadata
+from rules.malware_protection import posture_for
 
 LOGGER = logging.getLogger(__name__)
 
@@ -69,6 +70,14 @@ def create_setting_rule(spec: SettingRuleSpec) -> type[BaseRule]:
                 registry = context.evidence_registry if context else None
                 if registry is None:
                     return [_not_evaluated(spec, "Normalized evidence registry is unavailable.", None)]
+                if spec.category == RuleCategory.DEFENDER:
+                    posture = posture_for(context)
+                    if posture.third_party_active or (posture.defender_mode and "passive" in posture.defender_mode.casefold()):
+                        return [_not_evaluated(
+                            spec,
+                            "Defender is passive or a registered third-party AV is active; this Defender-specific control is not evaluated.",
+                            None,
+                        )]
                 if spec.only_when_setting_id:
                     gate = registry.get(spec.only_when_setting_id)
                     if gate is None or gate.effective_value != spec.only_when_value:

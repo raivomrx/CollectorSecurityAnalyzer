@@ -10,6 +10,7 @@ from risk import Finding, Severity, Status
 from rules.base import BaseRule
 from rules.categories import RuleCategory
 from rules.metadata import RuleMetadata
+from rules.malware_protection import posture_for
 from utils import safe_get
 
 LOGGER = logging.getLogger(__name__)
@@ -38,6 +39,12 @@ class DefenderRule(BaseRule):
 
         LOGGER.info("Running DefenderRule")
         try:
+            posture = posture_for(context) if context and context.evidence_registry else None
+            if posture and (posture.third_party_active or (posture.defender_mode and "passive" in posture.defender_mode.casefold())):
+                return self.not_evaluated(
+                    ["DEFENDER_ENABLED"],
+                    "Defender is passive or a registered third-party AV is active; this Defender-specific control is not evaluated.",
+                )
             setting = (
                 context.evidence_registry.get("DEFENDER_ENABLED")
                 if context and context.evidence_registry
@@ -57,7 +64,9 @@ class DefenderRule(BaseRule):
                             score=0,
                         )
                     ]
-                enabled = bool(setting.effective_value)
+                if not isinstance(setting.effective_value, bool):
+                    return self.not_evaluated(["DEFENDER_ENABLED"], "Defender state is not a confirmed boolean.")
+                enabled = setting.effective_value
                 return [
                     Finding(
                         rule_id=self.id,
@@ -73,6 +82,8 @@ class DefenderRule(BaseRule):
             if context and context.evidence_registry:
                 return self.not_evaluated(["DEFENDER_ENABLED"])
             product_state = str(safe_get(data, "Windows Defender.ProductState", "")).strip()
+            if not product_state:
+                return self.not_evaluated(["Windows Defender.ProductState"])
             enabled = product_state.casefold() == "on"
             return [
                 Finding(

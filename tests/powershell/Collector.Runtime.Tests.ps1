@@ -16,9 +16,13 @@ Describe "CSA Windows Collector runtime evidence contracts" {
     Context "Defender" {
         It "collects all canonical settings and suppresses exclusion details" {
             Import-Module (Join-Path $moduleRoot "Defender.psm1") -Force
+            Mock Get-CSARegisteredAntivirusProducts {
+                [ordered]@{ name = "Microsoft Defender Antivirus"; state = "ON"; signatureStatus = "UP_TO_DATE" }
+            } -ModuleName Defender
             Mock Get-MpComputerStatus {
                 [pscustomobject]@{
                     AMServiceEnabled = $true; AntivirusEnabled = $true
+                    AMRunningMode = "Normal"
                     RealTimeProtectionEnabled = $true; BehaviorMonitorEnabled = $true
                     IoavProtectionEnabled = $true; IsTamperProtected = $true
                     AntivirusSignatureVersion = "1.2.3.4"
@@ -39,12 +43,27 @@ Describe "CSA Windows Collector runtime evidence contracts" {
 
             $result = Resolve-TestModuleResult "Defender" (Get-CSADefenderEvidence -PrivacyMode Strict)
             $result.Status | Should -Be "SUCCESS"
-            $result.Settings.Count | Should -Be 18
-            $result.ExpectedEvidenceCount | Should -Be 18
-            $result.CollectedEvidenceCount | Should -Be 18
+            $result.Settings.Count | Should -Be 20
+            $result.ExpectedEvidenceCount | Should -Be 20
+            $result.CollectedEvidenceCount | Should -Be 20
             ($result.Settings | ConvertTo-Json -Depth 8) | Should -Not -Match 'Sensitive|Client'
             @($result.Settings | Where-Object { $_.settingId -eq "DEFENDER_SIGNATURE_AGE_DAYS" }).Count | Should -Be 1
             @($result.Settings | Where-Object { $_.settingId -eq "DEFENDER_EXCLUSION_COUNT" }).Count | Should -Be 1
+            @($result.Settings | Where-Object { $_.settingId -eq "ANTIVIRUS_REGISTERED_PRODUCTS" -and $_.collectionStatus -eq "SUCCESS" }).Count | Should -Be 1
+        }
+
+        It "retains Security Center AV evidence when Defender cmdlets are denied" {
+            Import-Module (Join-Path $moduleRoot "Defender.psm1") -Force
+            Mock Get-CSARegisteredAntivirusProducts {
+                [ordered]@{ name = "Test Third-Party AV"; state = "ON"; signatureStatus = "UP_TO_DATE" }
+            } -ModuleName Defender
+            Mock Get-MpComputerStatus { throw [System.UnauthorizedAccessException]::new("Access denied") } -ModuleName Defender
+            Mock Get-MpPreference { throw [System.UnauthorizedAccessException]::new("Access denied") } -ModuleName Defender
+
+            $result = Get-CSADefenderEvidence
+            $result.Status | Should -Be "PARTIAL"
+            @($result.Settings | Where-Object { $_.settingId -eq "ANTIVIRUS_REGISTERED_PRODUCTS" -and $_.collectionStatus -eq "SUCCESS" }).Count | Should -Be 1
+            @($result.Settings | Where-Object { $_.settingId -eq "DEFENDER_ENABLED" }).Count | Should -Be 0
         }
     }
 

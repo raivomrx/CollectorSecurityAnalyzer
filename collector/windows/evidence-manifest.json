@@ -46,6 +46,8 @@
         {"id": "DEFENDER_TAMPER_PROTECTION_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_TAMPER_PROTECTION_ENABLED", "canonical": true}
       ],
       "optionalEvidence": [
+        {"id": "ANTIVIRUS_REGISTERED_PRODUCTS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "ANTIVIRUS_REGISTERED_PRODUCTS", "canonical": true},
+        {"id": "DEFENDER_RUNNING_MODE", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_RUNNING_MODE", "canonical": true},
         {"id": "DEFENDER_BEHAVIOR_MONITORING_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_BEHAVIOR_MONITORING_ENABLED", "canonical": true},
         {"id": "DEFENDER_IOAV_PROTECTION_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_IOAV_PROTECTION_ENABLED", "canonical": true},
         {"id": "DEFENDER_SCRIPT_SCANNING_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_SCRIPT_SCANNING_ENABLED", "canonical": true},

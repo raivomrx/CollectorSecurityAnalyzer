@@ -10,6 +10,7 @@ class RuleCategory(str, Enum):
 
     ENCRYPTION = "Encryption"
     DEFENDER = "Defender"
+    MALWARE_PROTECTION = "Malware Protection"
     FIREWALL = "Firewall"
     UPDATES = "Updates"
     NETWORK = "Network"

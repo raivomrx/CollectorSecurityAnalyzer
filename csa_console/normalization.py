@@ -29,7 +29,7 @@ def normalize_endpoint_package(
         item for item in updates.get("settings", []) if isinstance(item, dict)
     ]
     endpoint_protection = _settings(
-        settings, ("DEFENDER_", "WINDOWS_FIREWALL_", "ACTIVE_FIREWALL_")
+        settings, ("ANTIVIRUS_", "DEFENDER_", "WINDOWS_FIREWALL_", "ACTIVE_FIREWALL_")
     )
     disk_encryption = _settings(settings, ("BITLOCKER_",))
     disk_encryption["bitLocker"] = resolve_bitlocker(next(

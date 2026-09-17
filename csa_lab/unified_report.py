@@ -160,7 +160,7 @@ class UnifiedReportGenerator:
         coverage_bands = Counter()
         status_summary = {
             "bitLocker": Counter(),
-            "defender": Counter(),
+            "malwareProtection": Counter(),
             "updates": Counter(),
         }
         control_status_distribution = Counter()
@@ -175,7 +175,7 @@ class UnifiedReportGenerator:
             coverage_bands[_coverage_band(float(endpoint["coverage"]))] += 1
             for key, rule_id in (
                 ("bitLocker", "BIT-001"),
-                ("defender", "DEF-001"),
+                ("malwareProtection", "AV-001"),
                 ("updates", "UPD-001"),
             ):
                 status = endpoint["bitLocker"]["status"] if key == "bitLocker" else _rule_status(endpoint["findings"], rule_id)
@@ -267,7 +267,7 @@ class UnifiedReportGenerator:
         framework_rows = _framework_rows(fleet_findings)
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.4.1",
+            "reportVersion": "CSA-5.4.2",
             "generatedAt": generated_at,
             "dataClassification": "Confidential - Security Assessment Data",
             "containsPersonalData": True,
@@ -321,6 +321,14 @@ class UnifiedReportGenerator:
                 "identityMode": "REAL_ENDPOINT_IDENTITIES",
             },
             "executiveEndpointMetrics": executive_endpoint_metrics,
+            "malwareProtection": {
+                "statusCounts": dict(sorted(status_summary["malwareProtection"].items())),
+                "activeProductCounts": dict(sorted(Counter(
+                    item["malwareProtection"]["active_product"]
+                    for item in endpoints
+                    if item["malwareProtection"]["active_product"]
+                ).items())),
+            },
             "risk": {
                 **risk,
                 "highestFindingSeverity": highest_severity,
@@ -538,6 +546,7 @@ class UnifiedReportGenerator:
         display_name = _endpoint_display_name(device)
         users = _endpoint_users(evidence, device)
         bitlocker = _bitlocker_detail(evidence)
+        malware_protection = _malware_protection_detail(findings)
         software_results = list(
             endpoint.get("cveSummary", {}).get("softwareResults", [])
         )
@@ -629,12 +638,13 @@ class UnifiedReportGenerator:
             "softwareIntelligence": software_intelligence,
             "unsupportedSoftwareCount": unsupported_count,
             "bitLocker": bitlocker,
+            "malwareProtection": malware_protection,
             "credentialPosture": credential_posture([
                 setting for group in ("networkConfiguration", "securityPolicies", "endpointProtection")
                 for setting in evidence.get(group, {}).get("settings", [])
             ]),
             "securityControls": _security_control_summary(
-                findings, bitlocker, evidence
+                findings, bitlocker, evidence, malware_protection
             ),
             "privilegeContext": {
                 "executionMode": str(
@@ -1307,16 +1317,48 @@ def _security_control_summary(
     findings: list[dict[str, Any]],
     bitlocker: dict[str, Any],
     evidence: dict[str, Any],
+    malware_protection: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """Return compact, independently labelled endpoint control states."""
 
     controls = {
         "BitLocker": bitlocker.get("status", "NOT_EVALUATED"),
         "TPM": _setting_status(evidence, "TPM_READY"),
-        "AV / EDR": _rule_status(findings, "DEF-001"),
+        "Malware protection": (malware_protection or _malware_protection_detail(findings))["status"],
         "Firewall": _rule_status(findings, "FW-001"),
     }
     return {key: str(value) for key, value in controls.items()}
+
+
+def _malware_protection_detail(findings: list[dict[str, Any]]) -> dict[str, Any]:
+    """Read AV-001's assessed result without re-evaluating evidence in the reporter."""
+
+    default = {
+        "status": "NOT_EVALUATED",
+        "active_product": None,
+        "registered_products": [],
+        "protection_enabled": None,
+        "real_time_protection": None,
+        "signature_age_days": None,
+        "signature_status": None,
+        "cloud_protection": None,
+        "pua_protection": None,
+        "defender_mode": None,
+        "third_party_active": False,
+        "reason": "Dedicated anti-malware protection assessment was not available for this submission.",
+        "source": "Not available",
+    }
+    for item in findings:
+        finding = item.get("finding", {})
+        if finding.get("rule_id") == "AV-001":
+            evidence = finding.get("evidence", {})
+            if isinstance(evidence, dict):
+                return {
+                    **default,
+                    **evidence,
+                    "status": finding.get("status", "NOT_EVALUATED"),
+                }
+    return default
 
 
 def _executive_endpoint_metrics(
@@ -2359,6 +2401,8 @@ def _verification_for_finding(finding: dict[str, Any]) -> str:
     rule_id = str(finding.get("ruleId", ""))
     if rule_id == "BIT-001":
         return "Rerun CSA and verify BitLocker protection is enabled on the OS volume."
+    if rule_id == "AV-001":
+        return "Rerun CSA; confirm the active AV product, protection state and security intelligence are current."
     if rule_id.startswith("DEF-"):
         return "Rerun CSA and verify the related Microsoft Defender control passes."
     if rule_id.startswith("FW-"):

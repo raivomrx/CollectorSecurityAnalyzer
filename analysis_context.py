@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from cve.enrichment_models import EnrichedCveScanSummary
     from cve.models import CveScanSummary
     from frameworks.models import FrameworkEvaluation
+    from evidence.malware_protection import MalwareProtectionPosture
 
 
 @dataclass(slots=True)
@@ -35,3 +36,4 @@ class AnalysisContext:
     compliance_summary: "ComplianceSummary | None" = None
     framework_evaluations: "list[FrameworkEvaluation] | None" = None
     active_validation: "ActiveValidationRun | None" = None
+    malware_protection: "MalwareProtectionPosture | None" = None
