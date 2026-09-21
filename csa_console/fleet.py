@@ -6,6 +6,7 @@ from collections import defaultdict
 from typing import Any
 
 from csa_console.canonical import sha256_value
+from csa_console.finding_semantics import client_finding_semantics
 from csa_console.models import FleetAnalysis, FleetFinding
 from csa_console.storage import AssessmentStorage
 
@@ -54,9 +55,12 @@ class FleetAnalyzer:
                         "recommendation": str(
                             knowledge.get("recommendation", "Review the affected control.")
                         ),
+                        "evidence": [],
                     },
                 )
                 item["endpoints"].add(device_id)
+                if isinstance(finding.get("evidence"), dict):
+                    item["evidence"].append(finding["evidence"])
                 if SEVERITY_WEIGHT.get(str(finding.get("severity")), 0) > SEVERITY_WEIGHT.get(
                     str(item["severity"]), 0
                 ):
@@ -76,11 +80,17 @@ class FleetAnalyzer:
             base = SEVERITY_WEIGHT.get(str(item["severity"]), 5.0)
             prevalence_factor = 0.5 + (percent / 200.0)
             risk_score = round(min(100.0, base * prevalence_factor), 1)
+            semantics = client_finding_semantics(
+                rule_id,
+                str(item["title"]),
+                str(item["recommendation"]),
+                item["evidence"],
+            )
             fleet_findings.append(
                 FleetFinding(
                     fleet_finding_id=f"FF-{rule_id}",
                     rule_id=rule_id,
-                    title=str(item["title"]),
+                    title=semantics["title"],
                     severity=str(item["severity"]),
                     affected_endpoint_count=affected_count,
                     assessed_endpoint_count=endpoint_count,
@@ -91,7 +101,7 @@ class FleetAnalyzer:
                         str(key): [str(value) for value in values]
                         for key, values in item["frameworks"].items()
                     },
-                    recommendation=str(item["recommendation"]),
+                    recommendation=semantics["recommendation"],
                     confidence=confidence,
                     risk_score=risk_score,
                 )

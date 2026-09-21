@@ -55,7 +55,15 @@ class CatalogClient:
         query = params["keywordSearch"]
         self.queries.append(query)
         if query == "Notepad++":
-            return [_cpe("notepad-plus-plus", r"notepad\+\+", "7.8.8")]
+            # Real NVD catalogs contain many version rows and equivalent legacy
+            # vendor spellings for this one product family.
+            return [
+                _cpe("notepad-plus-plus", r"notepad\+\+", "7.8.7"),
+                _cpe("notepad-plus-plus", r"notepad\+\+", "7.8.8"),
+                _cpe("notepad-plus-plus", r"notepad\+\+", "7.8.9"),
+                _cpe("notepad_plus_plus", r"notepad\+\+", "5.9.4"),
+                _cpe("notepad_plus_plus", r"notepad\+\+", "5.9.5"),
+            ]
         if query == "Microsoft Visual Studio Code":
             return [_cpe("microsoft", "visual_studio_code", "1.137.0"),
                     _cpe("microsoft", "visual_studio_code", "1.137.0", target_sw="python")]
@@ -127,6 +135,43 @@ class Sprint541Tests(unittest.TestCase):
         teams = next(row for row in summary.product_evaluations if row.display_name == "Microsoft Teams")
         self.assertTrue(teams.discovery_trace["installedVersionCatalogued"])
         self.assertTrue(teams.discovery_trace["topCandidates"][0]["installedVersionAvailable"])
+        notepad = next(
+            row for row in summary.product_evaluations
+            if row.display_name.startswith("Notepad++")
+        )
+        self.assertEqual(notepad.product_mapping_status, "SUCCESS")
+        self.assertEqual(notepad.discovery_trace["acceptedVersionRowCount"], 5)
+        self.assertEqual(notepad.discovery_trace["canonicalFamilyCount"], 1)
+        self.assertTrue(notepad.discovery_trace["installedVersionCatalogued"])
+        self.assertIn(":7.8.8:", notepad.cpe)
+        self.assertTrue(any(
+            candidate["installedVersionAvailable"]
+            for candidate in notepad.discovery_trace["topCandidates"]
+        ))
+
+    def test_notepad_family_without_installed_row_uses_family_range(self) -> None:
+        """Multiple rows in one family remain safe when the version is absent."""
+
+        row = HOME_PRODUCTS[0]
+        inventory = build_inventory(
+            [{"Publisher": row["publisher"], "DisplayName": row["displayName"],
+              "DisplayVersion": "7.8.6"}],
+            unknown_products_path=self.root / "unknown.json",
+        )
+        client = CatalogClient(NvdCache(self.root / "notepad-family.sqlite3"))
+        summary = CveService(
+            client=client,
+            resolver=CpeResolver(client=client),
+        ).scan_inventory(inventory, raw_data={"OS": "Microsoft Windows 11"})
+        evaluation = summary.product_evaluations[0]
+        self.assertEqual(evaluation.product_mapping_status, "SUCCESS")
+        self.assertEqual(evaluation.discovery_trace["canonicalFamilyCount"], 1)
+        self.assertFalse(evaluation.discovery_trace["installedVersionCatalogued"])
+        self.assertEqual(
+            evaluation.discovery_trace["providerQueryMode"],
+            "FAMILY_RANGE",
+        )
+        self.assertIn("virtualMatchString", client.cve_queries[0])
 
     def test_uncatalogued_version_uses_family_range_query(self) -> None:
         """A CPE snapshot without the installed version cannot prove zero CVEs."""

@@ -70,6 +70,7 @@ def create_setting_rule(spec: SettingRuleSpec) -> type[BaseRule]:
                 registry = context.evidence_registry if context else None
                 if registry is None:
                     return [_not_evaluated(spec, "Normalized evidence registry is unavailable.", None)]
+                posture = None
                 if spec.category == RuleCategory.DEFENDER:
                     posture = posture_for(context)
                     if posture.third_party_active or (posture.defender_mode and "passive" in posture.defender_mode.casefold()):
@@ -90,6 +91,25 @@ def create_setting_rule(spec: SettingRuleSpec) -> type[BaseRule]:
                     return [status_finding]
                 passed, reason = _evaluate_setting(spec, setting, context)
                 evidence = _evidence(setting, reason)
+                evidence.update(_policy_evidence(spec, setting, context))
+                if spec.rule_id == "DEF-003" and posture is not None:
+                    evidence.update({
+                        "freshness_status": posture.freshness_status,
+                        "freshness_source": posture.freshness_source,
+                        "security_center_signature_status": (
+                            posture.security_center_signature_status
+                        ),
+                        "source_conflict": posture.freshness_conflict,
+                        "correlation_reason": posture.freshness_reason,
+                    })
+                    if passed and posture.freshness_conflict:
+                        return [Finding(
+                            rule_id=spec.rule_id,
+                            severity=Severity.INFO,
+                            status=Status.PARTIAL,
+                            score=0,
+                            evidence=evidence,
+                        )]
                 return [
                     Finding(
                         rule_id=spec.rule_id,
@@ -216,6 +236,26 @@ def _evidence(setting: SecuritySettingEvidence | None, reason: str) -> dict[str,
         "error_code": setting.error_code,
         "reason": reason,
     }
+
+
+def _policy_evidence(
+    spec: SettingRuleSpec,
+    setting: SecuritySettingEvidence,
+    context: AnalysisContext | None,
+) -> dict[str, Any]:
+    """Expose structured policy bounds for client-facing remediation semantics."""
+
+    result: dict[str, Any] = {"observed_value": setting.effective_value}
+    if spec.minimum_value is not None:
+        result["required_minimum"] = spec.minimum_value
+    if spec.maximum_value is not None:
+        result["required_maximum"] = spec.maximum_value
+    if spec.threshold_key:
+        result.update(
+            policy_threshold=_threshold(context, spec.threshold_key),
+            policy_threshold_name=spec.threshold_key,
+        )
+    return result
 
 
 def _threshold(context: AnalysisContext | None, key: str) -> int:

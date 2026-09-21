@@ -1,4 +1,4 @@
-# CSA 5.4.0 — security intelligence and credential posture
+# CSA 5.4.2 — final intelligence acceptance corrections
 
 ## Software intelligence
 
@@ -7,6 +7,15 @@ alias, normalized product, vendor/product and original inventory name. Vendor
 identity and product family must both match; a title cannot compensate for a
 wrong family. Helpers and runtimes retain their component identities. Deprecated
 and close competing candidates cannot silently become a reliable selection.
+
+NVD version rows are collapsed only after canonical vendor/product plus
+edition/platform grouping. Different catalog versions and equivalent spelling
+variants are one product family, while product years and real edition/platform
+differences remain separate identities. If the installed version is catalogued,
+CSA selects that exact family row. Otherwise it retains the bounded
+`FAMILY_RANGE` query and evaluates installed-version applicability. The Notepad++
+7.8.8 regression uses multiple NVD-shaped version rows and both observed vendor
+spellings; no CVE or product-specific result is forced into the pipeline.
 
 `software/cpe_discovery_aliases.json` is a discovery aid, not a hardcoded final
 CPE/CVE result. Lightroom Classic requires `adobe:lightroom` with software edition
@@ -54,6 +63,10 @@ The collector exposes minimum length, minimum/maximum age, history, lockout
 threshold, duration and observation window; unavailable data remains explicit.
 This measures configured policy, not the strength of anyone's actual password.
 ACC-006 continues to apply the existing minimum-length threshold of 12.
+Its client finding includes the observed value, required minimum, concrete policy
+change and recollection verification. It explicitly states that the result
+assesses policy configuration only; no password inspection, capture, relay or
+cracking is performed. Active Responder remains a separately authorized workflow.
 
 SMB server/client, optional SMBv1 client feature, LLMNR, NBT-NS, outbound NTLM,
 LM compatibility and WinHTTP WPAD use independent provider boundaries. Registry
@@ -95,6 +108,18 @@ Boot state, ACC-006 and ACC-009 use neutral control names in both rule metadata 
 knowledge. SW-001 describes unreliable product identification for security analysis,
 not malware.
 
+Active Defender freshness uses direct `Get-MpComputerStatus` signature age for
+policy evaluation and treats Windows Security Center as corroborating evidence.
+A disagreement is shown as `SOURCE_CONFLICT`; it cannot silently produce an
+AV-001 partial result beside a DEF-003 pass. Third-party AV and Defender passive
+mode remain distinct. Endpoint detail includes the registered AV inventory with
+per-product primary/passive role, protection state, freshness and evidence source.
+This posture does not claim that an endpoint is malware-free.
+
+Product-level CVE titles, verification text and priority actions remove an
+installed version already embedded in the product display name before appending
+the separate installed-version field.
+
 ## Verification and evidence boundaries
 
 Run `python -W error::ResourceWarning -m unittest discover -s tests -q` and
@@ -105,7 +130,12 @@ password-control semantics and accepted evidence through report rendering.
 `tests/powershell/Sprint54.Tests.ps1` covers provider fallback and isolation.
 Existing Illustrator/CNA and risk regressions remain in the full suite.
 
-Local final verification: **435 Python tests passed; 75 Pester tests passed**.
+Local final 5.4.2 verification: **467 Python tests passed; 76 Pester tests
+passed; Pester FailedCount 0**. Python ran with `ResourceWarning` promoted to an
+error. The focused 5.4.2 suite covers real-shaped multi-row Notepad++ family
+resolution, absent-version family-range fallback, Defender/Windows Security
+Center freshness conflicts, third-party/passive AV inventory, concrete ACC-006
+semantics and duplicate-version report rendering.
 The user authorized reusing the existing HOME evidence rather than recollecting
 HOME. That unchanged 118-record, 86-eligible dataset improved from 12 to **19 fully
 evaluated instances**, with **450 confirmed unique CVEs** (previously 387).
@@ -123,7 +153,8 @@ requests. This is a measured bottleneck, not a claim that cold scanning became
 faster. After the final Audacity/priority corrections, HOME's cached reanalysis
 took **3.951 s**, with zero NVD/CVE Program requests.
 
-On 2026-09-17, the existing HOME accepted evidence was analyzed with the NVD
+On 2026-09-17, before the 5.4.2 correction, the existing HOME accepted evidence
+was analyzed with the NVD
 key configured in CSA Lab's Windows-user DPAPI store. The isolated fresh-cache
 run took **236.948 s** (118 NVD requests, 29.899 s rate-limit wait); its
 immediate warm run took **3.126 s** (zero NVD and CVE Program requests).
@@ -134,6 +165,13 @@ timings above are from RAIVO-TEST and an earlier code revision, so the timing
 ratio is indicative rather than a controlled same-dataset A/B comparison.
 The ignored local benchmark stores only aggregate metrics and analysis output;
 all 13 generated files were checked for the raw key, with no match.
+
+A post-5.4.2 HOME live rerun remains the final operational acceptance step. The
+automated regression and retained real-shaped catalog data establish the correct
+family-selection contract without claiming that a new HOME report has already
+been generated. A cache-only check against the retained HOME NVD catalog resolved
+Notepad++ 7.8.8 from 308 accepted version rows to one canonical family and the
+exact installed-version CPE, with no remote request.
 
 The packaged application startup, settings endpoint and discovery alias asset
 were checked locally. The NVD settings dialog was inspected in the browser.

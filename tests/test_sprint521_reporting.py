@@ -13,6 +13,7 @@ from csa_lab.unified_report import (
     _limitation_reason,
     _limitation_scope_note,
     _security_finding_count,
+    _product_label,
     _software_security_findings,
     _software_matrix,
     _vulnerability_exposure,
@@ -245,6 +246,25 @@ class CveSemanticsTests(unittest.TestCase):
             "vendor-supported non-affected version",
             findings[0]["recommendation"],
         )
+
+    def test_product_cve_finding_does_not_repeat_embedded_version(self) -> None:
+        endpoint = _endpoint(cves=[{
+            "cveId": "CVE-2026-0103",
+            "matchStatus": "AFFECTED",
+            "severity": "HIGH",
+        }])
+        endpoint["softwareResults"][0]["displayName"] = "Example App 1.0"
+        endpoint["softwareResults"][0]["displayVersion"] = "1.0"
+        finding = _software_security_findings([endpoint])[0]
+        self.assertEqual(
+            finding["title"],
+            "Confirmed vulnerabilities affect Example App 1.0",
+        )
+        self.assertNotIn("1.0 1.0", finding["verification"])
+        self.assertEqual(_product_label({
+            "displayName": "Example App 1.0 (x64)",
+            "displayVersion": "1.0",
+        }), "Example App (x64)")
 
     def test_same_product_version_is_grouped_across_endpoints(self) -> None:
         first = _endpoint(cves=[{

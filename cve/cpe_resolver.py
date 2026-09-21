@@ -146,7 +146,12 @@ class CpeResolver:
             self._resolution_cache[cache_key] = resolution
             return resolution
         versioned_candidates = candidates
-        candidates = _collapse_equivalent_candidates(candidates)
+        candidates = _collapse_equivalent_candidates(
+            candidates,
+            software.version,
+        )
+        trace["acceptedVersionRowCount"] = len(versioned_candidates)
+        trace["canonicalFamilyCount"] = len(candidates)
         candidates.sort(key=lambda candidate: candidate.confidence, reverse=True)
         active = [candidate for candidate in candidates if not candidate.deprecated]
         platform_match = [
@@ -319,7 +324,14 @@ class CpeResolver:
                 match_status=_status_for_confidence(confidence), source="NVD_CPE_API",
             ))
         trace["candidateCount"] = len(seen)
-        trace["topCandidates"] = sorted(trace["topCandidates"], key=lambda item: (-item["confidence"], item["cpe"]))[:20]
+        trace["topCandidates"] = sorted(
+            trace["topCandidates"],
+            key=lambda item: (
+                -item["confidence"],
+                -int(item["installedVersionAvailable"]),
+                item["cpe"],
+            ),
+        )[:20]
         trace["aliasSource"] = alias.get("source")
         return candidates
 
@@ -513,41 +525,53 @@ def _score_candidate(software: SoftwareProduct, vendor: str, product: str, title
 
 def _collapse_equivalent_candidates(
     candidates: list[CpeCandidate],
+    installed_version: str,
 ) -> list[CpeCandidate]:
-    """Collapse version rows that represent the same CPE product identity."""
+    """Collapse catalog rows after canonical product-family grouping.
+
+    NVD may publish one CPE row per version and may retain equivalent vendor
+    spellings for the same family. Neither creates a competing product identity.
+    Edition and platform constraints remain part of the identity because they
+    can change applicability.
+    """
 
     grouped: dict[tuple[str, ...], list[CpeCandidate]] = {}
     for candidate in candidates:
         parsed = parse_cpe23_components(candidate.cpe_name)
         if parsed is None:
             continue
-        key = (parsed.part, parsed.vendor, parsed.product, parsed.update, parsed.edition, parsed.sw_edition, parsed.target_sw, parsed.target_hw, parsed.language, parsed.other)
+        key = _canonical_family_key(parsed)
         grouped.setdefault(key, []).append(candidate)
 
     collapsed: list[CpeCandidate] = []
     for values in grouped.values():
-        values.sort(
-            key=lambda item: (item.deprecated, -item.confidence, item.cpe_name)
-        )
-        best = values[0]
+        active = [item for item in values if not item.deprecated]
+        available = active or values
+        exact = [
+            item
+            for item in available
+            if _catalog_version_matches(installed_version, item.version)
+        ]
+        available.sort(key=_family_candidate_sort_key)
+        exact.sort(key=_family_candidate_sort_key)
+        best = (exact or available)[0]
         parsed = parse_cpe23_components(best.cpe_name)
         if parsed is None:
             continue
-        wildcard = build_cpe23(
-            parsed.part,
-            parsed.vendor,
-            parsed.product,
-            update=parsed.update, edition=parsed.edition, sw_edition=parsed.sw_edition,
-            target_sw=parsed.target_sw, target_hw=parsed.target_hw,
-            language=parsed.language, other=parsed.other,
+        selected_cpe = best.cpe_name if exact else build_cpe23(
+            parsed.part, parsed.vendor, parsed.product,
+            update="*", edition=parsed.edition,
+            sw_edition=parsed.sw_edition, target_sw=parsed.target_sw,
+            target_hw=parsed.target_hw, language=parsed.language,
+            other=parsed.other,
         )
         collapsed.append(
             CpeCandidate(
-                cpe_name=wildcard,
+                cpe_name=selected_cpe,
                 title=best.title,
                 vendor=best.vendor,
                 product=best.product,
-                version=None,
+                version=best.version if exact else None,
                 deprecated=best.deprecated,
                 confidence=best.confidence,
                 match_status=best.match_status,
@@ -555,6 +579,53 @@ def _collapse_equivalent_candidates(
             )
         )
     return collapsed
+
+
+def _family_candidate_sort_key(candidate: CpeCandidate) -> tuple[Any, ...]:
+    """Prefer active, unconstrained and higher-confidence family rows."""
+
+    parsed = parse_cpe23_components(candidate.cpe_name)
+    update_rank = 0 if parsed and parsed.update == "*" else 1
+    return (
+        candidate.deprecated,
+        update_rank,
+        -candidate.confidence,
+        candidate.cpe_name,
+    )
+
+
+def _canonical_family_key(parsed: ParsedCpe23) -> tuple[str, ...]:
+    """Return a stable product identity without version/update row noise."""
+
+    return (
+        parsed.part,
+        _family_identity_key(parsed.vendor),
+        _family_identity_key(parsed.product),
+        _family_component(parsed.edition),
+        _family_component(parsed.sw_edition),
+        _family_component(parsed.target_sw),
+        _family_component(parsed.target_hw),
+        _family_component(parsed.language),
+        _family_component(parsed.other),
+    )
+
+
+def _family_component(value: str) -> str:
+    """Canonicalize a family constraint while preserving wildcard and NA."""
+
+    return value if value in {"*", "-"} else _family_identity_key(value)
+
+
+def _family_identity_key(value: str) -> str:
+    """Normalize spelling without removing product years or version-like identity."""
+
+    text = _key(value)
+    text = re.sub(
+        r"\b(?:incorporated|corporation|company|limited|llc|ltd|inc)\b\.?,?",
+        " ",
+        text,
+    )
+    return re.sub(r"[^a-z0-9]+", " ", text).strip()
 
 
 def _is_neutral_family(candidate: CpeCandidate) -> bool:
@@ -581,13 +652,7 @@ def _same_cpe_family(left: ParsedCpe23 | None, right: ParsedCpe23 | None) -> boo
 
     if left is None or right is None:
         return False
-    return all(
-        getattr(left, component) == getattr(right, component)
-        for component in (
-            "part", "vendor", "product", "update", "edition", "language",
-            "sw_edition", "target_sw", "target_hw", "other",
-        )
-    )
+    return _canonical_family_key(left) == _canonical_family_key(right)
 
 
 def _catalog_version_matches(installed: str, catalogued: str | None) -> bool:

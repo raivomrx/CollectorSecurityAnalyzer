@@ -13,6 +13,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from csa_console.audit import ConsoleAuditLog
 from csa_console.canonical import sha256_bytes, sha256_value
+from csa_console.finding_semantics import client_finding_semantics
 from csa_console.fleet import FleetAnalyzer
 from csa_console.identifiers import utc_text
 from csa_console.sessions import AssessmentSessionService
@@ -213,6 +214,7 @@ class UnifiedReportGenerator:
         remediation_plan = _remediation_plan(priority_actions, fleet_findings)
         main_limitations = _main_coverage_limitations(endpoints, cve)
         executive_endpoint_metrics = _executive_endpoint_metrics(endpoints)
+        malware_product_inventory = _malware_product_inventory(endpoints)
         highest_severity = next(
             (
                 severity
@@ -328,6 +330,7 @@ class UnifiedReportGenerator:
                     for item in endpoints
                     if item["malwareProtection"]["active_product"]
                 ).items())),
+                "productInventory": malware_product_inventory,
             },
             "risk": {
                 **risk,
@@ -687,11 +690,30 @@ def _security_findings(
 ) -> list[dict[str, Any]]:
     """Return failed or warning controls that represent security findings."""
 
-    return [
-        item
-        for item in findings
-        if item.get("finding", {}).get("status") in {"FAIL", "WARNING"}
-    ]
+    result: list[dict[str, Any]] = []
+    for item in findings:
+        finding = item.get("finding", {})
+        if finding.get("status") not in {"FAIL", "WARNING"}:
+            continue
+        knowledge = item.get("knowledge", {})
+        row = dict(item)
+        client = client_finding_semantics(
+            str(finding.get("rule_id", finding.get("ruleId", ""))),
+            str(knowledge.get("title", "Security control finding")),
+            str(knowledge.get("recommendation", "Review the affected control.")),
+            finding.get("evidence")
+            if isinstance(finding.get("evidence"), dict)
+            else None,
+        )
+        row["client"] = client
+        row["knowledge"] = {
+            **knowledge,
+            "title": client["title"],
+            "description": client["reason"],
+            "recommendation": client["recommendation"],
+        }
+        result.append(row)
+    return result
 
 
 def _security_finding_count(findings: list[dict[str, Any]]) -> int:
@@ -927,7 +949,10 @@ def _cve_relationships(
                         ),
                         "knownExploited": bool(cve.get("cisaKev", False)),
                         "priority": cve.get("priority", cve.get("priorityLevel")),
-                        "software": str(software.get("displayName", "Unknown")),
+                        "software": _name_without_version(
+                            str(software.get("displayName", "Unknown")),
+                            str(software.get("displayVersion") or "Unknown"),
+                        ),
                         "installedVersion": str(
                             software.get("displayVersion") or "Unknown"
                         ),
@@ -1341,11 +1366,20 @@ def _malware_protection_detail(findings: list[dict[str, Any]]) -> dict[str, Any]
         "real_time_protection": None,
         "signature_age_days": None,
         "signature_status": None,
+        "security_center_signature_status": None,
+        "freshness_status": "UNKNOWN",
+        "freshness_source": "Not available",
+        "freshness_conflict": False,
+        "freshness_reason": "Freshness evidence was not available.",
+        "registration_conflict": False,
         "cloud_protection": None,
         "pua_protection": None,
         "defender_mode": None,
         "third_party_active": False,
-        "reason": "Dedicated anti-malware protection assessment was not available for this submission.",
+        "reason": (
+            "Dedicated anti-malware protection assessment was not available "
+            "for this submission."
+        ),
         "source": "Not available",
     }
     for item in findings:
@@ -1359,6 +1393,51 @@ def _malware_protection_detail(findings: list[dict[str, Any]]) -> dict[str, Any]
                     "status": finding.get("status", "NOT_EVALUATED"),
                 }
     return default
+
+
+def _malware_product_inventory(
+    endpoints: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Aggregate registered AV product health and freshness across endpoints."""
+
+    grouped: dict[str, dict[str, Any]] = {}
+    for endpoint in endpoints:
+        endpoint_name = str(endpoint.get("displayName", "Endpoint"))
+        for product in endpoint.get("malwareProtection", {}).get(
+            "registered_products", []
+        ):
+            if not isinstance(product, dict) or not product.get("name"):
+                continue
+            name = str(product["name"])
+            row = grouped.setdefault(
+                name.casefold(),
+                {
+                    "name": name,
+                    "endpoints": set(),
+                    "roles": Counter(),
+                    "protection": Counter(),
+                    "freshness": Counter(),
+                    "sourceConflicts": 0,
+                },
+            )
+            row["endpoints"].add(endpoint_name)
+            row["roles"][str(product.get("role", "UNKNOWN"))] += 1
+            protection = str(product.get("protectionStatus", "UNKNOWN"))
+            freshness = str(product.get("freshnessStatus", "UNKNOWN"))
+            row["protection"][protection] += 1
+            row["freshness"][freshness] += 1
+            row["sourceConflicts"] += int(bool(product.get("sourceConflict")))
+    return [
+        {
+            "name": row["name"],
+            "endpointCount": len(row["endpoints"]),
+            "roles": dict(sorted(row["roles"].items())),
+            "protection": dict(sorted(row["protection"].items())),
+            "freshness": dict(sorted(row["freshness"].items())),
+            "sourceConflicts": row["sourceConflicts"],
+        }
+        for row in sorted(grouped.values(), key=lambda item: item["name"].casefold())
+    ]
 
 
 def _executive_endpoint_metrics(
@@ -2262,9 +2341,22 @@ def _product_label(item: dict[str, Any]) -> str:
 
     name = str(item.get("displayName") or "Unknown")
     version = str(item.get("displayVersion") or "").strip()
-    if version and name.casefold().endswith(" " + version.casefold()):
-        return name[:-(len(version) + 1)].strip()
-    return name
+    return _name_without_version(name, version)
+
+
+def _name_without_version(name: str, version: str) -> str:
+    """Remove a collector-embedded installed version from a display label."""
+
+    version = version.strip()
+    if not version or version.casefold() == "unknown":
+        return name.strip()
+    pattern = re.compile(
+        rf"\s*\(?{re.escape(version)}\)?(?=\s*(?:\([^)]*"
+        rf"(?:x64|x86|64-bit|32-bit)[^)]*\))?\s*$)",
+        re.IGNORECASE,
+    )
+    cleaned = pattern.sub("", name, count=1).strip()
+    return cleaned or name.strip()
 
 
 def _software_is_cve_eligible(item: dict[str, Any]) -> bool:
@@ -2411,6 +2503,11 @@ def _verification_for_finding(finding: dict[str, Any]) -> str:
         return (
             "Rerun CSA and verify the daily user SID is no longer present in "
             "local Administrators and ACC-011 reports PASS."
+        )
+    if rule_id == "ACC-006":
+        return (
+            "Collect the endpoints again and verify PASSWORD_POLICY_MIN_LENGTH "
+            "is at least 12 and ACC-006 reports PASS."
         )
     return f"Rerun CSA and verify {rule_id or 'the related control'} reports PASS."
 

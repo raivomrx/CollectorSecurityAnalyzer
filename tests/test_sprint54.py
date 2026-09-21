@@ -316,6 +316,44 @@ class Sprint54PostureTests(unittest.TestCase):
         self.assertEqual(Acc006Rule.metadata.title, "Local password policy strength")
         self.assertEqual(Acc009Rule.metadata.title, "Password requirement for enabled local accounts")
 
+    def test_password_policy_finding_has_concrete_client_semantics(self):
+        from collector_schema.loader import _parse_setting
+        from csa_console.finding_semantics import client_finding_semantics
+        from evidence.registry import WindowsEvidenceRegistry
+        from rules.windows.account_rules import Acc006Rule
+        from software.models import SoftwareInventory
+
+        setting = _parse_setting({
+            "settingId": "PASSWORD_POLICY_MIN_LENGTH",
+            "category": "Accounts",
+            "configuredValue": 0,
+            "effectiveValue": 0,
+            "source": "LOCAL_POLICY",
+            "collectionStatus": "SUCCESS",
+            "confidence": 95,
+            "provider": "NetUserModalsGet",
+        })
+        context = AnalysisContext(
+            raw_data={},
+            software_inventory=SoftwareInventory(),
+            evidence_registry=WindowsEvidenceRegistry([setting]),
+        )
+        finding = Acc006Rule().check({}, context)[0]
+        self.assertEqual(finding.evidence["observed_value"], 0)
+        self.assertEqual(finding.evidence["required_minimum"], 12)
+        semantics = client_finding_semantics(
+            "ACC-006", "Local password policy strength", "Configure policy.",
+            finding.evidence,
+        )
+        self.assertIn("0 is below required 12", semantics["title"])
+        self.assertIn("at least 12 characters", semantics["recommendation"])
+        self.assertIn("did not inspect, capture, relay or crack", semantics["reason"])
+        legacy = client_finding_semantics(
+            "ACC-006", "Local password policy strength", "Configure policy.",
+            {"reason": "Value 0; minimum 12"},
+        )
+        self.assertIn("0 is below required 12", legacy["title"])
+
     def test_one_weak_setting_is_not_proven_credential_exposure(self):
         result = credential_posture([{"settingId": "LLMNR_ENABLED", "effectiveValue": True, "collectionStatus": "SUCCESS"}])
         self.assertEqual(result["rating"], "NOT FULLY EVALUATED")
