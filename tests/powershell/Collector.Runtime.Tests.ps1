@@ -23,6 +23,8 @@ Describe "CSA Windows Collector runtime evidence contracts" {
                 [pscustomobject]@{
                     AMServiceEnabled = $true; AntivirusEnabled = $true
                     AMRunningMode = "Normal"
+                    AMProductVersion = "4.18.26080.5"
+                    AMEngineVersion = "1.1.26080.2"
                     RealTimeProtectionEnabled = $true; BehaviorMonitorEnabled = $true
                     IoavProtectionEnabled = $true; IsTamperProtected = $true
                     AntivirusSignatureVersion = "1.2.3.4"
@@ -43,11 +45,13 @@ Describe "CSA Windows Collector runtime evidence contracts" {
 
             $result = Resolve-TestModuleResult "Defender" (Get-CSADefenderEvidence -PrivacyMode Strict)
             $result.Status | Should -Be "SUCCESS"
-            $result.Settings.Count | Should -Be 20
-            $result.ExpectedEvidenceCount | Should -Be 20
-            $result.CollectedEvidenceCount | Should -Be 20
+            $result.Settings.Count | Should -Be 22
+            $result.ExpectedEvidenceCount | Should -Be 22
+            $result.CollectedEvidenceCount | Should -Be 22
             ($result.Settings | ConvertTo-Json -Depth 8) | Should -Not -Match 'Sensitive|Client'
             @($result.Settings | Where-Object { $_.settingId -eq "DEFENDER_SIGNATURE_AGE_DAYS" }).Count | Should -Be 1
+            @($result.Settings | Where-Object { $_.settingId -eq "DEFENDER_PRODUCT_VERSION" -and $_.effectiveValue -eq "4.18.26080.5" }).Count | Should -Be 1
+            @($result.Settings | Where-Object { $_.settingId -eq "DEFENDER_ENGINE_VERSION" -and $_.effectiveValue -eq "1.1.26080.2" }).Count | Should -Be 1
             @($result.Settings | Where-Object { $_.settingId -eq "DEFENDER_EXCLUSION_COUNT" }).Count | Should -Be 1
             @($result.Settings | Where-Object { $_.settingId -eq "ANTIVIRUS_REGISTERED_PRODUCTS" -and $_.collectionStatus -eq "SUCCESS" }).Count | Should -Be 1
         }

@@ -172,6 +172,40 @@ class Sprint541Tests(unittest.TestCase):
             "FAMILY_RANGE",
         )
         self.assertIn("virtualMatchString", client.cve_queries[0])
+        self.assertIn(
+            r":notepad\+\+:*:",
+            client.cve_queries[0]["virtualMatchString"],
+        )
+
+    def test_family_range_escapes_reserved_product_characters(self) -> None:
+        """An uncatalogued version retains a standards-bound family name."""
+
+        class ReservedProductClient(CatalogClient):
+            def get_cpes(self, params):
+                self.queries.append(params["keywordSearch"])
+                return [
+                    _cpe("vendor", r"c\+\+_builder", "1.0"),
+                    _cpe("vendor", r"c\+\+_builder", "2.0"),
+                ]
+
+        inventory = build_inventory(
+            [{"Publisher": "Vendor", "DisplayName": "C++ Builder",
+              "DisplayVersion": "3.0"}],
+            unknown_products_path=self.root / "unknown-reserved.json",
+        )
+        client = ReservedProductClient(NvdCache(self.root / "reserved.sqlite3"))
+        summary = CveService(
+            client=client,
+            resolver=CpeResolver(client=client, minimum_confidence=65),
+        ).scan_inventory(inventory, raw_data={"OS": "Microsoft Windows 11"})
+
+        self.assertEqual(
+            summary.product_evaluations[0].terminal_status,
+            "COMPLETED",
+        )
+        query = client.cve_queries[0]["virtualMatchString"]
+        self.assertIn(r":c\+\+_builder:*:", query)
+        self.assertNotIn(":c++_builder:*:", query)
 
     def test_uncatalogued_version_uses_family_range_query(self) -> None:
         """A CPE snapshot without the installed version cannot prove zero CVEs."""

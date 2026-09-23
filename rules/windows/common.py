@@ -31,6 +31,7 @@ class SettingRuleSpec:
     severity: Severity = Severity.MEDIUM
     description: str = ""
     threshold_key: str | None = None
+    minimum_threshold_key: str | None = None
     maximum_value: int | float | None = None
     minimum_value: int | float | None = None
     fail_when_equal: Any = None
@@ -158,6 +159,10 @@ def _evaluate_setting(
         threshold = _threshold(context, spec.threshold_key)
         numeric = _numeric_age_or_value(value)
         return numeric is not None and numeric <= threshold, f"Value {numeric}; threshold {threshold}"
+    if spec.minimum_threshold_key:
+        threshold = _threshold(context, spec.minimum_threshold_key)
+        numeric = _to_number(value)
+        return numeric is not None and numeric >= threshold, f"Value {numeric}; minimum {threshold}"
     if spec.maximum_value is not None:
         numeric = _to_number(value)
         return numeric is not None and numeric <= spec.maximum_value, f"Value {numeric}; maximum {spec.maximum_value}"
@@ -255,6 +260,21 @@ def _policy_evidence(
             policy_threshold=_threshold(context, spec.threshold_key),
             policy_threshold_name=spec.threshold_key,
         )
+    if spec.minimum_threshold_key:
+        result.update(
+            required_minimum=_threshold(context, spec.minimum_threshold_key),
+            policy_threshold_name=spec.minimum_threshold_key,
+        )
+    if spec.rule_id == "ACC-006":
+        result.update(
+            policy_scope="LOCAL_POLICY",
+            policy_scope_label="Local account policy",
+            domain_effective_policy_status="NOT_EVALUATED",
+            domain_effective_policy_reason=(
+                "Domain-effective password policy is a separate capability and "
+                "was not established by this local-policy control."
+            ),
+        )
     return result
 
 
@@ -268,6 +288,7 @@ def _threshold(context: AnalysisContext | None, key: str) -> int:
         "MaximumUpdateScanAgeDays": 14,
         "MaximumUpdateInstallAgeDays": 45,
         "MaximumPendingRebootAgeDays": 7,
+        "MinimumPasswordLength": 15,
         "MaximumLocalAdministrators": 3,
         "MaximumStaleAccountAgeDays": 90,
     }

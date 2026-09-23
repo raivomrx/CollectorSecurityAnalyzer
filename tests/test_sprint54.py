@@ -308,7 +308,7 @@ class Sprint54PostureTests(unittest.TestCase):
         from evidence.registry import WindowsEvidenceRegistry
         from rules.windows.account_rules import Acc006Rule, Acc009Rule
         from software.models import SoftwareInventory
-        for value, collection, expected in ((14, "SUCCESS", "PASS"), (0, "SUCCESS", "FAIL"), (None, "NOT_AVAILABLE", "NOT_EVALUATED"), (None, "ACCESS_DENIED", "NOT_EVALUATED")):
+        for value, collection, expected in ((14, "SUCCESS", "FAIL"), (15, "SUCCESS", "PASS"), (0, "SUCCESS", "FAIL"), (None, "NOT_AVAILABLE", "NOT_EVALUATED"), (None, "ACCESS_DENIED", "NOT_EVALUATED")):
             with self.subTest(value=value, collection=collection):
                 setting = _parse_setting({"settingId": "PASSWORD_POLICY_MIN_LENGTH", "category": "Accounts", "configuredValue": value, "effectiveValue": value, "source": "LOCAL_POLICY", "collectionStatus": collection, "confidence": 95, "provider": "NetUserModalsGet"})
                 context = AnalysisContext(raw_data={}, software_inventory=SoftwareInventory(), evidence_registry=WindowsEvidenceRegistry([setting]))
@@ -340,13 +340,19 @@ class Sprint54PostureTests(unittest.TestCase):
         )
         finding = Acc006Rule().check({}, context)[0]
         self.assertEqual(finding.evidence["observed_value"], 0)
-        self.assertEqual(finding.evidence["required_minimum"], 12)
+        self.assertEqual(finding.evidence["required_minimum"], 15)
+        self.assertEqual(finding.evidence["policy_scope"], "LOCAL_POLICY")
+        self.assertEqual(
+            finding.evidence["domain_effective_policy_status"],
+            "NOT_EVALUATED",
+        )
         semantics = client_finding_semantics(
             "ACC-006", "Local password policy strength", "Configure policy.",
             finding.evidence,
         )
-        self.assertIn("0 is below required 12", semantics["title"])
-        self.assertIn("at least 12 characters", semantics["recommendation"])
+        self.assertIn("0 is below required 15", semantics["title"])
+        self.assertIn("at least 15 characters", semantics["recommendation"])
+        self.assertIn("LOCAL_POLICY", semantics["reason"])
         self.assertIn("did not inspect, capture, relay or crack", semantics["reason"])
         legacy = client_finding_semantics(
             "ACC-006", "Local password policy strength", "Configure policy.",
@@ -354,9 +360,69 @@ class Sprint54PostureTests(unittest.TestCase):
         )
         self.assertIn("0 is below required 12", legacy["title"])
 
+    def test_acc009_lists_enabled_accounts_without_password_requirement(self):
+        from collector_schema.loader import _parse_setting
+        from csa_console.finding_semantics import client_finding_semantics
+        from evidence.registry import WindowsEvidenceRegistry
+        from rules.windows.account_rules import Acc009Rule
+        from software.models import SoftwareInventory
+
+        settings = [
+            _parse_setting({
+                "settingId": "LOCAL_PASSWORD_NOT_REQUIRED_COUNT",
+                "category": "Accounts", "configuredValue": 2,
+                "effectiveValue": 2, "source": "RUNTIME_STATE",
+                "collectionStatus": "SUCCESS", "confidence": 90,
+                "provider": "Get-LocalUser",
+            }),
+            _parse_setting({
+                "settingId": "LOCAL_USERS", "category": "Accounts",
+                "configuredValue": [],
+                "effectiveValue": [
+                    {"Name": "Külaline", "Sid": "id-1", "Enabled": True,
+                     "PasswordRequired": False},
+                    {"Name": "Varukonto", "Sid": "id-2", "Enabled": True,
+                     "PasswordRequired": False},
+                    {"Name": "Suletud", "Sid": "id-3", "Enabled": False,
+                     "PasswordRequired": False},
+                ],
+                "source": "RUNTIME_STATE", "collectionStatus": "SUCCESS",
+                "confidence": 90, "provider": "Get-LocalUser",
+            }),
+        ]
+        context = AnalysisContext(
+            raw_data={}, software_inventory=SoftwareInventory(),
+            evidence_registry=WindowsEvidenceRegistry(settings),
+        )
+        finding = Acc009Rule().check({}, context)[0]
+        self.assertEqual(finding.status.value, "FAIL")
+        self.assertEqual(
+            [item["name"] for item in finding.evidence["affected_accounts"]],
+            ["Külaline", "Varukonto"],
+        )
+        semantics = client_finding_semantics(
+            "ACC-009", "Password requirement", "Review accounts.",
+            finding.evidence,
+        )
+        self.assertIn("Külaline", semantics["recommendation"])
+        self.assertIn("Varukonto", semantics["reason"])
+
     def test_one_weak_setting_is_not_proven_credential_exposure(self):
         result = credential_posture([{"settingId": "LLMNR_ENABLED", "effectiveValue": True, "collectionStatus": "SUCCESS"}])
         self.assertEqual(result["rating"], "NOT FULLY EVALUATED")
+        self.assertEqual(result["evidenceCompleteness"], "PARTIAL")
+        self.assertEqual(
+            result["credentialCaptureExposure"]["state"],
+            "NOT_EVALUATED",
+        )
+        self.assertEqual(
+            result["smbRelayExposure"]["state"],
+            "NOT_EVALUATED",
+        )
+        self.assertEqual(
+            result["smbRelayExposure"]["evidenceCompleteness"],
+            "PARTIAL",
+        )
         self.assertFalse(result["correlatedPrerequisitesObserved"])
         self.assertIn("No credential capture", result["explanation"])
 
@@ -367,7 +433,20 @@ class Sprint54PostureTests(unittest.TestCase):
         rows.append({"settingId": "SMB_SERVER_SIGNING_REQUIRED", "effectiveValue": None, "collectionStatus": "ACCESS_DENIED"})
         result = credential_posture(rows)
         self.assertTrue(result["correlatedPrerequisitesObserved"])
-        self.assertEqual(result["rating"], "NOT FULLY EVALUATED")
+        self.assertEqual(result["rating"], "ELEVATED")
+        self.assertEqual(result["evidenceCompleteness"], "PARTIAL")
+        self.assertEqual(
+            result["credentialCaptureExposure"]["state"],
+            "EXPOSURE_PREREQUISITES_CONFIRMED",
+        )
+        self.assertEqual(
+            result["smbRelayExposure"]["state"],
+            "EXPOSURE_PREREQUISITES_CONFIRMED",
+        )
+        self.assertEqual(
+            result["smbRelayExposure"]["evidenceCompleteness"],
+            "PARTIAL",
+        )
         self.assertTrue(any("ACCESS_DENIED" in reason for reason in result["limitations"]))
 
     def test_severity_then_confirmed_kev_then_applicability_then_cvss(self):

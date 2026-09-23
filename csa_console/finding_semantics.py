@@ -25,6 +25,24 @@ def client_finding_semantics(
         "recommendation": recommendation,
         "verification": f"Rerun CSA and verify {rule_id} reports PASS.",
     }
+    if rule_id == "ACC-009":
+        accounts = _affected_accounts(rows)
+        account_text = ", ".join(accounts) if accounts else "the affected local accounts"
+        result.update(
+            title="Enabled local accounts do not require a password",
+            reason=(
+                f"PasswordRequired=false was collected for: {account_text}."
+            ),
+            recommendation=(
+                f"Require passwords for {account_text}, or disable/remove each "
+                "account when it is not needed."
+            ),
+            verification=(
+                "Collect the endpoint again and verify every listed enabled local "
+                "account has PasswordRequired=true and ACC-009 reports PASS."
+            ),
+        )
+        return result
     if rule_id != "ACC-006":
         return result
 
@@ -47,6 +65,8 @@ def client_finding_semantics(
         reason=(
             f"The configured local minimum password length is {observed_text}; "
             f"the assessed policy requires at least {required_text} characters. "
+            "This is LOCAL_POLICY evidence and is not presented as the "
+            "domain-effective password policy. "
             "This evaluates policy configuration only; CSA did not inspect, "
             "capture, relay or crack passwords."
         ),
@@ -61,6 +81,23 @@ def client_finding_semantics(
         ),
     )
     return result
+
+
+def _affected_accounts(rows: list[dict[str, Any]]) -> list[str]:
+    """Return stable display names from ACC-009 correlated evidence."""
+
+    result: set[str] = set()
+    for row in rows:
+        accounts = row.get("affected_accounts", [])
+        if not isinstance(accounts, list):
+            continue
+        for account in accounts:
+            if not isinstance(account, dict):
+                continue
+            name = str(account.get("name", "")).strip()
+            if name:
+                result.add(name)
+    return sorted(result, key=str.casefold)
 
 
 def _unique_values(values: Any) -> list[str]:

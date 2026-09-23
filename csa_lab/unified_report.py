@@ -269,7 +269,7 @@ class UnifiedReportGenerator:
         framework_rows = _framework_rows(fleet_findings)
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.4.2",
+            "reportVersion": "CSA-5.4.3",
             "generatedAt": generated_at,
             "dataClassification": "Confidential - Security Assessment Data",
             "containsPersonalData": True,
@@ -325,6 +325,16 @@ class UnifiedReportGenerator:
             "executiveEndpointMetrics": executive_endpoint_metrics,
             "malwareProtection": {
                 "statusCounts": dict(sorted(status_summary["malwareProtection"].items())),
+                "activeCoverageEndpoints": sum(
+                    1 for item in endpoints
+                    if item["malwareProtection"].get(
+                        "active_protection_confirmed", False
+                    )
+                ),
+                "healthyPostureEndpoints": sum(
+                    1 for item in endpoints
+                    if item["malwareProtection"].get("status") == "PASS"
+                ),
                 "activeProductCounts": dict(sorted(Counter(
                     item["malwareProtection"]["active_product"]
                     for item in endpoints
@@ -1361,10 +1371,15 @@ def _malware_protection_detail(findings: list[dict[str, Any]]) -> dict[str, Any]
     default = {
         "status": "NOT_EVALUATED",
         "active_product": None,
+        "active_protection_confirmed": False,
         "registered_products": [],
         "protection_enabled": None,
         "real_time_protection": None,
         "signature_age_days": None,
+        "product_version": None,
+        "engine_version": None,
+        "signature_version": None,
+        "signature_updated_at": None,
         "signature_status": None,
         "security_center_signature_status": None,
         "freshness_status": "UNKNOWN",
@@ -1417,6 +1432,8 @@ def _malware_product_inventory(
                     "roles": Counter(),
                     "protection": Counter(),
                     "freshness": Counter(),
+                    "agentVersions": set(),
+                    "signatureVersions": set(),
                     "sourceConflicts": 0,
                 },
             )
@@ -1426,6 +1443,10 @@ def _malware_product_inventory(
             freshness = str(product.get("freshnessStatus", "UNKNOWN"))
             row["protection"][protection] += 1
             row["freshness"][freshness] += 1
+            if product.get("agentVersion"):
+                row["agentVersions"].add(str(product["agentVersion"]))
+            if product.get("signatureVersion"):
+                row["signatureVersions"].add(str(product["signatureVersion"]))
             row["sourceConflicts"] += int(bool(product.get("sourceConflict")))
     return [
         {
@@ -1434,6 +1455,8 @@ def _malware_product_inventory(
             "roles": dict(sorted(row["roles"].items())),
             "protection": dict(sorted(row["protection"].items())),
             "freshness": dict(sorted(row["freshness"].items())),
+            "agentVersions": sorted(row["agentVersions"]),
+            "signatureVersions": sorted(row["signatureVersions"]),
             "sourceConflicts": row["sourceConflicts"],
         }
         for row in sorted(grouped.values(), key=lambda item: item["name"].casefold())

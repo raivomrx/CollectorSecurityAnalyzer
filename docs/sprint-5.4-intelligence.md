@@ -1,4 +1,4 @@
-# CSA 5.4.2 — final intelligence acceptance corrections
+# CSA 5.4.3 — live acceptance correctness corrections
 
 ## Software intelligence
 
@@ -23,6 +23,14 @@ CPE/CVE result. Lightroom Classic requires `adobe:lightroom` with software editi
 the catalog vendor/product `libreoffice:libreoffice`. Candidate queries, counts,
 scores, edition, version availability, rejection and final selection are retained
 under `discoveryTrace` and visible in advanced diagnostics/report details.
+
+When a catalogued family does not contain the installed version, the
+`FAMILY_RANGE` query rebuilds a CPE 2.3 name from canonical components. Every
+reserved character is escaped according to the formatted-string component
+contract; wildcard and not-applicable values retain their defined meanings.
+This fixes families such as `notepad\+\+` without a product-specific exception.
+The regression uses an uncatalogued version and a generic product containing
+reserved characters.
 
 The applicability evaluator retains a validated application's software edition
 when checking an NVD edition constraint. Unknown editions remain unevaluated;
@@ -62,22 +70,29 @@ policy. API buffers are always freed. Password and lockout reads fail independen
 The collector exposes minimum length, minimum/maximum age, history, lockout
 threshold, duration and observation window; unavailable data remains explicit.
 This measures configured policy, not the strength of anyone's actual password.
-ACC-006 continues to apply the existing minimum-length threshold of 12.
+ACC-006 reads the minimum-length threshold from the selected policy profile; the
+default single-factor baseline requires 15 characters.
 Its client finding includes the observed value, required minimum, concrete policy
 change and recollection verification. It explicitly states that the result
-assesses policy configuration only; no password inspection, capture, relay or
-cracking is performed. Active Responder remains a separately authorized workflow.
+assesses `LOCAL_POLICY`, not domain-effective password policy. Domain/effective
+policy remains a separate capability. ACC-009 correlates its count with
+`LOCAL_USERS` and lists the enabled local accounts where `PasswordRequired=false`.
+No password inspection, capture, relay or cracking is performed. Active Responder
+remains a separately authorized workflow.
 
 SMB server/client, optional SMBv1 client feature, LLMNR, NBT-NS, outbound NTLM,
 LM compatibility and WinHTTP WPAD use independent provider boundaries. Registry
 access denial is distinct from an absent policy with a documented default. Null
 SMB fields are not converted to false. Adapter default states remain partial.
 
-Credential Exposure Posture correlates name resolution/auto-proxy, outbound NTLM
-and readable SMB signing requirements. A single weak setting does not establish
-exploitability. Missing prerequisites remain limitations. Domain-effective policy,
-exceptions and network reachability are not established by these local reads.
-No capture, relay, cracking or credential retention is introduced. Active Responder
+Credential Exposure Posture now reports `Credential Capture Exposure` separately
+from `SMB Relay Exposure`. LLMNR/WPAD plus outbound NTLM can establish capture
+prerequisites while NBT-NS remains partial. SMB signing is evaluated only in the
+relay posture. Exposure state and evidence completeness are separate fields, so an
+unrelated collection gap cannot suppress already-confirmed prerequisites. A single
+weak setting still does not establish exploitability. Domain-effective policy,
+exceptions and network reachability are not established by these local reads. No
+capture, relay, cracking or credential retention is introduced. Active Responder
 validation retains its separate authorization workflow.
 
 ## NVD key and performance
@@ -116,6 +131,20 @@ mode remain distinct. Endpoint detail includes the registered AV inventory with
 per-product primary/passive role, protection state, freshness and evidence source.
 This posture does not claim that an endpoint is malware-free.
 
+Fleet reporting separates endpoints with active AV coverage from endpoints whose
+full anti-malware health posture passed. Localized Defender registrations collapse
+to the canonical `Microsoft Defender Antivirus` identity. Product/agent and engine
+versions are distinct from signature version and signature update time; third-party
+freshness retains its explicit evidence source.
+
+The client-facing endpoint summary no longer displays a meaningless numeric
+`Risk score 0.0`. Endpoint rating and evidence coverage remain visible, while the
+internal prioritization score is retained for assessment logic.
+
+Collector evidence, online submissions, encrypted offline packages and unified
+HTML preserve UTF-8 text end to end. Regressions cover Estonian computer, user,
+software and publisher names and UTF-8-without-BOM collector output.
+
 Product-level CVE titles, verification text and priority actions remove an
 installed version already embedded in the product display name before appending
 the separate installed-version field.
@@ -130,9 +159,13 @@ password-control semantics and accepted evidence through report rendering.
 `tests/powershell/Sprint54.Tests.ps1` covers provider fallback and isolation.
 Existing Illustrator/CNA and risk regressions remain in the full suite.
 
-Local final 5.4.2 verification: **467 Python tests passed; 76 Pester tests
-passed; Pester FailedCount 0**. Python ran with `ResourceWarning` promoted to an
-error. The focused 5.4.2 suite covers real-shaped multi-row Notepad++ family
+Local 5.4.3 correction verification: **471 Python tests passed; 78 Pester tests
+passed; Pester FailedCount 0**. `test-artifacts/pester-results.xml` was generated.
+Python ran with `ResourceWarning` promoted to an error. The focused suite covers
+standards-compliant family-range CPE escaping, split capture/relay exposure,
+policy-profile thresholds, account correlation, AV coverage/version semantics and
+the online/offline Estonian UTF-8 round trip. The retained 5.4.2 suite covers
+real-shaped multi-row Notepad++ family
 resolution, absent-version family-range fallback, Defender/Windows Security
 Center freshness conflicts, third-party/passive AV inventory, concrete ACC-006
 semantics and duplicate-version report rendering.
@@ -166,7 +199,9 @@ ratio is indicative rather than a controlled same-dataset A/B comparison.
 The ignored local benchmark stores only aggregate metrics and analysis output;
 all 13 generated files were checked for the raw key, with no match.
 
-A post-5.4.2 HOME live rerun remains the final operational acceptance step. The
+A post-5.4.3 multi-endpoint live rerun remains the final operational acceptance
+step. This correction is intentionally not tagged or declared the accepted final
+release. The
 automated regression and retained real-shaped catalog data establish the correct
 family-selection contract without claiming that a new HOME report has already
 been generated. A cache-only check against the retained HOME NVD catalog resolved

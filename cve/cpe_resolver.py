@@ -750,12 +750,22 @@ def _read_title(cpe: dict[str, Any]) -> str:
 
 
 def _escape(value: str) -> str:
-    """Escape a CPE 2.3 component conservatively."""
+    """Bind one logical value as a CPE 2.3 formatted-string component.
+
+    Rebuilt family CPEs must escape all punctuation outside the unquoted CPE
+    alphabet. Otherwise identities such as ``notepad\\+\\+`` silently become
+    ``notepad++`` and NVD rejects the FAMILY_RANGE query.
+    """
 
     if value in {"*", "-"}:
         return value
     cleaned = value.strip().lower().replace(" ", "_")
-    return re.sub(r"([\\:*?\"<>|])", r"\\\1", cleaned)
+    return "".join(
+        character
+        if character.isascii() and (character.isalnum() or character in "._-")
+        else f"\\{character}"
+        for character in cleaned
+    )
 
 
 def _unescape(value: str) -> str:

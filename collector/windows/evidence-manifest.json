@@ -53,6 +53,8 @@
         {"id": "DEFENDER_SCRIPT_SCANNING_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_SCRIPT_SCANNING_ENABLED", "canonical": true},
         {"id": "DEFENDER_SAMPLE_SUBMISSION", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_SAMPLE_SUBMISSION", "canonical": true},
         {"id": "DEFENDER_CONTROLLED_FOLDER_ACCESS_ENABLED", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_CONTROLLED_FOLDER_ACCESS_ENABLED", "canonical": true},
+        {"id": "DEFENDER_PRODUCT_VERSION", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_PRODUCT_VERSION", "canonical": true},
+        {"id": "DEFENDER_ENGINE_VERSION", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_ENGINE_VERSION", "canonical": true},
         {"id": "DEFENDER_SIGNATURE_VERSION", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_SIGNATURE_VERSION", "canonical": true},
         {"id": "DEFENDER_SIGNATURE_UPDATED_AT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_SIGNATURE_UPDATED_AT", "canonical": true},
         {"id": "DEFENDER_LAST_FULL_SCAN_AT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "DEFENDER_LAST_FULL_SCAN_AT", "canonical": true},

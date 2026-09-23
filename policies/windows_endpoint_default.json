@@ -6,6 +6,7 @@
     "MaximumUpdateScanAgeDays": 14,
     "MaximumUpdateInstallAgeDays": 45,
     "MaximumPendingRebootAgeDays": 7,
+    "MinimumPasswordLength": 15,
     "MaximumLocalAdministrators": 3,
     "MaximumStaleAccountAgeDays": 90
   },

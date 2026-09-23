@@ -31,6 +31,8 @@ function Get-CSADefenderEvidence {
             DEFENDER_BEHAVIOR_MONITORING_ENABLED = [bool]$status.BehaviorMonitorEnabled
             DEFENDER_IOAV_PROTECTION_ENABLED = [bool]$status.IoavProtectionEnabled
             DEFENDER_TAMPER_PROTECTION_ENABLED = [bool]$status.IsTamperProtected
+            DEFENDER_PRODUCT_VERSION = [string]$status.AMProductVersion
+            DEFENDER_ENGINE_VERSION = [string]$status.AMEngineVersion
             DEFENDER_SIGNATURE_VERSION = [string]$status.AntivirusSignatureVersion
             DEFENDER_SIGNATURE_UPDATED_AT = if ($null -ne $signatureUpdatedAt) { ([datetime]$signatureUpdatedAt).ToUniversalTime().ToString("o") } else { $null }
             DEFENDER_SIGNATURE_AGE_DAYS = $signatureAgeDays

@@ -181,7 +181,7 @@ function Get-CSAPasswordPolicyEvidence {
                 if ($null -eq $raw -or $raw -is [bool] -or $raw -is [string] -or [double]$raw -lt 0 -or [double]$raw -gt [uint32]::MaxValue) { throw "Invalid structured policy value" }
                 $forever = ([uint64]$raw -eq [uint32]::MaxValue)
                 $value = if ($forever) { 0 } else { [double]$raw / $field.Divisor }
-                $levelSettings += New-CSASetting $field.Id "Accounts" $value "LOCAL_POLICY" "SUCCESS" 95 "NetUserModalsGet" ("Level{0}/{1}" -f $spec.Level, $field.Name) -Metadata @{ rawValue = [uint64]$raw; timeForever = $forever; scope = "Local account password policy, not actual password strength" }
+                $levelSettings += New-CSASetting $field.Id "Accounts" $value "LOCAL_POLICY" "SUCCESS" 95 "NetUserModalsGet" ("Level{0}/{1}" -f $spec.Level, $field.Name) -Metadata @{ rawValue = [uint64]$raw; timeForever = $forever; scope = "LOCAL_POLICY"; scopeLabel = "Local account password policy"; domainEffectivePolicyEvaluated = $false }
             }
             $settings += $levelSettings
         } catch {

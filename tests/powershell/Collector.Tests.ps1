@@ -47,6 +47,28 @@ Describe "CSA Windows Collector source contract" {
         $source | Should -Match 'catch \[System\.UnauthorizedAccessException\]'
     }
 
+    It "writes collector evidence as UTF-8 without a byte-order mark" {
+        $source = Get-Content -Raw -LiteralPath $collectorScript
+        $source | Should -Match 'UTF8Encoding\(\$false\)'
+        $source | Should -Match 'WriteAllText\(\$tmpPath, \$json, \$utf8WithoutBom\)'
+
+        $path = Join-Path $TestDrive "evidence-et.json"
+        $expected = '{"computer":"PÜHJA-ÕPPEARVUTI","user":"Õpetaja Ääkküla"}'
+        $encoding = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($path, $expected, $encoding)
+        $bytes = [System.IO.File]::ReadAllBytes($path)
+
+        $bytes[0] | Should -Not -Be 0xEF
+        [System.IO.File]::ReadAllText($path, $encoding) | Should -Be $expected
+    }
+
+    It "collects Defender product and engine versions separately" {
+        $source = Get-Content -Raw -LiteralPath (Join-Path $moduleRoot "Defender.psm1")
+        $source | Should -Match 'DEFENDER_PRODUCT_VERSION\s*=\s*\[string\]\$status\.AMProductVersion'
+        $source | Should -Match 'DEFENDER_ENGINE_VERSION\s*=\s*\[string\]\$status\.AMEngineVersion'
+        $source | Should -Match 'DEFENDER_SIGNATURE_VERSION\s*=\s*\[string\]\$status\.AntivirusSignatureVersion'
+    }
+
     It "does not collect BitLocker secrets" {
         $source = Get-Content -Raw -LiteralPath (Join-Path $moduleRoot "BitLocker.psm1")
         $source | Should -Not -Match '\.RecoveryPassword'
