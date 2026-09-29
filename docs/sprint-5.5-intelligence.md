@@ -102,7 +102,9 @@ identifiers may coexist in one assessment. Confirmed applicability dominates
 possible applicability, while fleet totals deduplicate unique CVE identifiers.
 The report model records endpoint-level evidence provenance and the HTML report
 warns when aggregate counts include legacy evidence without product-level
-relationships.
+relationships. Endpoint summary counters use the same reconciled identifier
+sets as fleet aggregation, so unique, confirmed, possible and KEV totals agree
+with that endpoint's fleet contribution.
 
 ## Verification boundary
 
@@ -113,7 +115,7 @@ coverage invariant `fully evaluated <= reliably identified`. Existing
 Notepad++, Adobe, source-trust, BitLocker, credential-exposure and
 password-policy regressions remain active.
 
-Final 5.5.1 verification completed on 2026-09-29: 488 Python tests and
+Final 5.5.1 verification completed on 2026-09-29: 489 Python tests and
 78 Pester 5 tests passed with zero failures.
 
 A controlled cold/warm benchmark requires the same locally retained accepted

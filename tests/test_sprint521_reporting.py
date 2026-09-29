@@ -224,6 +224,51 @@ class CveSemanticsTests(unittest.TestCase):
         self.assertEqual(provenance["PC-01"], "DETAILED_RELATIONSHIPS")
         self.assertEqual(provenance["PC-02"], "LEGACY_SUMMARY_ONLY")
 
+    def test_mixed_endpoint_summary_matches_fleet_contribution(self) -> None:
+        endpoint = _endpoint(cves=[{
+            "cveId": "CVE-2026-3001",
+            "matchStatus": "AFFECTED",
+            "severity": "HIGH",
+            "cisaKev": False,
+        }])
+        endpoint["cveSummary"].update({
+            "confirmedCveIds": [
+                "CVE-2026-3001", "CVE-2026-3002",
+            ],
+            "possibleCveIds": [],
+            "cisaKevCveIds": ["CVE-2026-3002"],
+            "confirmedUniqueCves": 1,
+            "uniqueCves": 1,
+        })
+
+        summary = _endpoint_cve_summary(endpoint)
+        endpoint["cveSummary"] = summary
+        fleet = _aggregate_cve([endpoint])
+
+        self.assertEqual(summary["uniqueCves"], 2)
+        self.assertEqual(summary["confirmedUniqueCves"], 2)
+        self.assertEqual(summary["possibleUniqueCves"], 0)
+        self.assertEqual(summary["cisaKevUniqueCves"], 1)
+        self.assertEqual(
+            summary["confirmedCveIds"],
+            ["CVE-2026-3001", "CVE-2026-3002"],
+        )
+        self.assertEqual(
+            summary["summaryOnlyConfirmedCveIds"],
+            ["CVE-2026-3002"],
+        )
+        self.assertEqual(
+            summary["evidenceProvenance"]["mode"],
+            "DETAILED_AND_SUMMARY_ONLY",
+        )
+        self.assertEqual(fleet["confirmedUniqueCves"], 2)
+        self.assertEqual(fleet["possibleUniqueCves"], 0)
+        self.assertEqual(fleet["knownExploitedVulnerabilities"], 1)
+        self.assertEqual(len(fleet["relationships"]), 1)
+        self.assertEqual(
+            fleet["relationships"][0]["cveId"], "CVE-2026-3001"
+        )
+
     def test_repeated_cve_is_deduplicated_and_confirmed_dominates(self) -> None:
         detailed = _endpoint(cves=[{
             "cveId": "CVE-2026-2001",

@@ -821,31 +821,15 @@ def _aggregate_cve(
     evidence_provenance: list[dict[str, Any]] = []
     affected_endpoint_count = 0
     for endpoint in endpoints:
-        endpoint_relationships = _cve_relationships([endpoint])
-        detailed_confirmed = {
-            item["cveId"] for item in endpoint_relationships
-            if item["applicability"] == "CONFIRMED"
-        }
-        detailed_possible = {
-            item["cveId"] for item in endpoint_relationships
-            if item["applicability"] == "POSSIBLE"
-        } - detailed_confirmed
-        summary = endpoint.get("cveSummary", {})
-        summary_confirmed = {
-            str(value) for value in summary.get("confirmedCveIds", [])
-        }
-        summary_possible = {
-            str(value) for value in summary.get("possibleCveIds", [])
-        } - summary_confirmed
-        detailed_ids = detailed_confirmed | detailed_possible
-        endpoint_summary_only_confirmed = summary_confirmed - detailed_ids
-        endpoint_summary_only_possible = (
-            summary_possible - detailed_ids - summary_confirmed
-        )
-        endpoint_confirmed = detailed_confirmed | summary_confirmed
-        endpoint_possible = (
-            detailed_possible | summary_possible
-        ) - endpoint_confirmed
+        reconciled = _reconciled_endpoint_cve_evidence(endpoint)
+        endpoint_confirmed = reconciled["confirmed"]
+        endpoint_possible = reconciled["possible"]
+        endpoint_summary_only_confirmed = reconciled[
+            "summaryOnlyConfirmed"
+        ]
+        endpoint_summary_only_possible = reconciled[
+            "summaryOnlyPossible"
+        ]
         if endpoint_confirmed or endpoint_possible:
             affected_endpoint_count += 1
         confirmed_ids.update(endpoint_confirmed)
@@ -853,68 +837,15 @@ def _aggregate_cve(
         summary_only_confirmed_ids.update(endpoint_summary_only_confirmed)
         summary_only_possible_ids.update(endpoint_summary_only_possible)
 
-        endpoint_critical = {
-            item["cveId"] for item in endpoint_relationships
-            if item["applicability"] == "CONFIRMED"
-            and item["severity"] == "CRITICAL"
-        } | (
-            {str(value) for value in summary.get("criticalCveIds", [])}
-            & endpoint_confirmed
-        )
-        endpoint_possible_critical = {
-            item["cveId"] for item in endpoint_relationships
-            if item["applicability"] == "POSSIBLE"
-            and item["severity"] == "CRITICAL"
-        } | (
-            {str(value) for value in summary.get("possibleCriticalCveIds", [])}
-            & endpoint_possible
-        )
-        critical_ids.update(endpoint_critical)
-        possible_critical_ids.update(endpoint_possible_critical)
-        high_ids.update(
-            {
-                item["cveId"] for item in endpoint_relationships
-                if item["applicability"] == "CONFIRMED"
-                and item["severity"] == "HIGH"
-            }
-            | (
-                {str(value) for value in summary.get("highCveIds", [])}
-                & endpoint_confirmed
-            )
-        )
-        kev_ids.update(
-            {
-                item["cveId"] for item in endpoint_relationships
-                if item["applicability"] == "CONFIRMED"
-                and item["knownExploited"]
-            }
-            | (
-                {str(value) for value in summary.get("cisaKevCveIds", [])}
-                & endpoint_confirmed
-            )
-        )
-        if endpoint_relationships and (
-            endpoint_summary_only_confirmed or endpoint_summary_only_possible
-        ):
-            evidence_mode = "DETAILED_AND_SUMMARY_ONLY"
-        elif endpoint_relationships:
-            evidence_mode = "DETAILED_RELATIONSHIPS"
-        elif summary_confirmed or summary_possible:
-            evidence_mode = "LEGACY_SUMMARY_ONLY"
-        else:
-            evidence_mode = "NO_CVE_IDENTIFIERS"
+        critical_ids.update(reconciled["critical"])
+        possible_critical_ids.update(reconciled["possibleCritical"])
+        high_ids.update(reconciled["high"])
+        kev_ids.update(reconciled["knownExploited"])
         evidence_provenance.append(
             {
                 "endpoint": endpoint.get("displayName", "Endpoint"),
                 "submissionId": endpoint.get("submissionId", ""),
-                "mode": evidence_mode,
-                "detailedRelationshipCount": len(endpoint_relationships),
-                "summaryOnlyConfirmedCveCount": len(
-                    endpoint_summary_only_confirmed
-                ),
-                "summaryOnlyPossibleCveCount": len(
-                    endpoint_summary_only_possible
-                ),
+                **reconciled["provenance"],
             }
         )
 
@@ -1239,46 +1170,128 @@ def _endpoint_cve_summary(endpoint: dict[str, Any]) -> dict[str, Any]:
     """Normalize endpoint CVE counters from version applicability details."""
 
     summary = dict(endpoint.get("cveSummary", {}))
-    relationships = _cve_relationships([endpoint])
-    if not relationships:
+    reconciled = _reconciled_endpoint_cve_evidence(endpoint)
+    confirmed = reconciled["confirmed"]
+    possible = reconciled["possible"]
+    if not reconciled["relationships"] and not confirmed and not possible:
         return summary
-    confirmed = {
-        item["cveId"] for item in relationships
-        if item["applicability"] == "CONFIRMED"
-    }
-    possible = {
-        item["cveId"] for item in relationships
-        if item["applicability"] == "POSSIBLE"
-    } - confirmed
     summary.update(
         {
+            "confirmedCveIds": sorted(confirmed),
+            "possibleCveIds": sorted(possible),
+            "uniqueCveIds": sorted(confirmed | possible),
             "uniqueCves": len(confirmed | possible),
             "confirmedUniqueCves": len(confirmed),
             "possibleUniqueCves": len(possible),
-            "cisaKevUniqueCves": len(
-                {
-                    item["cveId"] for item in relationships
-                    if item["applicability"] == "CONFIRMED"
-                    and item["knownExploited"]
-                }
+            "cisaKevCveIds": sorted(reconciled["knownExploited"]),
+            "cisaKevUniqueCves": len(reconciled["knownExploited"]),
+            "knownExploitedVulnerabilities": len(
+                reconciled["knownExploited"]
             ),
-            "criticalUniqueCves": len(
-                {
-                    item["cveId"] for item in relationships
-                    if item["applicability"] == "CONFIRMED"
-                    and item["severity"] == "CRITICAL"
-                }
+            "criticalCveIds": sorted(reconciled["critical"]),
+            "criticalUniqueCves": len(reconciled["critical"]),
+            "highCveIds": sorted(reconciled["high"]),
+            "highUniqueCves": len(reconciled["high"]),
+            "summaryOnlyConfirmedCveIds": sorted(
+                reconciled["summaryOnlyConfirmed"]
             ),
-            "highUniqueCves": len(
-                {
-                    item["cveId"] for item in relationships
-                    if item["applicability"] == "CONFIRMED"
-                    and item["severity"] == "HIGH"
-                }
+            "summaryOnlyPossibleCveIds": sorted(
+                reconciled["summaryOnlyPossible"]
             ),
+            "evidenceProvenance": reconciled["provenance"],
         }
     )
     return summary
+
+
+def _reconciled_endpoint_cve_evidence(
+    endpoint: dict[str, Any],
+) -> dict[str, Any]:
+    """Reconcile detailed and legacy CVE identifiers for one endpoint."""
+
+    relationships = _cve_relationships([endpoint])
+    summary = endpoint.get("cveSummary", {})
+    detailed_confirmed = {
+        item["cveId"] for item in relationships
+        if item["applicability"] == "CONFIRMED"
+    }
+    detailed_possible = {
+        item["cveId"] for item in relationships
+        if item["applicability"] == "POSSIBLE"
+    } - detailed_confirmed
+    summary_confirmed = {
+        str(value) for value in summary.get("confirmedCveIds", [])
+    }
+    summary_possible = {
+        str(value) for value in summary.get("possibleCveIds", [])
+    } - summary_confirmed
+    detailed_ids = detailed_confirmed | detailed_possible
+    summary_only_confirmed = summary_confirmed - detailed_ids
+    summary_only_possible = (
+        summary_possible - detailed_ids - summary_confirmed
+    )
+    confirmed = detailed_confirmed | summary_confirmed
+    possible = (detailed_possible | summary_possible) - confirmed
+    critical = {
+        item["cveId"] for item in relationships
+        if item["applicability"] == "CONFIRMED"
+        and item["severity"] == "CRITICAL"
+    } | (
+        {str(value) for value in summary.get("criticalCveIds", [])}
+        & confirmed
+    )
+    possible_critical = {
+        item["cveId"] for item in relationships
+        if item["applicability"] == "POSSIBLE"
+        and item["severity"] == "CRITICAL"
+    } | (
+        {
+            str(value)
+            for value in summary.get("possibleCriticalCveIds", [])
+        }
+        & possible
+    )
+    high = {
+        item["cveId"] for item in relationships
+        if item["applicability"] == "CONFIRMED"
+        and item["severity"] == "HIGH"
+    } | (
+        {str(value) for value in summary.get("highCveIds", [])}
+        & confirmed
+    )
+    known_exploited = {
+        item["cveId"] for item in relationships
+        if item["applicability"] == "CONFIRMED"
+        and item["knownExploited"]
+    } | (
+        {str(value) for value in summary.get("cisaKevCveIds", [])}
+        & confirmed
+    )
+    if relationships and (summary_only_confirmed or summary_only_possible):
+        mode = "DETAILED_AND_SUMMARY_ONLY"
+    elif relationships:
+        mode = "DETAILED_RELATIONSHIPS"
+    elif summary_confirmed or summary_possible:
+        mode = "LEGACY_SUMMARY_ONLY"
+    else:
+        mode = "NO_CVE_IDENTIFIERS"
+    return {
+        "relationships": relationships,
+        "confirmed": confirmed,
+        "possible": possible,
+        "critical": critical,
+        "possibleCritical": possible_critical,
+        "high": high,
+        "knownExploited": known_exploited,
+        "summaryOnlyConfirmed": summary_only_confirmed,
+        "summaryOnlyPossible": summary_only_possible,
+        "provenance": {
+            "mode": mode,
+            "detailedRelationshipCount": len(relationships),
+            "summaryOnlyConfirmedCveCount": len(summary_only_confirmed),
+            "summaryOnlyPossibleCveCount": len(summary_only_possible),
+        },
+    }
 
 
 def _software_vulnerability_evaluation(eligible: int, evaluated: int, percent: float) -> dict[str, Any]:
