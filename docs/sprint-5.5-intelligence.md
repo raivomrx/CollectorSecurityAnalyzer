@@ -1,4 +1,4 @@
-# CSA 5.5 - Fleet Software Intelligence quality
+# CSA 5.5.1 - Fleet Software Intelligence quality
 
 ## Scope
 
@@ -76,7 +76,9 @@ be lower than the number reported as fully evaluated.
 A confirmed affected CISA KEV creates a P1 remediation work item. This task
 priority is distinct from CVSS, finding severity, source trust, applicability
 and the overall risk model. KEV presence does not claim that every exploitation
-path is available on the endpoint.
+path is available on the endpoint. The P1 classification is an invariant of
+the complete remediation plan, including actions outside the five Executive
+Summary actions.
 
 ## AV reconciliation
 
@@ -87,12 +89,32 @@ does not prove active real-time protection. Defender or another registered AV
 remains the posture authority, including existing source-conflict and
 freshness semantics.
 
+Product correlation is component-aware. Malwarebytes Browser Guard remains
+distinct from Malwarebytes Antivirus, and Microsoft Defender for Endpoint
+remains distinct from Microsoft Defender Antivirus. Inventory-only components
+do not inherit an AV provider's active role, health, or freshness.
+
+## Mixed-generation CVE evidence
+
+CVE aggregation reconciles each endpoint independently before computing fleet
+totals. Detailed software/CVE relationships and valid legacy summary-only CVE
+identifiers may coexist in one assessment. Confirmed applicability dominates
+possible applicability, while fleet totals deduplicate unique CVE identifiers.
+The report model records endpoint-level evidence provenance and the HTML report
+warns when aggregate counts include legacy evidence without product-level
+relationships.
+
 ## Verification boundary
 
 The automated suite covers adversarial identities, versioned cache lifecycle,
-terminal reasons, fleet counting, installed-versus-registered AV and a full
-unified-report KEV priority flow. Existing Notepad++, Adobe, source-trust,
-BitLocker, credential-exposure and password-policy regressions remain active.
+terminal reasons, fleet counting, installed-versus-registered AV, seven
+distinct KEV remediation actions, mixed detailed/legacy CVE evidence and the
+coverage invariant `fully evaluated <= reliably identified`. Existing
+Notepad++, Adobe, source-trust, BitLocker, credential-exposure and
+password-policy regressions remain active.
+
+Final 5.5.1 verification completed on 2026-09-29: 488 Python tests and
+78 Pester 5 tests passed with zero failures.
 
 A controlled cold/warm benchmark requires the same locally retained accepted
 HOME evidence, the same code revision and an explicitly selected API-key mode.

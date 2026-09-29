@@ -188,6 +188,66 @@ class CveSemanticsTests(unittest.TestCase):
         self.assertEqual(cve["confirmedUniqueCves"], 0)
         self.assertEqual(cve["possibleUniqueCves"], 2)
 
+    def test_mixed_detailed_and_legacy_summary_evidence_is_reconciled(self) -> None:
+        detailed = _endpoint(cves=[{
+            "cveId": "CVE-2026-1001",
+            "matchStatus": "AFFECTED",
+            "severity": "HIGH",
+        }])
+        legacy = _endpoint(cves=[])
+        legacy["displayName"] = "PC-02"
+        legacy["submissionId"] = "SUB-02"
+        legacy["softwareResults"] = []
+        legacy["cveSummary"].update({
+            "confirmedCveIds": ["CVE-2026-1002"],
+            "possibleCveIds": ["CVE-2026-1003"],
+            "highCveIds": ["CVE-2026-1002"],
+            "cisaKevCveIds": ["CVE-2026-1002"],
+            "confirmedUniqueCves": 1,
+            "possibleUniqueCves": 1,
+        })
+
+        cve = _aggregate_cve([detailed, legacy])
+
+        self.assertEqual(cve["confirmedUniqueCves"], 2)
+        self.assertEqual(cve["possibleUniqueCves"], 1)
+        self.assertEqual(cve["knownExploitedVulnerabilities"], 1)
+        self.assertEqual(cve["affectedEndpoints"], 2)
+        self.assertEqual(cve["summaryOnlyEndpointCount"], 1)
+        self.assertEqual(
+            cve["summaryOnlyConfirmedCveIds"], ["CVE-2026-1002"]
+        )
+        provenance = {
+            item["endpoint"]: item["mode"]
+            for item in cve["evidenceProvenance"]
+        }
+        self.assertEqual(provenance["PC-01"], "DETAILED_RELATIONSHIPS")
+        self.assertEqual(provenance["PC-02"], "LEGACY_SUMMARY_ONLY")
+
+    def test_repeated_cve_is_deduplicated_and_confirmed_dominates(self) -> None:
+        detailed = _endpoint(cves=[{
+            "cveId": "CVE-2026-2001",
+            "matchStatus": "AFFECTED",
+            "severity": "MEDIUM",
+        }])
+        legacy = _endpoint(cves=[])
+        legacy["displayName"] = "PC-02"
+        legacy["submissionId"] = "SUB-02"
+        legacy["softwareResults"] = []
+        legacy["cveSummary"].update({
+            "confirmedCveIds": [],
+            "possibleCveIds": ["CVE-2026-2001"],
+            "confirmedUniqueCves": 0,
+            "possibleUniqueCves": 1,
+        })
+
+        cve = _aggregate_cve([detailed, legacy])
+
+        self.assertEqual(cve["detectedCves"], 1)
+        self.assertEqual(cve["confirmedUniqueCves"], 1)
+        self.assertEqual(cve["possibleUniqueCves"], 0)
+        self.assertEqual(cve["summaryOnlyPossibleCveIds"], [])
+
     def test_zero_cves_with_full_coverage_is_evaluated_clean(self) -> None:
         cve = _aggregate_cve([_endpoint(cves=[])])
         self.assertEqual(cve["coveragePercent"], 100.0)

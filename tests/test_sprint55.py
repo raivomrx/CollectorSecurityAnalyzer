@@ -212,8 +212,8 @@ class TerminalReasonAndCoverageTests(unittest.TestCase):
         self.assertEqual(coverage["cveEligibleFailed"], 1)
         self.assertEqual(coverage["nonEligibleOrUnsupported"], 1)
         self.assertLessEqual(
-            coverage["identifiedForSecurityAnalysis"],
             coverage["cveEvaluated"],
+            coverage["identifiedForSecurityAnalysis"],
         )
 
         endpoints = [
@@ -226,6 +226,25 @@ class TerminalReasonAndCoverageTests(unittest.TestCase):
             if row["reasonCode"] == "AMBIGUOUS_IDENTITY"
         )
         self.assertEqual(ambiguous["endpointCount"], 2)
+
+    def test_fully_evaluated_never_exceeds_reliably_identified(self) -> None:
+        completed = _software_result(
+            "Completed Product", "1.0", "COMPLETED", "EVALUATION_COMPLETED"
+        )
+        identified_only = _software_result(
+            "Identified Product", "2.0", "NOT_EVALUATED",
+            "APPLICABILITY_INCOMPLETE",
+        )
+        identified_only["cvePipeline"]["productMappingStatus"] = "SUCCESS"
+        coverage = _software_intelligence_coverage(
+            [completed, identified_only]
+        )
+        self.assertEqual(coverage["identifiedForSecurityAnalysis"], 2)
+        self.assertEqual(coverage["cveEvaluated"], 1)
+        self.assertLessEqual(
+            coverage["cveEvaluated"],
+            coverage["identifiedForSecurityAnalysis"],
+        )
 
 
 class KevAndAvReportingTests(unittest.TestCase):
@@ -259,6 +278,38 @@ class KevAndAvReportingTests(unittest.TestCase):
         self.assertIn("CISA KEV", plan[0]["priorityBasis"])
         self.assertEqual(plan[0]["riskReduction"], "Medium")
 
+    def test_seven_distinct_kev_actions_remain_p1_in_complete_plan(self) -> None:
+        endpoint = {
+            "submissionId": "SUB-SYNTHETIC-KEV-SEVEN",
+            "displayName": "LAB-ENDPOINT",
+            "anchorId": "endpoint-lab",
+            "softwareResults": [],
+        }
+        for index in range(1, 8):
+            endpoint["softwareResults"].append({
+                "productKey": f"example|product-{index}|1.0",
+                "displayName": f"Example Product {index}",
+                "displayVersion": "1.0",
+                "normalizedVendor": "Example Vendor",
+                "normalizedProduct": f"Example Product {index}",
+                "cveDetails": [{
+                    "cveId": f"CVE-2099-{index:04d}",
+                    "matchStatus": "AFFECTED",
+                    "severity": "HIGH",
+                    "cvssScore": 8.0,
+                    "cisaKev": True,
+                }],
+            })
+        findings = _software_security_findings([endpoint])
+        actions = _priority_actions([endpoint], findings)
+        self.assertEqual(len(actions), 5)
+        plan = _remediation_plan(actions, findings)
+        self.assertEqual(len(plan), 7)
+        self.assertTrue(all(item["priority"] == "P1" for item in plan))
+        self.assertTrue(all(
+            "CISA KEV" in item["priorityBasis"] for item in plan
+        ))
+
     def test_installed_security_product_is_not_invented_as_active_av(self) -> None:
         posture = {
             "status": "PASS",
@@ -280,6 +331,50 @@ class KevAndAvReportingTests(unittest.TestCase):
         self.assertEqual(installed["Malwarebytes"]["role"], "ROLE_UNKNOWN")
         self.assertEqual(installed["Malwarebytes"]["protectionState"], "NOT_EVALUATED")
         self.assertEqual(result["active_product"], "Microsoft Defender Antivirus")
+
+    def test_browser_guard_does_not_inherit_malwarebytes_av_health(self) -> None:
+        posture = {
+            "status": "PASS",
+            "active_product": "Malwarebytes Antivirus",
+            "registered_products": [{
+                "name": "Malwarebytes Antivirus",
+                "role": "PRIMARY",
+                "protectionStatus": "ENABLED",
+            }],
+        }
+        result = _reconcile_malware_inventory(posture, [{
+            "normalizedProduct": "Malwarebytes Browser Guard",
+            "displayVersion": "3.0",
+            "publisher": "Malwarebytes",
+        }])
+        installed = result["installed_security_products"][0]
+        self.assertEqual(installed["correlationStatus"], "INSTALLED_NOT_REGISTERED")
+        self.assertEqual(installed["role"], "ROLE_UNKNOWN")
+        self.assertEqual(installed["protectionState"], "NOT_EVALUATED")
+        self.assertEqual(
+            result["registered_products"][0]["inventoryCorrelationStatus"],
+            "REGISTERED_NOT_IN_INVENTORY",
+        )
+
+    def test_defender_for_endpoint_does_not_inherit_antivirus_health(self) -> None:
+        posture = {
+            "status": "PASS",
+            "active_product": "Microsoft Defender Antivirus",
+            "registered_products": [{
+                "name": "Microsoft Defender Antivirus",
+                "role": "PRIMARY",
+                "protectionStatus": "ENABLED",
+            }],
+        }
+        result = _reconcile_malware_inventory(posture, [{
+            "normalizedProduct": "Microsoft Defender for Endpoint",
+            "displayVersion": "10.0",
+            "publisher": "Microsoft",
+        }])
+        installed = result["installed_security_products"][0]
+        self.assertEqual(installed["correlationStatus"], "INSTALLED_NOT_REGISTERED")
+        self.assertEqual(installed["role"], "ROLE_UNKNOWN")
+        self.assertEqual(installed["protectionState"], "NOT_EVALUATED")
 
 
 class UnifiedKevReportTests(Sprint5TestCase):
