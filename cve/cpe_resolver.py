@@ -67,6 +67,8 @@ class CpeResolver:
             "localMappingSeconds": 0.0, "cpeDiscoverySeconds": 0.0,
             "resolutionMemoryHits": 0, "cpeCatalogHits": 0,
             "cpeCatalogMisses": 0, "remoteCpeQueries": 0,
+            "cpeCatalogStale": 0, "cpeCatalogNegativeHits": 0,
+            "cpeCatalogSynchronizations": 0,
         }
         self.minimum_confidence = minimum_confidence
         self.ambiguous_score_difference = ambiguous_score_difference
@@ -266,14 +268,39 @@ class CpeResolver:
         )
         query = str(alias.get("query") or software.normalized_product).strip()
         identity = f"{software.normalized_vendor}|{software.normalized_product}|{query}".casefold()
-        catalog = getattr(getattr(self.client, "cache", None), "get_cpe_catalog", None)
+        cache = getattr(self.client, "cache", None)
+        catalog_record = getattr(cache, "get_cpe_catalog_record", None)
+        catalog = getattr(cache, "get_cpe_catalog", None)
         save = getattr(getattr(self.client, "cache", None), "set_cpe_catalog", None)
         candidates: list[CpeCandidate] = []
         seen: set[str] = set()
         attempt = {"query": query, "status": "ATTEMPTED", "candidateCount": 0}
         trace["queries"].append(attempt)
-        products = catalog(identity) if callable(catalog) else None
+        record = catalog_record(identity) if callable(catalog_record) else None
+        products = (
+            record.get("products")
+            if isinstance(record, dict) and record.get("state") == "FRESH"
+            else catalog(identity) if callable(catalog) and record is None
+            else None
+        )
         trace["catalogHit"] = products is not None
+        trace["catalogState"] = (
+            record.get("state") if isinstance(record, dict)
+            else "FRESH" if products is not None else "MISS"
+        )
+        if isinstance(record, dict):
+            if record.get("state") == "STALE":
+                self.metrics["cpeCatalogStale"] += 1
+            elif record.get("negative", False):
+                self.metrics["cpeCatalogNegativeHits"] += 1
+            trace["catalogSchemaVersion"] = record.get("schemaVersion")
+            trace["catalogProvenance"] = {
+                "source": record.get("source"),
+                "sourceVersion": record.get("sourceVersion"),
+                "createdAt": record.get("createdAt"),
+                "expiresAt": record.get("expiresAt"),
+                "negative": record.get("negative", False),
+            }
         if products is None:
             self.metrics["cpeCatalogMisses"] += 1
             self.metrics["remoteCpeQueries"] += 1
@@ -288,6 +315,13 @@ class CpeResolver:
                             if key in {"cpeName", "titles", "deprecated"}
                         }})
                 save(identity, snapshot)
+                self.metrics["cpeCatalogSynchronizations"] += 1
+                trace["catalogState"] = "SYNCHRONIZED"
+                trace["catalogProvenance"] = {
+                    "source": "NVD_CPE_API",
+                    "sourceVersion": "2.0",
+                    "negative": not snapshot,
+                }
         else:
             self.metrics["cpeCatalogHits"] += 1
         attempt.update(status="SUCCESS", candidateCount=len(products))

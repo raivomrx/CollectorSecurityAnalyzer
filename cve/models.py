@@ -38,6 +38,24 @@ class CveDataQuality(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
+class CveTerminalReason(str, Enum):
+    """Stable reason codes for product-level CVE pipeline outcomes."""
+
+    UNSUPPORTED_COMPONENT = "UNSUPPORTED_COMPONENT"
+    CUSTOM_OR_INTERNAL_SOFTWARE = "CUSTOM_OR_INTERNAL_SOFTWARE"
+    NO_AUTHORITATIVE_MAPPING = "NO_AUTHORITATIVE_MAPPING"
+    AMBIGUOUS_IDENTITY = "AMBIGUOUS_IDENTITY"
+    VERSION_UNAVAILABLE = "VERSION_UNAVAILABLE"
+    VERSION_NOT_COMPARABLE = "VERSION_NOT_COMPARABLE"
+    EDITION_UNKNOWN = "EDITION_UNKNOWN"
+    CPE_VERSION_NA = "CPE_VERSION_NA"
+    APPLICABILITY_INCOMPLETE = "APPLICABILITY_INCOMPLETE"
+    PROVIDER_ERROR = "PROVIDER_ERROR"
+    PROVIDER_RATE_LIMIT = "PROVIDER_RATE_LIMIT"
+    PROVIDER_STALE = "PROVIDER_STALE"
+    EVALUATION_COMPLETED = "EVALUATION_COMPLETED"
+
+
 @dataclass(slots=True)
 class CpeCandidate:
     """Represent a resolved CPE candidate for software."""
@@ -121,6 +139,7 @@ class CveProductEvaluation:
     possible_cves: int = 0
     not_affected_cves: int = 0
     terminal_status: str = "PENDING"
+    terminal_reason_code: str | None = None
     failure_stage: str | None = None
     failure_reason: str | None = None
     retryable: bool = False

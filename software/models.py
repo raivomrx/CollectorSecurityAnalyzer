@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import Enum
 from functools import total_ordering
+from typing import Any
 
 
 @total_ordering
@@ -59,6 +60,7 @@ class SoftwareProduct:
     normalization_status: str = "NOT_EVALUATED"
     discovery_eligible: bool = False
     identity_source: str = "UNKNOWN"
+    normalization_trace: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -108,3 +110,4 @@ class NormalizationResult:
     value: str
     confidence: int
     reason: str
+    trace: dict[str, Any] = field(default_factory=dict)

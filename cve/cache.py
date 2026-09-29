@@ -19,7 +19,8 @@ DEFAULT_CACHE_PATH = (
     if os.environ.get("LOCALAPPDATA")
     else Path.home() / ".csa-lab" / "cache" / "nvd_cache.sqlite3"
 )
-SCHEMA_VERSION = "nvd-api-2.0"
+SCHEMA_VERSION = "nvd-api-2.1"
+CPE_CATALOG_SCHEMA_VERSION = "cpe-intelligence-2.0"
 
 
 class NvdCache:
@@ -110,6 +111,10 @@ class NvdCache:
                     "DELETE FROM cpe_catalog WHERE expires_at <= ?",
                     (_utc_now().isoformat(),),
                 )
+                connection.execute(
+                    "DELETE FROM cpe_catalog_v2 WHERE expires_at <= ?",
+                    (_utc_now().isoformat(),),
+                )
                 return cursor.rowcount
         except sqlite3.Error:
             LOGGER.exception("CVE cache database error")
@@ -122,17 +127,30 @@ class NvdCache:
             with self._connect() as connection:
                 connection.execute("DELETE FROM nvd_cache")
                 connection.execute("DELETE FROM cpe_catalog")
+                connection.execute("DELETE FROM cpe_catalog_v2")
         except sqlite3.Error:
             LOGGER.exception("CVE cache database error")
 
     def get_cpe_catalog(self, identity: str) -> list[dict[str, Any]] | None:
         """Read a synchronized CPE discovery result for one product family."""
 
+        record = self.get_cpe_catalog_record(identity)
+        return record["products"] if record and record["state"] == "FRESH" else None
+
+    def get_cpe_catalog_record(
+        self,
+        identity: str,
+    ) -> dict[str, Any] | None:
+        """Read versioned CPE intelligence with provenance and freshness."""
+
         try:
             with self._connect() as connection:
                 row = connection.execute(
-                    "SELECT products_json FROM cpe_catalog WHERE identity = ? AND expires_at > ?",
-                    (identity, _utc_now().isoformat()),
+                    """SELECT products_json, source, source_version,
+                              created_at, expires_at
+                       FROM cpe_catalog_v2
+                       WHERE identity = ? AND schema_version = ?""",
+                    (identity, CPE_CATALOG_SCHEMA_VERSION),
                 ).fetchone()
             if row is None:
                 return None
@@ -142,12 +160,30 @@ class NvdCache:
             ):
                 LOGGER.warning("Invalid CPE catalog entry ignored")
                 return None
-            return products
+            now = _utc_now()
+            expires_at = datetime.fromisoformat(row[4])
+            return {
+                "schemaVersion": CPE_CATALOG_SCHEMA_VERSION,
+                "state": "FRESH" if expires_at > now else "STALE",
+                "products": products,
+                "negative": not products,
+                "source": row[1],
+                "sourceVersion": row[2],
+                "createdAt": row[3],
+                "expiresAt": row[4],
+            }
         except (sqlite3.Error, ValueError, TypeError):
             LOGGER.exception("CPE catalog read failed; live discovery will be attempted")
             return None
 
-    def set_cpe_catalog(self, identity: str, products: list[dict[str, Any]]) -> None:
+    def set_cpe_catalog(
+        self,
+        identity: str,
+        products: list[dict[str, Any]],
+        *,
+        source: str = "NVD_CPE_API",
+        source_version: str = "2.0",
+    ) -> None:
         """Persist a bounded NVD discovery snapshot, including negative results."""
 
         now = _utc_now()
@@ -155,8 +191,19 @@ class NvdCache:
         try:
             with self._connect() as connection:
                 connection.execute(
-                    "INSERT OR REPLACE INTO cpe_catalog (identity, products_json, expires_at) VALUES (?, ?, ?)",
-                    (identity, json.dumps(products), (now + ttl).isoformat()),
+                    """INSERT OR REPLACE INTO cpe_catalog_v2
+                       (identity, schema_version, source, source_version,
+                        products_json, created_at, expires_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        identity,
+                        CPE_CATALOG_SCHEMA_VERSION,
+                        source,
+                        source_version,
+                        json.dumps(products),
+                        now.isoformat(),
+                        (now + ttl).isoformat(),
+                    ),
                 )
         except sqlite3.Error:
             LOGGER.exception("CPE catalog write failed")
@@ -182,6 +229,18 @@ class NvdCache:
                     identity TEXT PRIMARY KEY,
                     products_json TEXT NOT NULL,
                     expires_at TEXT NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS cpe_catalog_v2 (
+                    identity TEXT NOT NULL,
+                    schema_version TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    source_version TEXT NOT NULL,
+                    products_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    PRIMARY KEY (identity, schema_version)
                 )"""
             )
 

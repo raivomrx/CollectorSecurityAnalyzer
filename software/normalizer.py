@@ -19,6 +19,7 @@ DEFAULT_VENDOR_ALIASES_PATH = SOFTWARE_DIR / "vendor_aliases.json"
 DEFAULT_PRODUCT_ALIASES_PATH = SOFTWARE_DIR / "product_aliases.json"
 DEFAULT_UNKNOWN_PRODUCTS_PATH = SOFTWARE_DIR / "unknown_products.json"
 FUZZY_THRESHOLD = 0.88
+NORMALIZATION_SCHEMA_VERSION = "software-identity-2.0"
 PRODUCT_PATTERNS = (
     (r"^adobe illustrator(?:\s+\d{4})?\b", "Adobe Illustrator"),
     (r"^adobe premiere pro(?:\s+\d{4})?\b", "Adobe Premiere Pro"),
@@ -36,6 +37,7 @@ PRODUCT_PATTERNS = (
     (r"^microsoft edge webview2 runtime\b", "Microsoft Edge WebView2 Runtime"),
     (r"^microsoft edge(?:\s+[\d.]+)?$", "Microsoft Edge"),
     (r"^google chrome\b", "Google Chrome"),
+    (r"^malwarebytes(?:\s+version)?(?:\s+[\d.]+)?\b", "Malwarebytes"),
 )
 DISCOVERY_EXCLUSIONS = (
     r"^windows driver package\b",
@@ -69,24 +71,62 @@ def normalize_product(
 
     text = _clean_text(product)
     aliases = _load_aliases(aliases_path)
+    visual_cpp = _visual_cpp_result(text, version)
+    if visual_cpp is not None:
+        return visual_cpp
     exact_result = _match_exact_alias(text, aliases)
     if exact_result is not None:
-        return exact_result
+        return _guarded_exact_result(text, exact_result, version)
     if re.search(r"\b(?:helper|updater|update helper|add-in)\b", text, re.IGNORECASE):
-        return NormalizationResult(value=text, confidence=0, reason="component_identity_required")
+        return NormalizationResult(
+            value=text,
+            confidence=0,
+            reason="component_identity_required",
+            trace={
+                "schemaVersion": NORMALIZATION_SCHEMA_VERSION,
+                "candidate": None,
+                "positiveEvidence": [],
+                "guardrailRejections": [
+                    "Component role must remain distinct from the parent product"
+                ],
+                "finalConfidence": 0,
+            },
+        )
     cleaned = _canonical_display_name(text, version)
     cleaned_exact = _match_exact_alias(cleaned, aliases)
     if cleaned_exact is not None:
-        return NormalizationResult(
-            value=cleaned_exact.value, confidence=95, reason="display_name_canonicalized"
-        )
+        guarded = _guarded_exact_result(text, cleaned_exact, version)
+        if guarded.confidence:
+            return NormalizationResult(
+                value=guarded.value,
+                confidence=95,
+                reason="display_name_canonicalized",
+                trace={**guarded.trace, "finalConfidence": 95},
+            )
+        return guarded
     pattern_result = _match_product_pattern(cleaned)
     if pattern_result is not None:
         return pattern_result
-    result = _match_alias(cleaned, aliases)
+    result = _match_alias(
+        cleaned,
+        aliases,
+        identity_guard=True,
+        version=version,
+    )
     if result is not None:
         return result
-    return NormalizationResult(value=cleaned, confidence=0, reason="unknown")
+    return NormalizationResult(
+        value=cleaned,
+        confidence=0,
+        reason="unknown",
+        trace={
+            "schemaVersion": NORMALIZATION_SCHEMA_VERSION,
+            "candidate": None,
+            "positiveEvidence": [],
+            "guardrailRejections": [],
+            "finalConfidence": 0,
+        },
+    )
 
 
 def normalize_software(
@@ -139,6 +179,12 @@ def normalize_software(
             "RAW_DISCOVERY" if discovery_eligible else
             "UNKNOWN"
         ),
+        normalization_trace={
+            "schemaVersion": NORMALIZATION_SCHEMA_VERSION,
+            "vendor": vendor_result.trace,
+            "product": product_result.trace,
+            "finalConfidence": confidence,
+        },
     )
 
     if product_result.confidence == 0:
@@ -223,7 +269,13 @@ def _load_aliases(path: str | Path) -> dict[str, str]:
     return {str(key): str(value) for key, value in aliases.items()}
 
 
-def _match_alias(text: str, aliases: dict[str, str]) -> NormalizationResult | None:
+def _match_alias(
+    text: str,
+    aliases: dict[str, str],
+    *,
+    identity_guard: bool = False,
+    version: Any = None,
+) -> NormalizationResult | None:
     """Match raw text to an alias by exact or fuzzy comparison."""
 
     normalized_text = _key(text)
@@ -233,12 +285,30 @@ def _match_alias(text: str, aliases: dict[str, str]) -> NormalizationResult | No
             value=keyed_aliases[normalized_text],
             confidence=100,
             reason="exact",
+            trace=_normalization_trace(
+                keyed_aliases[normalized_text],
+                ["Exact alias match"],
+                [],
+                100,
+            ),
         )
 
     best_key = ""
     best_score = 0.0
+    rejected: list[str] = []
     for alias_key in keyed_aliases:
         score = SequenceMatcher(None, normalized_text, alias_key).ratio()
+        if identity_guard and score >= FUZZY_THRESHOLD:
+            allowed, reason = _product_identity_compatible(
+                text,
+                keyed_aliases[alias_key],
+                version,
+            )
+            if not allowed:
+                rejected.append(
+                    f"{keyed_aliases[alias_key]} ({score:.3f}): {reason}"
+                )
+                continue
         if score > best_score:
             best_key = alias_key
             best_score = score
@@ -248,6 +318,19 @@ def _match_alias(text: str, aliases: dict[str, str]) -> NormalizationResult | No
             value=keyed_aliases[best_key],
             confidence=95,
             reason="fuzzy",
+            trace=_normalization_trace(
+                keyed_aliases[best_key],
+                [f"Bounded fuzzy alias score {best_score:.3f}"],
+                rejected,
+                95,
+            ),
+        )
+    if rejected:
+        return NormalizationResult(
+            value=text,
+            confidence=0,
+            reason="identity_guard_rejected",
+            trace=_normalization_trace(None, [], rejected, 0),
         )
     return None
 
@@ -279,6 +362,12 @@ def _match_product_pattern(value: str) -> NormalizationResult | None:
                 value=canonical,
                 confidence=95,
                 reason="pattern",
+                trace=_normalization_trace(
+                    canonical,
+                    [f"Validated product-family pattern: {pattern}"],
+                    [],
+                    95,
+                ),
             )
     return None
 
@@ -299,7 +388,149 @@ def _match_exact_alias(
         value=canonical,
         confidence=100,
         reason="exact",
+        trace=_normalization_trace(
+            canonical,
+            ["Exact product alias match"],
+            [],
+            100,
+        ),
     )
+
+
+def _guarded_exact_result(
+    source: str,
+    result: NormalizationResult,
+    version: Any,
+) -> NormalizationResult:
+    """Apply material identity checks even to curated display-name aliases."""
+
+    allowed, reason = _product_identity_compatible(
+        source,
+        result.value,
+        version,
+    )
+    if allowed:
+        return result
+    return NormalizationResult(
+        value=source,
+        confidence=0,
+        reason="identity_guard_rejected",
+        trace=_normalization_trace(
+            result.value,
+            [],
+            [f"{result.value}: {reason}"],
+            0,
+        ),
+    )
+
+
+def _visual_cpp_result(value: str, version: Any) -> NormalizationResult | None:
+    """Normalize Visual C++ runtimes without crossing release generations."""
+
+    match = re.search(
+        r"^microsoft visual c\+\+\s+"
+        r"(2015\s*[-–]\s*2022|2012|2013|2015|2017|2019|2022)\b",
+        value,
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    generation = re.sub(r"\s+", "", match.group(1)).replace("–", "-")
+    major = _version_major(version)
+    expected = "11" if generation == "2012" else "12" if generation == "2013" else "14"
+    canonical = f"Microsoft Visual C++ {generation} Redistributable"
+    if major and major != expected:
+        return NormalizationResult(
+            value=value,
+            confidence=0,
+            reason="identity_guard_rejected",
+            trace=_normalization_trace(
+                canonical,
+                [],
+                [
+                    f"Visual C++ {generation} expects version family "
+                    f"{expected}.x, observed {major}.x"
+                ],
+                0,
+            ),
+        )
+    evidence = [f"Display name identifies Visual C++ {generation}"]
+    if major:
+        evidence.append(f"Installed version family {major}.x matches")
+    return NormalizationResult(
+        value=canonical,
+        confidence=95,
+        reason="validated_generation_pattern",
+        trace=_normalization_trace(canonical, evidence, [], 95),
+    )
+
+
+def _product_identity_compatible(
+    source: str,
+    candidate: str,
+    version: Any,
+) -> tuple[bool, str]:
+    """Reject aliases that cross a material product identity boundary."""
+
+    source_key = _key(source)
+    candidate_key = _key(candidate)
+    source_years = set(re.findall(r"\b(?:19|20)\d{2}\b", source_key))
+    candidate_years = set(re.findall(r"\b(?:19|20)\d{2}\b", candidate_key))
+    if source_years and candidate_years and source_years != candidate_years:
+        return False, "Release year or generation differs"
+
+    boundaries = (
+        "webview2", "update helper", "updater", "meeting add-in",
+        "graphics driver", "gpu display driver", "classic",
+    )
+    for boundary in boundaries:
+        if (boundary in source_key) != (boundary in candidate_key):
+            return False, f"Material component or edition differs: {boundary}"
+
+    source_vc = re.search(r"visual c\+\+\s+((?:19|20)\d{2})", source_key)
+    candidate_vc = re.search(
+        r"visual c\+\+\s+((?:19|20)\d{2})",
+        candidate_key,
+    )
+    if source_vc and candidate_vc and source_vc.group(1) != candidate_vc.group(1):
+        return False, "Visual C++ release generation differs"
+    if source_vc:
+        expected = (
+            "11" if source_vc.group(1) == "2012"
+            else "12" if source_vc.group(1) == "2013"
+            else "14"
+        )
+        major = _version_major(version)
+        if major and major != expected:
+            return False, (
+                f"Visual C++ {source_vc.group(1)} expects {expected}.x, "
+                f"observed {major}.x"
+            )
+    return True, "Identity-defining fields are compatible"
+
+
+def _version_major(value: Any) -> str:
+    """Return a numeric version major when one is available."""
+
+    match = re.match(r"\s*(\d+)(?:\.|$)", str(value or ""))
+    return match.group(1) if match else ""
+
+
+def _normalization_trace(
+    candidate: str | None,
+    positive_evidence: list[str],
+    rejections: list[str],
+    confidence: int,
+) -> dict[str, Any]:
+    """Build a stable privacy-safe identity decision trace."""
+
+    return {
+        "schemaVersion": NORMALIZATION_SCHEMA_VERSION,
+        "candidate": candidate,
+        "positiveEvidence": positive_evidence,
+        "guardrailRejections": rejections,
+        "finalConfidence": confidence,
+    }
 
 
 def _clean_text(value: Any) -> str:

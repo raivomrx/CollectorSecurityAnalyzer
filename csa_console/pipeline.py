@@ -330,7 +330,7 @@ class ConsoleAnalysisPipeline:
                     }
                 )
             ),
-            analysis_engine_version="CSA-5.4.3",
+            analysis_engine_version="CSA-5.5.0",
             cve_analysis_status=str(
                 cve_metadata.get("status", "NOT_PERFORMED")
             ),
@@ -557,6 +557,9 @@ def _append_intelligence_audit(
                 ),
                 "terminalStatus": str(
                     evaluation.get("terminalStatus", "NOT_EVALUATED")
+                ),
+                "terminalReasonCode": str(
+                    evaluation.get("terminalReasonCode", "") or ""
                 ),
                 "failureStage": str(
                     evaluation.get("failureStage", "") or ""

@@ -588,6 +588,7 @@ def _software_results(
                 "normalizationConfidence": product.confidence,
                 "normalizationStatus": product.normalization_status,
                 "identitySource": product.identity_source,
+                "normalizationTrace": product.normalization_trace,
                 "discoveryEligible": product.discovery_eligible,
                 "cpe": product.cpe,
                 "cvePipeline": (
@@ -607,6 +608,7 @@ def _software_results(
                         "versionEvaluationStatus": "NOT_RUN",
                         "cveResultStatus": "NOT_EVALUATED",
                         "terminalStatus": "NOT_EVALUATED",
+                        "terminalReasonCode": "NOT_EVALUATED",
                         "failureStage": "CVE_SCAN",
                         "failureReason": "CVE analysis was not performed",
                         "retryable": False,
@@ -824,6 +826,7 @@ def _product_evaluation_dict(evaluation: Any) -> dict[str, Any]:
         "possibleCves": evaluation.possible_cves,
         "notAffectedCves": evaluation.not_affected_cves,
         "terminalStatus": evaluation.terminal_status,
+        "terminalReasonCode": evaluation.terminal_reason_code,
         "failureStage": evaluation.failure_stage,
         "failureReason": evaluation.failure_reason,
         "retryable": evaluation.retryable,

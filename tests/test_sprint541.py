@@ -265,7 +265,7 @@ class Sprint541Tests(unittest.TestCase):
         connection = sqlite3.connect(cache.path)
         try:
             connection.execute(
-                "UPDATE cpe_catalog SET products_json = ? WHERE identity = ?",
+                "UPDATE cpe_catalog_v2 SET products_json = ? WHERE identity = ?",
                 ('{"cpeName": "not-a-list"}', "family"),
             )
             connection.commit()

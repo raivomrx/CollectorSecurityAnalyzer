@@ -18,6 +18,7 @@ from cve.models import (
     CpeMatchStatus,
     CveAssessment,
     CveRecord,
+    CveTerminalReason,
     CveProductEvaluation,
     CveScanError,
     CveScanSummary,
@@ -98,12 +99,18 @@ class CveService:
                 provider_reason=(
                     None if eligible else _ineligible_reason(software)
                 ),
+                discovery_trace={
+                    "normalization": software.normalization_trace,
+                },
             )
             product_evaluations.append(evaluation)
             if not eligible:
                 evaluation.terminal_status = "NOT_ELIGIBLE"
                 evaluation.failure_stage = "ELIGIBILITY"
                 evaluation.failure_reason = evaluation.provider_reason
+                evaluation.terminal_reason_code = _ineligible_reason_code(
+                    software
+                ).value
                 products_without_cpe += 1
                 continue
 
@@ -132,7 +139,10 @@ class CveService:
                     evaluation.cpe_candidate_count = resolution.candidate_count
                     evaluation.product_mapping_status = resolution.status
                     evaluation.provider_reason = resolution.reason
-                    evaluation.discovery_trace = getattr(resolution, "trace", {})
+                    evaluation.discovery_trace = {
+                        "normalization": software.normalization_trace,
+                        **getattr(resolution, "trace", {}),
+                    }
                 else:
                     cpe = self.resolver.resolve(software)
                     evaluation.cpe_candidate_count = 1 if cpe else 0
@@ -146,6 +156,11 @@ class CveService:
                         reason=(
                             evaluation.provider_reason
                             or "No reliable CPE mapping was found"
+                        ),
+                        reason_code=(
+                            CveTerminalReason.AMBIGUOUS_IDENTITY
+                            if evaluation.product_mapping_status == "AMBIGUOUS"
+                            else CveTerminalReason.NO_AUTHORITATIVE_MAPPING
                         ),
                     )
                     products_without_cpe += 1
@@ -161,6 +176,7 @@ class CveService:
                             evaluation.provider_reason
                             or "CPE mapping is ambiguous"
                         ),
+                        reason_code=CveTerminalReason.AMBIGUOUS_IDENTITY,
                     )
                     continue
                 if cpe.confidence < self.minimum_cpe_confidence:
@@ -174,6 +190,7 @@ class CveService:
                         evaluation,
                         stage="PRODUCT_MAPPING",
                         reason=evaluation.provider_reason,
+                        reason_code=CveTerminalReason.NO_AUTHORITATIVE_MAPPING,
                     )
                     continue
 
@@ -246,6 +263,10 @@ class CveService:
                     reason=error_reason,
                     retryable=bool(getattr(error, "retryable", False)),
                     terminal_status="FAILED",
+                    reason_code=_provider_reason_code(
+                        error,
+                        evaluation.discovery_trace,
+                    ),
                 )
                 errors.append(
                     CveScanError(
@@ -471,10 +492,16 @@ def _complete_evaluation(
             "At least one CVE record could not be evaluated reliably",
         )
         evaluation.terminal_status = "PARTIAL"
+        evaluation.terminal_reason_code = _applicability_reason_code(
+            unresolved
+        ).value
         evaluation.failure_stage = "VERSION_EVALUATION"
         evaluation.failure_reason = unresolved
     else:
         evaluation.terminal_status = "COMPLETED"
+        evaluation.terminal_reason_code = (
+            CveTerminalReason.EVALUATION_COMPLETED.value
+        )
 
 
 def _mark_terminal_failure(
@@ -484,11 +511,15 @@ def _mark_terminal_failure(
     reason: str,
     retryable: bool = False,
     terminal_status: str = "NOT_EVALUATED",
+    reason_code: CveTerminalReason = (
+        CveTerminalReason.NO_AUTHORITATIVE_MAPPING
+    ),
 ) -> None:
     """Finalize an auditable product outcome that did not reach evaluation."""
 
     evaluation.cve_result_status = "NOT_EVALUATED"
     evaluation.terminal_status = terminal_status
+    evaluation.terminal_reason_code = reason_code.value
     evaluation.failure_stage = stage
     evaluation.failure_reason = reason
     evaluation.retryable = retryable
@@ -505,6 +536,52 @@ def _ineligible_reason(software: SoftwareProduct) -> str:
     if not software.version:
         return "Installed version is missing"
     return "Normalized product identity is missing"
+
+
+def _ineligible_reason_code(
+    software: SoftwareProduct,
+) -> CveTerminalReason:
+    """Classify permanent identity gaps without guessing product mappings."""
+
+    if not software.version:
+        return CveTerminalReason.VERSION_UNAVAILABLE
+    identity = f"{software.vendor} {software.product}".casefold()
+    if re.search(r"\b(?:internal|custom|in-house|proprietary)\b", identity):
+        return CveTerminalReason.CUSTOM_OR_INTERNAL_SOFTWARE
+    if re.search(
+        r"\b(?:helper|updater|add-in|runtime|redistributable|driver package)\b",
+        identity,
+    ):
+        return CveTerminalReason.UNSUPPORTED_COMPONENT
+    return CveTerminalReason.NO_AUTHORITATIVE_MAPPING
+
+
+def _provider_reason_code(
+    error: Exception,
+    trace: dict[str, Any],
+) -> CveTerminalReason:
+    """Classify transient provider failures independently from identity gaps."""
+
+    if isinstance(error, NvdRequestError) and error.status_code == 429:
+        return CveTerminalReason.PROVIDER_RATE_LIMIT
+    if trace.get("catalogState") == "STALE":
+        return CveTerminalReason.PROVIDER_STALE
+    return CveTerminalReason.PROVIDER_ERROR
+
+
+def _applicability_reason_code(reason: str) -> CveTerminalReason:
+    """Map an incomplete applicability rationale to a stable limitation code."""
+
+    normalized = reason.casefold()
+    if "edition" in normalized:
+        return CveTerminalReason.EDITION_UNKNOWN
+    if "not applicable" in normalized or "cpe version is na" in normalized:
+        return CveTerminalReason.CPE_VERSION_NA
+    if "version" in normalized and any(
+        word in normalized for word in ("compare", "parse", "format")
+    ):
+        return CveTerminalReason.VERSION_NOT_COMPARABLE
+    return CveTerminalReason.APPLICABILITY_INCOMPLETE
 
 
 def _normalization_stage_status(software: SoftwareProduct) -> str:

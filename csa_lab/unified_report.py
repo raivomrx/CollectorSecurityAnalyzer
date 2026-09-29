@@ -269,7 +269,7 @@ class UnifiedReportGenerator:
         framework_rows = _framework_rows(fleet_findings)
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.4.3",
+            "reportVersion": "CSA-5.5.0",
             "generatedAt": generated_at,
             "dataClassification": "Confidential - Security Assessment Data",
             "containsPersonalData": True,
@@ -341,6 +341,9 @@ class UnifiedReportGenerator:
                     if item["malwareProtection"]["active_product"]
                 ).items())),
                 "productInventory": malware_product_inventory,
+                "installedProductInventory": (
+                    _malware_installed_inventory(endpoints)
+                ),
             },
             "risk": {
                 **risk,
@@ -577,11 +580,16 @@ class UnifiedReportGenerator:
                     "versionEvaluationStatus": "NOT_RUN",
                     "cveResultStatus": "NOT_EVALUATED",
                     "terminalStatus": "NOT_EVALUATED",
+                    "terminalReasonCode": "NO_AUTHORITATIVE_MAPPING",
                     "failureStage": "CVE_SCAN",
                     "failureReason": "Detailed CVE pipeline data is unavailable",
                     "retryable": False,
                 },
             )
+        malware_protection = _reconcile_malware_inventory(
+            malware_protection,
+            software_results,
+        )
         unsupported_count = sum(
             1
             for item in software_results
@@ -1463,6 +1471,141 @@ def _malware_product_inventory(
     ]
 
 
+def _reconcile_malware_inventory(
+    posture: dict[str, Any],
+    software_results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Keep installed security products distinct from registered AV providers."""
+
+    registered = [
+        dict(item)
+        for item in posture.get("registered_products", [])
+        if isinstance(item, dict)
+    ]
+    installed: list[dict[str, Any]] = []
+    for software in software_results:
+        name = str(
+            software.get("normalizedProduct")
+            or software.get("displayName")
+            or ""
+        ).strip()
+        if not _looks_like_security_product(name):
+            continue
+        match = next(
+            (
+                item for item in registered
+                if _security_product_key(str(item.get("name", "")))
+                == _security_product_key(name)
+            ),
+            None,
+        )
+        installed.append(
+            {
+                "name": name,
+                "version": str(software.get("displayVersion") or ""),
+                "publisher": str(software.get("publisher") or ""),
+                "correlationStatus": (
+                    "REGISTERED" if match else "INSTALLED_NOT_REGISTERED"
+                ),
+                "registeredProvider": (
+                    str(match.get("name")) if match else None
+                ),
+                "role": (
+                    str(match.get("role", "ROLE_UNKNOWN"))
+                    if match else "ROLE_UNKNOWN"
+                ),
+                "protectionState": (
+                    str(match.get("protectionStatus", "NOT_EVALUATED"))
+                    if match else "NOT_EVALUATED"
+                ),
+                "evidenceSource": "Installed software inventory",
+            }
+        )
+    installed_keys = {
+        _security_product_key(item["name"]) for item in installed
+    }
+    for product in registered:
+        product["inventoryCorrelationStatus"] = (
+            "REGISTERED"
+            if _security_product_key(str(product.get("name", "")))
+            in installed_keys
+            else "REGISTERED_NOT_IN_INVENTORY"
+        )
+    return {
+        **posture,
+        "registered_products": registered,
+        "installed_security_products": installed,
+    }
+
+
+def _malware_installed_inventory(
+    endpoints: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Aggregate installed-product correlations without inferring AV activity."""
+
+    grouped: dict[tuple[str, str], dict[str, Any]] = {}
+    for endpoint in endpoints:
+        for product in endpoint.get("malwareProtection", {}).get(
+            "installed_security_products", []
+        ):
+            key = (
+                _security_product_key(str(product.get("name", ""))),
+                str(product.get("version", "")),
+            )
+            row = grouped.setdefault(
+                key,
+                {
+                    "name": product.get("name", "Unknown"),
+                    "version": product.get("version", ""),
+                    "endpoints": set(),
+                    "correlations": Counter(),
+                    "protectionStates": Counter(),
+                },
+            )
+            row["endpoints"].add(endpoint["displayName"])
+            row["correlations"][product["correlationStatus"]] += 1
+            row["protectionStates"][product["protectionState"]] += 1
+    return [
+        {
+            "name": row["name"],
+            "version": row["version"],
+            "endpointCount": len(row["endpoints"]),
+            "correlations": dict(sorted(row["correlations"].items())),
+            "protectionStates": dict(
+                sorted(row["protectionStates"].items())
+            ),
+        }
+        for row in sorted(
+            grouped.values(),
+            key=lambda item: (
+                str(item["name"]).casefold(), str(item["version"])
+            ),
+        )
+    ]
+
+
+def _looks_like_security_product(name: str) -> bool:
+    """Identify security-product inventory rows without assigning an AV role."""
+
+    return bool(re.search(
+        r"\b(?:defender|malwarebytes|avast|avg|bitdefender|eset|kaspersky|"
+        r"norton|mcafee|sophos|trend micro|sentinelone|crowdstrike|antivirus)\b",
+        name,
+        flags=re.IGNORECASE,
+    ))
+
+
+def _security_product_key(name: str) -> str:
+    """Return a conservative AV product correlation key."""
+
+    normalized = re.sub(r"[^a-z0-9]+", " ", name.casefold()).strip()
+    if "defender" in normalized:
+        return "microsoft defender antivirus"
+    if "malwarebytes" in normalized:
+        return "malwarebytes"
+    return normalized
+
+
 def _executive_endpoint_metrics(
     endpoints: list[dict[str, Any]],
 ) -> dict[str, int]:
@@ -2145,6 +2288,17 @@ def _software_intelligence_coverage(
         for item in products
         if item.get("cvePipeline", {}).get("terminalStatus") == "COMPLETED"
     )
+    terminal_counts = Counter(
+        str(item.get("cvePipeline", {}).get("terminalStatus", "NOT_EVALUATED"))
+        for item in products
+    )
+    eligible_products = [
+        item for item in products if _software_is_cve_eligible(item)
+    ]
+    eligible_terminal_counts = Counter(
+        str(item.get("cvePipeline", {}).get("terminalStatus", "NOT_EVALUATED"))
+        for item in eligible_products
+    )
     lifecycle_evaluated = sum(
         1
         for item in products
@@ -2181,6 +2335,15 @@ def _software_intelligence_coverage(
         "identifiedForSecurityAnalysis": identified,
         "cveEligible": eligible,
         "cveEvaluated": evaluated,
+        "cveEligiblePartial": eligible_terminal_counts.get("PARTIAL", 0),
+        "cveEligibleNotEvaluated": eligible_terminal_counts.get(
+            "NOT_EVALUATED", 0
+        ),
+        "cveEligibleFailed": eligible_terminal_counts.get("FAILED", 0),
+        "nonEligibleOrUnsupported": discovered - eligible,
+        "allSoftwareNotCompleted": discovered - terminal_counts.get(
+            "COMPLETED", 0
+        ),
         "lifecycleEvaluated": lifecycle_evaluated,
         "unknownOrUnmapped": unknown_or_unmapped,
         "notEvaluated": max(0, eligible - evaluated),
@@ -2227,6 +2390,11 @@ def _aggregate_software_intelligence(
             "notEvaluated",
             "notFullyEvaluated",
             "confirmedVulnerableProductInstances",
+            "cveEligiblePartial",
+            "cveEligibleNotEvaluated",
+            "cveEligibleFailed",
+            "nonEligibleOrUnsupported",
+            "allSoftwareNotCompleted",
         )
     }
     fleet_products = _deduplicated_software_instances(
@@ -2271,6 +2439,7 @@ def _aggregate_software_intelligence(
                     and cve.get("cveId")
                 }
             ),
+            "terminalReasonWorklist": _terminal_reason_worklist(endpoints),
         }
     )
     discovered = aggregate["endpointProductInstances"]
@@ -2359,6 +2528,53 @@ def _software_identified(item: dict[str, Any]) -> bool:
     )
 
 
+def _terminal_reason_worklist(
+    endpoints: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Deduplicate incomplete product identities into an analyst worklist."""
+
+    grouped: dict[tuple[str, str], dict[str, Any]] = {}
+    for endpoint in endpoints:
+        for software in endpoint.get("softwareResults", []):
+            pipeline = software.get("cvePipeline", {})
+            if pipeline.get("terminalStatus") == "COMPLETED":
+                continue
+            reason = str(
+                pipeline.get("terminalReasonCode")
+                or "NO_AUTHORITATIVE_MAPPING"
+            )
+            identity = "|".join(_software_identity_key(software))
+            key = (reason, identity)
+            row = grouped.setdefault(
+                key,
+                {
+                    "reasonCode": reason,
+                    "product": str(
+                        software.get("normalizedProduct")
+                        or software.get("displayName")
+                        or "Unknown"
+                    ),
+                    "version": str(
+                        software.get("normalizedVersion")
+                        or software.get("displayVersion")
+                        or "Unknown"
+                    ),
+                    "retryable": False,
+                    "endpointCount": 0,
+                },
+            )
+            row["retryable"] = row["retryable"] or bool(
+                pipeline.get("retryable", False)
+            )
+            row["endpointCount"] += 1
+    return sorted(
+        grouped.values(),
+        key=lambda item: (
+            item["reasonCode"], item["product"], item["version"]
+        ),
+    )
+
+
 def _product_label(item: dict[str, Any]) -> str:
     """Avoid rendering an installed version twice in the software table."""
 
@@ -2421,23 +2637,32 @@ def _priority_actions(
         score = 100 if known_exploited else (
             90 if finding["severity"] == "CRITICAL" else 85
         )
+        action = _action(
+            finding["recommendation"],
+            (
+                f"{finding['cveCount']} confirmed CVE(s) affect "
+                f"{finding['software']} {finding['installedVersion']}"
+                + (
+                    "; at least one is in CISA KEV."
+                    if known_exploited else "."
+                )
+            ),
+            finding["endpointReferences"],
+            finding["severity"].title(),
+            "Medium",
+            [finding["ruleId"]],
+            finding["verification"],
+        )
+        if known_exploited:
+            action["priority"] = "P1"
+            action["priorityBasis"] = (
+                "Confirmed affected CVE is listed in CISA KEV"
+            )
         candidates.append(
             (
                 score,
                 str(finding.get("findingKey", finding["title"])),
-                _action(
-                    finding["recommendation"],
-                    (
-                        f"{finding['cveCount']} confirmed CVE(s) affect "
-                        f"{finding['software']} {finding['installedVersion']}"
-                        + ("; at least one is in CISA KEV." if known_exploited else ".")
-                    ),
-                    finding["endpointReferences"],
-                    finding["severity"].title(),
-                    "Medium",
-                    [finding["ruleId"]],
-                    finding["verification"],
-                ),
+                action,
             )
         )
     unsupported = [item["displayName"] for item in endpoints if item.get("unsupportedSoftwareCount", 0)]
@@ -2498,12 +2723,19 @@ def _remediation_plan(
     rows = sorted(
         grouped.values(),
         key=lambda item: (
+            0 if item.get("priority") == "P1" else 1,
             severity_rank.get(item["riskReduction"], 4),
             item["action"],
         ),
     )
     for index, row in enumerate(rows, start=1):
-        row["priority"] = f"P{1 if index <= 3 else 2 if index <= 8 else 3}"
+        if "priority" not in row:
+            row["priority"] = (
+                f"P{1 if index <= 3 else 2 if index <= 8 else 3}"
+            )
+            row["priorityBasis"] = (
+                "Ranked by confirmed severity and remediation ordering"
+            )
     return rows
 
 
@@ -2530,7 +2762,7 @@ def _verification_for_finding(finding: dict[str, Any]) -> str:
     if rule_id == "ACC-006":
         return (
             "Collect the endpoints again and verify PASSWORD_POLICY_MIN_LENGTH "
-            "is at least 12 and ACC-006 reports PASS."
+            "meets the selected policy-profile threshold and ACC-006 reports PASS."
         )
     return f"Rerun CSA and verify {rule_id or 'the related control'} reports PASS."
 
