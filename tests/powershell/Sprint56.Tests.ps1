@@ -17,7 +17,11 @@ Describe 'Sprint 5.6 authoritative BitLocker state' {
         $setting.metadata.rawEvidence.localeFormat | Should -Be en
     }
     It 'parses explicit German status without assuming an English locale' {
-        $row = ConvertFrom-CSAManageBdeOutput -Lines @('Konvertierungsstatus: Vollständig entschlüsselt','Verschlüsselt (Prozent): 0,0%','Schutzstatus: Schutz deaktiviert')
+        # Construct Unicode independently of this script's file encoding so a
+        # mojibake parser and mojibake fixture cannot accidentally agree.
+        $conversion = 'Konvertierungsstatus: Vollst' + [char]0x00e4 + 'ndig entschl' + [char]0x00fc + 'sselt'
+        $percentage = 'Verschl' + [char]0x00fc + 'sselt (Prozent): 0,0%'
+        $row = ConvertFrom-CSAManageBdeOutput -Lines @($conversion,$percentage,'Schutzstatus: Schutz deaktiviert')
         $row.EncryptionState | Should -Be FULLY_DECRYPTED
         $row.ProtectionEnabled | Should -BeFalse
         $row.CollectionStatus | Should -Be SUCCESS

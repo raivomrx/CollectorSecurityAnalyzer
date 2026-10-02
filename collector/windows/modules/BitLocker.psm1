@@ -1,4 +1,4 @@
-Import-Module (Join-Path $PSScriptRoot "General.psm1")
+﻿Import-Module (Join-Path $PSScriptRoot "General.psm1")
 
 function ConvertTo-CSABitLockerState {
     param(

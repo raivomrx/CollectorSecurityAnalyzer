@@ -164,8 +164,8 @@ different display/MSI versions without removing Office/Visual C++ release years.
 - Collector, packaged Lab and NSIS installer build pass. Packaged startup,
   isolated localhost UI, version 5.6.0, NVD configuration endpoint and bundled
   discovery aliases pass. The smoke test does not overwrite the installed Lab.
-- Local unsigned installer created 2026-10-02 05:46:19 UTC / 08:46:19 Tallinn;
-  SHA-256 `b9571515df728e1d2e788b8550cfc9387316e4d2ede6dbdd4eddc263ce8fdbc9`.
+- Local unsigned installer created 2026-10-02 06:38:17 UTC / 09:38:17 Tallinn;
+  SHA-256 `ab0f692c35e6e02afc17f3280f412dea9b5fb160d75d275031f32f093594f0dc`.
   The exact committed CI installer has its own BUILD-INFO.md timestamp/hash.
 - GitHub Actions and the final commit identity are recorded in the developer
   handoff after push; local build success is not a substitute for CI success.
