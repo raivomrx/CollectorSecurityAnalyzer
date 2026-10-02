@@ -1,4 +1,12 @@
 {
+  "tomasz mon|usbpcap": {
+    "vendor": "usbpcap_project",
+    "product": "usbpcap",
+    "query": "USBPcap",
+    "source": "https://github.com/desowin/usbpcap",
+    "validatedAt": "2026-09-30",
+    "basis": "Publisher Tomasz Mon is the USBPcap project author; exact USBPcap family only."
+  },
   "audacity|audacity": {
     "vendor": "audacityteam",
     "product": "audacity",

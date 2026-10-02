@@ -353,17 +353,21 @@ def _cve_analysis_metadata(
     }
     enrichment = context.cve_enrichment
     source_resolutions = _source_resolution_map(enrichment)
-    nvd_status = (
-        "COMPLETE"
-        if summary.scan_complete and summary.coverage_complete
-        else "PARTIAL"
-        if summary.scanned_products > 0 or summary.evaluated_products > 0
-        else "FAILED"
+    succeeded = any(
+        row.provider_query_status == "SUCCESS"
+        or any(query.get("status") == "SUCCESS" for query in row.discovery_trace.get("queries", []))
+        for row in summary.product_evaluations
+    )
+    nvd_status = ("PARTIAL" if succeeded else "FAILED") if summary.api_errors else (
+        "SUCCESS" if succeeded else "NOT_EVALUATED"
     )
     provider_coverage = [
         {
             "provider": "NVD",
             "status": nvd_status,
+            "evaluationCoverageStatus": "COMPLETE" if summary.coverage_complete else "PARTIAL",
+            "fullyEvaluatedInstances": summary.evaluated_products,
+            "eligibleInstances": summary.eligible_products,
             "recordsLoaded": len({item.cve.cve_id for item in assessments}),
             "usedStaleCache": False,
         }

@@ -23,6 +23,8 @@ from frameworks.models import FrameworkPack
 from knowledge.repository import KnowledgeRepository
 from evidence.bitlocker import resolve_bitlocker
 from evidence.credential_posture import credential_posture
+from evidence.identity_posture import identity_posture
+from software.intelligence_worklist import intelligence_worklist
 
 TEMPLATE_ROOT = Path(__file__).resolve().parent / "templates"
 FRAMEWORK_ROOT = Path(__file__).resolve().parents[1] / "frameworks"
@@ -269,7 +271,7 @@ class UnifiedReportGenerator:
         framework_rows = _framework_rows(fleet_findings)
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.5.1",
+            "reportVersion": "CSA-5.6.0",
             "generatedAt": generated_at,
             "dataClassification": "Confidential - Security Assessment Data",
             "containsPersonalData": True,
@@ -323,6 +325,7 @@ class UnifiedReportGenerator:
                 "identityMode": "REAL_ENDPOINT_IDENTITIES",
             },
             "executiveEndpointMetrics": executive_endpoint_metrics,
+            "intelligenceWorklist": intelligence_worklist(endpoints),
             "malwareProtection": {
                 "statusCounts": dict(sorted(status_summary["malwareProtection"].items())),
                 "activeCoverageEndpoints": sum(
@@ -493,6 +496,10 @@ class UnifiedReportGenerator:
         temporary.write_text(html, encoding="utf-8")
         temporary.replace(output)
         digest = sha256_bytes(output.read_bytes())
+        self.storage.write_json(assessment_id, ("reports", "unified", "intelligence-worklist.json"), {
+            "schemaVersion": "intelligence-worklist-1.0", "generatedAt": model["generatedAt"],
+            "families": model["intelligenceWorklist"],
+        })
         self.storage.write_json(
             assessment_id,
             (
@@ -664,6 +671,7 @@ class UnifiedReportGenerator:
                 setting for group in ("networkConfiguration", "securityPolicies", "endpointProtection")
                 for setting in evidence.get(group, {}).get("settings", [])
             ]),
+            "identityPosture": identity_posture(evidence, findings),
             "securityControls": _security_control_summary(
                 findings, bitlocker, evidence, malware_protection
             ),
@@ -2681,9 +2689,12 @@ def _name_without_version(name: str, version: str) -> str:
     version = version.strip()
     if not version or version.casefold() == "unknown":
         return name.strip()
+    # Product display versions may differ from Windows MSI build versions
+    # (Python 3.12.4 versus 3.12.4150.0). Only strip dotted version tokens,
+    # preserving release generations such as Office 2019 and VC++ 2012.
     pattern = re.compile(
-        rf"\s*\(?{re.escape(version)}\)?(?=\s*(?:\([^)]*"
-        rf"(?:x64|x86|64-bit|32-bit)[^)]*\))?\s*$)",
+        r"\s+(?:version\s+|release\s+)?\d+(?:\.\d+)+(?:[-\w.]*)"
+        r"(?=\s*(?:(?:\([^)]*(?:x64|x86|64-bit|32-bit)[^)]*\))|x64|x86)?\s*$)",
         re.IGNORECASE,
     )
     cleaned = pattern.sub("", name, count=1).strip()

@@ -18,12 +18,16 @@ function ConvertTo-CSABitLockerState {
         $false
     } else { $null }
     $percentage = if ($null -ne $Volume.EncryptionPercentage) {
-        [int]$Volume.EncryptionPercentage
+        [double]$Volume.EncryptionPercentage
     } else {
         $null
     }
     $encryptionState = if (-not [string]::IsNullOrWhiteSpace([string]$Volume.EncryptionState)) {
         [string]$Volume.EncryptionState
+    } elseif ([string]$Volume.VolumeStatus -in @('EncryptionInProgress', 'DecryptionInProgress', 'EncryptionPaused', 'DecryptionPaused')) {
+        @{ EncryptionInProgress='ENCRYPTION_IN_PROGRESS'; DecryptionInProgress='DECRYPTION_IN_PROGRESS'; EncryptionPaused='ENCRYPTION_PAUSED'; DecryptionPaused='DECRYPTION_PAUSED' }[[string]$Volume.VolumeStatus]
+    } elseif ($percentage -eq 100 -and $protectionEnabled -eq $false) {
+        "SUSPENDED"
     } elseif ($percentage -eq 100) {
         "FULLY_ENCRYPTED"
     } elseif ($percentage -eq 0) {
@@ -31,6 +35,8 @@ function ConvertTo-CSABitLockerState {
     } else {
         "UNKNOWN"
     }
+    if ($encryptionState -eq 'FULLY_ENCRYPTED' -and $protectionEnabled -eq $false) { $encryptionState = 'SUSPENDED' }
+    if ([string]$Volume.LockStatus -eq 'Locked') { $encryptionState = 'LOCKED' }
     $configured = if ($null -ne $Volume.Configured) {
         [bool]$Volume.Configured
     } else {
@@ -39,6 +45,9 @@ function ConvertTo-CSABitLockerState {
         [string]$Volume.EncryptionMethod -notin @("", "None", "0")
     }
     $collectionStatus = if ($Volume.PSObject.Properties.Name -contains "CollectionStatus") { [string]$Volume.CollectionStatus } else { "SUCCESS" }
+    if ($protectionEnabled -eq $true -and $encryptionState -eq 'FULLY_DECRYPTED') {
+        $encryptionState = 'SOURCE_CONFLICT'; $protectionEnabled = $null; $collectionStatus = 'PARTIAL'
+    }
     if ($null -eq $protectionEnabled -and $collectionStatus -eq "SUCCESS") {
         $collectionStatus = "PARTIAL"
     }
@@ -124,31 +133,71 @@ function Get-CSABitLockerWmiVolumes {
 function ConvertFrom-CSAManageBdeOutput {
     param(
         [Parameter(Mandatory = $true)][object[]]$Lines,
-        [Parameter(Mandatory = $true)][int]$ProtectionExitCode,
-        [string]$MountPoint = $env:SystemDrive
+        [int]$ProtectionExitCode = -1,
+        [string]$MountPoint = $env:SystemDrive,
+        [int]$StatusExitCode = 0
     )
 
-    if ($ProtectionExitCode -notin @(0, 1)) { return @() }
     $text = $Lines -join "`n"
-    $percentage = [regex]::Match($text, '(?im)^\s*[^:\r\n%]+:\s*(\d+(?:[\.,]\d+)?)\s*%\s*$')
-    $percentageValue = if ($percentage.Success) {
-        [int][math]::Round([double]::Parse($percentage.Groups[1].Value.Replace(',', '.'), [Globalization.CultureInfo]::InvariantCulture))
+    $percentages = [regex]::Matches($text, '(?im)^\s*[^:\r\n%]+:\s*(\d+(?:[\.,]\d+)?)\s*%\s*$')
+    $percentageValue = if ($percentages.Count -eq 1) {
+        [double]::Parse($percentages[0].Groups[1].Value.Replace(',', '.'), [Globalization.CultureInfo]::InvariantCulture)
     } else { $null }
-    $protected = $ProtectionExitCode -eq 0
+    # Parse only bounded status values, never volume labels, protectors or keys.
+    # Unsupported locales remain unknown unless the documented numeric protection
+    # exit code and percentage independently establish protection.
+    $conversion = 'UNKNOWN'; $textProtection = $null; $locale = 'UNRECOGNIZED'
+    $lock = 'UNKNOWN'; $method = ''
+    $formats = @(
+        @{ Locale='en'; Conversion='Conversion Status'; Protection='Protection Status'; Lock='Lock Status'; Method='Encryption Method'; Off='Protection Off'; On='Protection On'; Decrypted='Fully Decrypted'; Encrypted='Fully Encrypted'; Encrypting='Encryption in Progress'; Decrypting='Decryption in Progress' },
+        @{ Locale='de'; Conversion='Konvertierungsstatus'; Protection='Schutzstatus'; Lock='Sperrstatus'; Method='Verschlüsselungsmethode'; Off='Schutz deaktiviert'; On='Schutz aktiviert'; Decrypted='Vollständig entschlüsselt'; Encrypted='Vollständig verschlüsselt'; Encrypting='Verschlüsselung wird durchgeführt'; Decrypting='Entschlüsselung wird durchgeführt' },
+        @{ Locale='fr'; Conversion='État de la conversion'; Protection='État de la protection'; Lock='État du verrouillage'; Method='Méthode de chiffrement'; Off='Protection désactivée'; On='Protection activée'; Decrypted='Intégralement déchiffré'; Encrypted='Intégralement chiffré'; Encrypting='Chiffrement en cours'; Decrypting='Déchiffrement en cours' }
+    )
+    foreach ($format in $formats) {
+        $match = [regex]::Match($text, '(?im)^\s*' + [regex]::Escape($format.Conversion) + '\s*:\s*([^\r\n]+)\s*$')
+        if (-not $match.Success) { continue }
+        $locale = $format.Locale
+        $rawConversion = $match.Groups[1].Value.Trim()
+        foreach ($pair in @(@('Decrypted','FULLY_DECRYPTED'), @('Encrypted','FULLY_ENCRYPTED'), @('Encrypting','ENCRYPTION_IN_PROGRESS'), @('Decrypting','DECRYPTION_IN_PROGRESS'))) {
+            if ($rawConversion -eq $format[$pair[0]]) { $conversion = $pair[1] }
+        }
+        $match = [regex]::Match($text, '(?im)^\s*' + [regex]::Escape($format.Protection) + '\s*:\s*([^\r\n]+)\s*$')
+        if ($match.Success) {
+            if ($match.Groups[1].Value.Trim() -eq $format.Off) { $textProtection = $false }
+            if ($match.Groups[1].Value.Trim() -eq $format.On) { $textProtection = $true }
+        }
+        $match = [regex]::Match($text, '(?im)^\s*' + [regex]::Escape($format.Method) + '\s*:\s*([\w -]{1,40})\s*$')
+        if ($match.Success) { $method = $match.Groups[1].Value.Trim() }
+        $match = [regex]::Match($text, '(?im)^\s*' + [regex]::Escape($format.Lock) + '\s*:\s*([\w -]{1,40})\s*$')
+        if ($match.Success) { $lock = $match.Groups[1].Value.Trim() }
+        break
+    }
+    $protected = if ($ProtectionExitCode -in @(0,1)) { $ProtectionExitCode -eq 0 } else { $textProtection }
+    $rejection = $null
+    if ($StatusExitCode -ne 0) { $rejection = 'STATUS_COMMAND_FAILED' }
+    elseif ($null -eq $percentageValue -or $percentageValue -lt 0 -or $percentageValue -gt 100) { $rejection = 'PERCENTAGE_UNRECOGNIZED' }
+    elseif ($null -ne $textProtection -and $null -ne $protected -and $textProtection -ne $protected) { $rejection = 'PROTECTION_SOURCE_CONFLICT' }
+    elseif (($conversion -eq 'FULLY_DECRYPTED' -and ($percentageValue -ne 0 -or $protected -eq $true)) -or ($conversion -eq 'FULLY_ENCRYPTED' -and $percentageValue -ne 100)) { $rejection = 'CONVERSION_SOURCE_CONFLICT' }
+    elseif ($null -eq $protected) { $rejection = 'PROTECTION_UNRECOGNIZED' }
+    elseif ($protected -eq $false -and $conversion -eq 'UNKNOWN') { $rejection = 'CONVERSION_UNRECOGNIZED' }
+    if ($null -ne $rejection) { $protected = $null }
+    if ($conversion -eq 'UNKNOWN' -and $protected -eq $true -and $percentageValue -eq 100) { $conversion = 'FULLY_ENCRYPTED' }
+    if ($conversion -eq 'FULLY_ENCRYPTED' -and $protected -eq $false) { $conversion = 'SUSPENDED' }
+    if ($rejection -like '*SOURCE_CONFLICT') { $conversion = 'SOURCE_CONFLICT' }
     return @([pscustomobject]@{
         MountPoint = [string]$MountPoint
         VolumeType = if ([string]$MountPoint -eq [string]$env:SystemDrive) { "OperatingSystem" } else { "FixedData" }
-        ProtectionStatus = if ($protected) { "On" } else { "Off" }
+        ProtectionStatus = if ($protected -eq $true) { "On" } elseif ($protected -eq $false) { "Off" } else { "Unknown" }
         ProtectionEnabled = $protected
         Configured = $protected -or ($null -ne $percentageValue -and $percentageValue -gt 0)
         EncryptionPercentage = $percentageValue
-        EncryptionState = if ($percentageValue -eq 100) { "FULLY_ENCRYPTED" } elseif ($percentageValue -eq 0) { "FULLY_DECRYPTED" } else { "UNKNOWN" }
-        EncryptionMethod = ""
-        LockStatus = "UNKNOWN"
+        EncryptionState = $conversion
+        EncryptionMethod = $method
+        LockStatus = $lock
         AutoUnlockEnabled = $false
         KeyProtector = @()
-        CollectionStatus = if ($null -ne $percentageValue) { "SUCCESS" } else { "PARTIAL" }
-        RawEvidence = [ordered]@{ protectionExitCode = $ProtectionExitCode; percentageParsed = $percentage.Success }
+        CollectionStatus = if ($StatusExitCode -ne 0) { 'FAILED' } elseif ($null -eq $rejection) { "SUCCESS" } else { "PARTIAL" }
+        RawEvidence = [ordered]@{ statusExitCode=$StatusExitCode; protectionExitCode = $ProtectionExitCode; percentageParsed = ($percentages.Count -eq 1); percentage=$percentageValue; conversion=$conversion; protection=$textProtection; localeFormat=$locale; parserVersion='5.6'; rejectionReason=$rejection }
     })
 }
 
@@ -156,12 +205,11 @@ function Get-CSABitLockerManageBdeVolumes {
     $tool = Join-Path $env:SystemRoot "System32\manage-bde.exe"
     if (-not (Test-Path -LiteralPath $tool -PathType Leaf)) { return @() }
     $output = @(& $tool -status $env:SystemDrive 2>&1)
-    if ($LASTEXITCODE -ne 0) {
-        throw ($output -join "`n")
-    }
+    $statusExitCode = $LASTEXITCODE
+    if ($statusExitCode -ne 0) { return ConvertFrom-CSAManageBdeOutput -Lines $output -StatusExitCode $statusExitCode }
     $null = & $tool -status $env:SystemDrive -protectionaserrorlevel 2>$null
     $protectionExitCode = $LASTEXITCODE
-    return ConvertFrom-CSAManageBdeOutput -Lines $output -ProtectionExitCode $protectionExitCode
+    return ConvertFrom-CSAManageBdeOutput -Lines $output -ProtectionExitCode $protectionExitCode -StatusExitCode $statusExitCode
 }
 
 function ConvertFrom-CSAShellBitLockerValue {
@@ -260,6 +308,9 @@ function Add-CSABitLockerVolumeSettings {
         protectionEnabled = $State.ProtectionEnabled
         encryptionState = [string]$State.EncryptionState
         encryptionPercentage = $State.EncryptionPercentage
+        protectionStatus = $State.ProtectionStatus
+        lockStatus = $State.LockStatus
+        encryptionMethod = $State.EncryptionMethod
         rawEvidence = $State.RawEvidence
         fallbacksAttempted = @($State.ProviderAttempts)
     }
@@ -308,6 +359,7 @@ function Get-CSABitLockerEvidence {
     $providers = @()
     $attempts = @()
     $partialStates = @()
+    $reliableStates = @()
     $explicitPrimary = $PSBoundParameters.ContainsKey("VolumeProvider")
     $explicitSupport = $PSBoundParameters.ContainsKey("BitLockerSupported")
     $supported = if ($null -ne $BitLockerSupported) {
@@ -393,23 +445,14 @@ function Get-CSABitLockerEvidence {
             }
             $systemStates = @($states | Where-Object { $_.VolumeType -eq "OperatingSystem" })
             $authoritative = @($systemStates | Where-Object { $_.CollectionStatus -eq "SUCCESS" -and $_.ProtectionEnabled -is [bool] })
-            $attemptStatus = if ($authoritative.Count -gt 0) { "SUCCESS" } else { "PARTIAL" }
-            $attempts += New-CSABitLockerAttempt $providerName $attemptStatus -States $states -Confidence $providerConfidence -Selected ($authoritative.Count -gt 0)
+            $attemptStatus = if ($authoritative.Count -gt 0) { "SUCCESS" } elseif (@($systemStates | Where-Object { $_.CollectionStatus -eq 'FAILED' }).Count -gt 0) { 'FAILED' } else { "PARTIAL" }
+            $attempts += New-CSABitLockerAttempt $providerName $attemptStatus -States $states -Confidence $providerConfidence
             if ($authoritative.Count -eq 0) {
-                $partialStates += $states
+                $partialStates += @($states | Where-Object { $_.CollectionStatus -ne 'FAILED' })
                 continue
             }
-            foreach ($state in $states) {
-                $state.ProviderAttempts = @($attempts)
-                Add-CSABitLockerVolumeSettings -State $state -Settings $settings
-            }
-            $resultStatus = if (@($settings | Where-Object { $_.collectionStatus -eq "PARTIAL" }).Count -gt 0) { "PARTIAL" } else { "SUCCESS" }
-            return New-CSAModuleResult `
-                -Module "BitLocker" `
-                -Settings $settings.ToArray() `
-                -Errors $errors `
-                -StartedAt $startedAt `
-                -Status $resultStatus
+            $reliableStates += @($states | Where-Object { $_.CollectionStatus -eq 'SUCCESS' -and $_.ProtectionEnabled -is [bool] })
+            $partialStates += @($states | Where-Object { $_.CollectionStatus -eq 'PARTIAL' })
         } catch [System.UnauthorizedAccessException] {
             $attempts += New-CSABitLockerAttempt $providerName "ACCESS_DENIED"
             $errors += New-CSACollectionError `
@@ -426,6 +469,32 @@ function Get-CSABitLockerEvidence {
                 "CSA-BITLOCKER-PROVIDER-FAILED" `
                 "$providerName`: provider failed"
         }
+    }
+
+    if ($reliableStates.Count -gt 0) {
+        foreach ($mount in @($reliableStates | ForEach-Object { $_.MountPoint } | Select-Object -Unique)) {
+            $observations = @($reliableStates | Where-Object { $_.MountPoint -eq $mount })
+            $selected = $observations[0]
+            $conflicting = @($observations | Where-Object { $_.ProtectionEnabled -is [bool] -and ($_.ProtectionEnabled -ne $selected.ProtectionEnabled -or ($_.EncryptionState -ne 'UNKNOWN' -and $selected.EncryptionState -ne 'UNKNOWN' -and $_.EncryptionState -ne $selected.EncryptionState)) })
+            # Explicit transitional observations are meaningful even when they
+            # cannot establish active protection. Unknown Shell 0 is not.
+            $partialConflicts = @($partialStates | Where-Object {
+                $_.MountPoint -eq $mount -and
+                ($_.EncryptionState -eq 'SOURCE_CONFLICT' -or
+                 ($_.EncryptionState -in @('ENCRYPTION_IN_PROGRESS', 'DECRYPTION_IN_PROGRESS', 'ENCRYPTION_PAUSED', 'DECRYPTION_PAUSED', 'SUSPENDED', 'LOCKED') -and
+                  $selected.EncryptionState -ne 'UNKNOWN' -and $_.EncryptionState -ne $selected.EncryptionState))
+            })
+            if ($conflicting.Count -gt 0 -or $partialConflicts.Count -gt 0) {
+                $selected.EncryptionState = 'SOURCE_CONFLICT'; $selected.ProtectionEnabled = $null; $selected.CollectionStatus = 'PARTIAL'
+                foreach ($attempt in $attempts) { $attempt.conflictReason = 'PROVIDER_STATE_DISAGREEMENT' }
+            } else {
+                foreach ($attempt in $attempts) { if ($attempt.provider -eq $selected.Provider) { $attempt.selectedAsAuthoritative = $true } }
+            }
+            $selected.ProviderAttempts = @($attempts)
+            Add-CSABitLockerVolumeSettings -State $selected -Settings $settings
+        }
+        $resultStatus = if (@($settings | Where-Object { $_.collectionStatus -ne 'SUCCESS' }).Count -gt 0) { 'PARTIAL' } else { 'SUCCESS' }
+        return New-CSAModuleResult -Module 'BitLocker' -Settings $settings.ToArray() -Errors $errors -StartedAt $startedAt -Status $resultStatus
     }
 
     $configured = $null
@@ -511,11 +580,17 @@ function New-CSABitLockerAttempt {
     $system = @($States | Where-Object { $_.VolumeType -eq "OperatingSystem" } | Select-Object -First 1)
     $raw = if ($system.Count -gt 0) { $system[0].RawEvidence } else { $null }
     [ordered]@{
-        provider = $Provider; status = $Status; executionStatus = $Status
+        provider = $Provider; status = $Status
+        executionStatus = if ($Status -in @('SUCCESS', 'PARTIAL')) { 'SUCCESS' } else { $Status }
         rawStateAvailable = ($system.Count -gt 0)
         rawState = if ($null -ne $raw) { $raw } else { $null }
         parsedState = if ($system.Count -gt 0) { $system[0].EncryptionState } else { "UNKNOWN" }
         protectionEnabled = if ($system.Count -gt 0) { $system[0].ProtectionEnabled } else { $null }
+        volume = if ($system.Count -gt 0) { $system[0].MountPoint } else { $env:SystemDrive }
+        encryptionPercentage = if ($system.Count -gt 0) { $system[0].EncryptionPercentage } else { $null }
+        protectionStatus = if ($system.Count -gt 0) { $system[0].ProtectionStatus } else { 'Unknown' }
+        lockStatus = if ($system.Count -gt 0) { $system[0].LockStatus } else { 'Unknown' }
+        encryptionMethod = if ($system.Count -gt 0) { $system[0].EncryptionMethod } else { '' }
         errorCategory = if ($Status -in @("SUCCESS", "PARTIAL")) { $null } else { $Status }
         confidence = $Confidence; selectedAsAuthoritative = $Selected
     }

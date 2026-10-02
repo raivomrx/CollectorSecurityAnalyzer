@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import re
 import time
@@ -64,6 +65,7 @@ class CpeResolver:
         self.mappings = _load_mappings(mapping_path)
         self.discovery_aliases = _load_mappings(DEFAULT_MAPPING_PATH.with_name("cpe_discovery_aliases.json"))
         self.metrics = {
+            "localIdentityMappingHits": 0,
             "localMappingSeconds": 0.0, "cpeDiscoverySeconds": 0.0,
             "resolutionMemoryHits": 0, "cpeCatalogHits": 0,
             "cpeCatalogMisses": 0, "remoteCpeQueries": 0,
@@ -87,10 +89,12 @@ class CpeResolver:
         """Resolve a product and retain the candidate decision for audit."""
 
         operating_system = _collector_os(raw_data)
-        cache_key = (
-            f"{software.normalized_vendor}|{software.normalized_product}|"
-            f"{software.normalized_version}|{operating_system}"
-        ).casefold()
+        cache_key = json.dumps([
+            software.normalized_vendor, software.normalized_product, software.version,
+            software.vendor, software.product, software.architecture, operating_system,
+            software.normalization_trace, self.discovery_aliases, self.mappings,
+            self.minimum_confidence, self.ambiguous_score_difference, '5.6',
+        ], sort_keys=True, default=str).casefold()
         cached = self._resolution_cache.get(cache_key)
         if cached is not None:
             self.metrics["resolutionMemoryHits"] += 1
@@ -106,7 +110,14 @@ class CpeResolver:
                 local.confidence,
                 local.source,
             )
-            resolution = CpeResolution(local, 1, "SUCCESS")
+            self.metrics["localIdentityMappingHits"] += 1
+            resolution = CpeResolution(local, 1, "SUCCESS", trace={
+                "rawVendor": software.vendor, "displayName": software.product,
+                "installedVersion": software.version, "normalizedVendor": software.normalized_vendor,
+                "normalizedProduct": software.normalized_product, "normalization": software.normalization_trace,
+                "queries": [], "candidateCount": 1, "selectedCandidate": local.cpe_name,
+                "confidence": local.confidence, "terminalStatus": "SUCCESS", "mappingSource": "LOCAL_MAPPING",
+            })
             self._resolution_cache[cache_key] = resolution
             return resolution
 
@@ -120,6 +131,7 @@ class CpeResolver:
             self._resolution_cache[cache_key] = resolution
             return resolution
         trace: dict[str, Any] = {
+            "rawVendor": software.vendor,
             "normalizedVendor": software.normalized_vendor,
             "normalizedProduct": software.normalized_product,
             "displayName": software.product, "installedVersion": software.version,
@@ -268,6 +280,9 @@ class CpeResolver:
         )
         query = str(alias.get("query") or software.normalized_product).strip()
         identity = f"{software.normalized_vendor}|{software.normalized_product}|{query}".casefold()
+        # Raw catalog entries are always ranked again under current rules.
+        trace["resolverRulesVersion"] = "5.6"
+        trace["identityRulesDigest"] = hashlib.sha256(json.dumps(alias, sort_keys=True).encode()).hexdigest()
         cache = getattr(self.client, "cache", None)
         catalog_record = getattr(cache, "get_cpe_catalog_record", None)
         catalog = getattr(cache, "get_cpe_catalog", None)
@@ -340,6 +355,7 @@ class CpeResolver:
                 "cpe": cpe_name, "title": title,
                 "vendor": parsed.vendor if parsed else "", "product": parsed.product if parsed else "",
                 "edition": parsed.edition if parsed else "", "softwareEdition": parsed.sw_edition if parsed else "",
+                "targetSoftware": parsed.target_sw if parsed else "", "targetHardware": parsed.target_hw if parsed else "",
                 "confidence": confidence, "deprecated": bool(cpe.get("deprecated", False)),
                 "vendorIdentity": "CONFIRMED" if confidence >= 45 else "NOT_CONFIRMED",
                 "productIdentity": "CONFIRMED" if reason is None else "NOT_CONFIRMED",

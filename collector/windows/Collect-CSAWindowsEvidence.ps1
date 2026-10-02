@@ -29,7 +29,7 @@ $CollectionProfilePath = if ([string]::IsNullOrWhiteSpace($CollectionProfilePath
 } else {
     $CollectionProfilePath
 }
-$collectorVersion = "5.5.1"
+$collectorVersion = "5.6.0"
 $started = (Get-Date).ToUniversalTime()
 $moduleRoot = Join-Path $PSScriptRoot "modules"
 $manifestPath = Join-Path $PSScriptRoot "evidence-manifest.json"
@@ -247,11 +247,15 @@ $deviceDomain = if ($null -ne $computer) { $computer.Domain } else { $env:USERDO
 $deviceWorkgroup = if ($null -ne $computer -and -not $computer.PartOfDomain) { $computer.Workgroup } else { $null }
 $domainJoined = if ($null -ne $computer) { [bool]$computer.PartOfDomain } else { $null }
 $entraJoined = $null
+$windowsHelloProvisioned = $null
 $dsregOutput = ""
 try {
     $dsregOutput = (& "$env:SystemRoot\System32\dsregcmd.exe" /status 2>$null) -join "`n"
     if ($dsregOutput -match '(?im)^\s*AzureAdJoined\s*:\s*(YES|NO)\s*$') {
         $entraJoined = $Matches[1] -eq "YES"
+    }
+    if ($dsregOutput -match '(?im)^\s*NgcSet\s*:\s*(YES|NO)\s*$') {
+        $windowsHelloProvisioned = $Matches[1] -eq 'YES'
     }
 } catch {
     $warnings.Add("Entra join state was unavailable.")
@@ -305,6 +309,7 @@ $document = [ordered]@{
         executionIntegrityLevel = [string]$privilegeContext.integrityLevel
         domainJoined = $domainJoined
         entraJoined = $entraJoined
+        windowsHelloProvisioned = $windowsHelloProvisioned
         entraTenantId = $entraTenantId
         deviceId = $entraDeviceId
     }

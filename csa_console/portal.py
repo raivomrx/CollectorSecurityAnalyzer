@@ -214,7 +214,7 @@ class PortalBinding:
     <li>Wait for <strong>Submission accepted</strong>.</li>
     <li>Close the collector.</li>
   </ol>
-  <p class="meta">Collector version: 5.5.1<br>Package expires: {safe_expiry}</p>
+  <p class="meta">Collector version: 5.6.0<br>Package expires: {safe_expiry}</p>
 </main>
 </body>
 </html>"""

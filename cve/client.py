@@ -50,6 +50,8 @@ class NvdClient:
             "nvdApiKeyConfigured": bool(self.api_key), "nvdRequests": 0,
             "rateLimitWaitSeconds": 0.0, "cpeCacheHits": 0, "cpeCacheMisses": 0,
             "cveCacheHits": 0, "cveCacheMisses": 0, "nvdCveRetrievalSeconds": 0.0,
+            "cpeQueryCount": 0, "cveQueryCount": 0,
+            "remoteCpeRequests": 0, "remoteCveRequests": 0,
         }
         self.cache = NvdCache() if cache is None else cache
         self.session = requests.Session() if session is None else session
@@ -61,6 +63,7 @@ class NvdClient:
     def get_cpes(self, params: dict[str, Any]) -> list[dict[str, Any]]:
         """Return CPE products from NVD."""
 
+        self.metrics["cpeQueryCount"] += 1
         data = self._get_paginated(NVD_CPE_ENDPOINT, params, "products")
         return [item for item in data if isinstance(item, dict)]
 
@@ -68,6 +71,7 @@ class NvdClient:
         """Return CVE vulnerabilities from NVD."""
 
         started = time.perf_counter()
+        self.metrics["cveQueryCount"] += 1
         try:
             data = self._get_paginated(NVD_CVE_ENDPOINT, params, "vulnerabilities")
         finally:
@@ -133,6 +137,7 @@ class NvdClient:
                 self._check_cancelled()
                 self._progress(endpoint, "PROVIDER_REQUEST", 0, attempt + 1)
                 self.metrics["nvdRequests"] += 1
+                self.metrics["remoteCpeRequests" if cache_label == "cpe" else "remoteCveRequests"] += 1
                 response = self.session.get(
                     endpoint,
                     params=params,

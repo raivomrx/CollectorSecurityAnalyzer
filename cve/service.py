@@ -70,6 +70,7 @@ class CveService:
         eligible_products = 0
         evaluated_products = 0
         product_evaluations: list[CveProductEvaluation] = []
+        applicability_seconds = 0.0
         current: dict[str, Any] = {"current_product": "", "current_version": "", "products_processed": 0}
         if isinstance(self.client, NvdClient):
             self.client.cancel_event = cancel_event
@@ -236,11 +237,13 @@ class CveService:
                     current_version=software.version,
                 )
                 product_assessments = []
+                applicability_started = time.perf_counter()
                 for record in records:
                     assessment = _assess(software, cpe, record, raw_data)
                     assessments.append(assessment)
                     product_assessments.append(assessment)
                 _complete_evaluation(evaluation, product_assessments)
+                applicability_seconds += time.perf_counter() - applicability_started
                 if evaluation.terminal_status == "COMPLETED":
                     evaluated_products += 1
             except CveScanCancelled:
@@ -308,6 +311,8 @@ class CveService:
         summary.telemetry = {
             **getattr(self.client, "metrics", {}), **getattr(self.resolver, "metrics", {}),
             "cveScanSeconds": time.perf_counter() - scan_started,
+            "applicabilityEvaluationSeconds": applicability_seconds,
+            "providerErrors": summary.api_errors,
         }
         return summary
 

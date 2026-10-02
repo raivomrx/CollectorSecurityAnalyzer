@@ -179,10 +179,7 @@ def _evaluate_cpe_match(
     if _key(parsed.vendor) != _key(cpe.vendor) or _key(parsed.product) != _key(cpe.product):
         return _not_affected("CPE product mismatch")
 
-    environment_result = _evaluate_environment(parsed, environment_data, cpe)
-    if environment_result is not None:
-        return environment_result
-
+    version_result = None
     if any(
         key in match
         for key in (
@@ -192,7 +189,19 @@ def _evaluate_cpe_match(
             "versionEndExcluding",
         )
     ):
-        return _evaluate_range(software, match, criteria)
+        version_result = _evaluate_range(software, match, criteria)
+    elif parsed.version not in {"*", "-"} and compare_versions(software.version, parsed.version) != 0:
+        version_result = _not_affected("Installed version does not match vulnerable CPE version")
+    # Version and environment constraints form a conjunction. A proven version
+    # mismatch excludes this criterion even when its edition/update is unknown.
+    # A version match still requires every environment constraint below.
+    if version_result is not None and version_result.status == ApplicabilityStatus.NOT_AFFECTED:
+        return version_result
+    environment_result = _evaluate_environment(parsed, environment_data, cpe)
+    if environment_result is not None:
+        return environment_result
+    if version_result is not None:
+        return version_result
 
     if parsed.version == "*":
         return _not_evaluated(
@@ -358,6 +367,7 @@ def _evaluate_environment(
 ) -> EvaluationResult | None:
     """Evaluate CPE environment components that constrain applicability."""
 
+    unknown = None
     for component, keys in ENVIRONMENT_COMPONENTS.items():
         criteria_value = str(getattr(parsed, component))
         if criteria_value == "*":
@@ -376,11 +386,12 @@ def _evaluate_environment(
                     return _not_affected("CPE software edition does not match validated product identity")
                 continue
         if observed is None:
-            return _not_evaluated(f"CPE environment component {component} cannot be confirmed")
+            unknown = _not_evaluated(f"CPE environment component {component} cannot be confirmed")
+            continue
         if not _environment_matches(component, criteria_value, observed):
             return _not_affected(f"CPE environment component {component} does not match collector data")
 
-    return None
+    return unknown
 
 
 def _read_environment_value(
