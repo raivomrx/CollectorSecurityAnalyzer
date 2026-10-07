@@ -20,6 +20,8 @@ jobs:
         run: ./scripts/Build-CSACollector.ps1
       - name: Run Collector overlay contract tests
         run: python -W error::ResourceWarning -m unittest tests.test_lab_sprint51.CollectorExecutableTests -v
+      - name: Verify stream integrity and transient Windows file locks
+        run: python -W error::ResourceWarning -m unittest tests.test_collector_bootstrap -v
       - name: Validate standard-user PowerShell contract
         shell: pwsh
         run: |
@@ -33,4 +35,3 @@ jobs:
           path: |
             build/collector/CSA-Collector.exe
             test-artifacts/
-

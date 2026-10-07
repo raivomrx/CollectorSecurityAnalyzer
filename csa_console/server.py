@@ -243,16 +243,24 @@ def _handler_factory(
                         "text/html; charset=utf-8",
                     )
                     return
-                if parts[1] != "download":
+                if parts[1] == "download":
+                    download_path = portal.collector_path
+                    content_type = "application/vnd.microsoft.portable-executable"
+                    filename = "CSA-Collector.exe"
+                elif parts[1] == "download-powershell" and portal.script_collector_path is not None:
+                    download_path = portal.script_collector_path
+                    content_type = "application/zip"
+                    filename = "CSA-PowerShell-Collector.zip"
+                else:
                     self._json(HTTPStatus.NOT_FOUND, {"error": "NOT_FOUND"})
                     return
-                body = portal.collector_path.read_bytes()
+                body = download_path.read_bytes()
                 portal.record_download(source)
                 self._bytes(
                     HTTPStatus.OK,
                     body,
-                    "application/vnd.microsoft.portable-executable",
-                    attachment="CSA-Collector.exe",
+                    content_type,
+                    attachment=filename,
                 )
             except (OSError, ValueError):
                 LOGGER.exception("Collector portal request failed safely")

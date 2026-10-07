@@ -44,7 +44,8 @@ namespace CSA.Collector
             {
                 Console.Error.WriteLine();
                 Console.Error.WriteLine("CSA Collector could not complete.");
-                Console.Error.WriteLine("Error code: CSA-COL-001");
+                Console.Error.WriteLine("Error code: " +
+                    (error is TransientFileLockException ? "CSA-COL-FILELOCK" : "CSA-COL-001"));
                 Console.Error.WriteLine(SafeMessage(error));
                 WaitForUser();
                 return 1;
@@ -120,7 +121,7 @@ namespace CSA.Collector
         private static void ExtractAndVerifyPackage(string executable, string target)
         {
             byte[] payload;
-            using (FileStream stream = File.OpenRead(executable))
+            using (FileStream stream = RetryFileOperation(() => File.OpenRead(executable)))
             {
                 if (stream.Length <= TrailerSize)
                 {
@@ -155,50 +156,75 @@ namespace CSA.Collector
             using (ZipArchive archive = new ZipArchive(
                 memory, ZipArchiveMode.Read, false))
             {
+                // Validate the entire inventory before creating any package file.
+                Dictionary<string, ZipArchiveEntry> inventory = new Dictionary<string, ZipArchiveEntry>(
+                    StringComparer.OrdinalIgnoreCase);
                 foreach (ZipArchiveEntry entry in archive.Entries)
                 {
-                    if (String.IsNullOrEmpty(entry.Name))
-                    {
-                        continue;
-                    }
-                    string normalized = entry.FullName.Replace('/', Path.DirectorySeparatorChar);
-                    if (Path.IsPathRooted(normalized) ||
-                        normalized.Split(Path.DirectorySeparatorChar).Contains(".."))
-                    {
-                        throw new InvalidDataException(
-                            "Collector package contains an unsafe path.");
-                    }
-                    string output = Path.GetFullPath(Path.Combine(target, normalized));
-                    string prefix = Path.GetFullPath(target) + Path.DirectorySeparatorChar;
-                    if (!output.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    {
-                        throw new InvalidDataException(
-                            "Collector package path escapes its temporary directory.");
-                    }
+                    ResolvePackagePath(target, entry.FullName);
+                    if (inventory.ContainsKey(entry.FullName))
+                        throw new InvalidDataException("Collector package path is duplicated.");
+                    inventory.Add(entry.FullName, entry);
+                }
+                ZipArchiveEntry manifestEntry;
+                if (!inventory.TryGetValue("trusted-manifest.json", out manifestEntry))
+                    throw new InvalidDataException("Trusted package manifest is missing.");
+                Dictionary<string, TrustedFile> declared = ReadTrustedManifest(manifestEntry, target);
+                if (!new HashSet<string>(inventory.Keys.Where(name => !String.Equals(
+                    name, "trusted-manifest.json", StringComparison.OrdinalIgnoreCase)),
+                    StringComparer.OrdinalIgnoreCase).SetEquals(declared.Keys))
+                    throw new InvalidDataException("Collector package contains missing or undeclared files.");
+
+                foreach (ZipArchiveEntry entry in archive.Entries)
+                {
+                    string output = ResolvePackagePath(target, entry.FullName);
                     Directory.CreateDirectory(Path.GetDirectoryName(output));
                     using (Stream input = entry.Open())
-                    using (FileStream destination = new FileStream(
-                        output, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                    using (FileStream destination = RetryFileOperation(() => new FileStream(
+                        output, FileMode.CreateNew, FileAccess.Write, FileShare.None)))
+                    using (SHA256 sha = SHA256.Create())
                     {
-                        input.CopyTo(destination);
+                        byte[] buffer = new byte[81920];
+                        long size = 0;
+                        int count;
+                        while ((count = input.Read(buffer, 0, buffer.Length)) != 0)
+                        {
+                            destination.Write(buffer, 0, count);
+                            sha.TransformBlock(buffer, 0, count, buffer, 0);
+                            size += count;
+                        }
+                        sha.TransformFinalBlock(new byte[0], 0, 0);
+                        TrustedFile trusted;
+                        if (declared.TryGetValue(entry.FullName, out trusted) &&
+                            (size != trusted.Size || !String.Equals(
+                                "sha256:" + String.Concat(sha.Hash.Select(value => value.ToString("x2"))),
+                                trusted.Digest, StringComparison.OrdinalIgnoreCase)))
+                            throw new InvalidDataException("Trusted Collector package verification failed.");
                     }
                 }
             }
-            VerifyTrustedManifest(target);
         }
 
-        private static void VerifyTrustedManifest(string root)
+        private sealed class TrustedFile
         {
-            string manifestPath = Path.Combine(root, "trusted-manifest.json");
-            if (!File.Exists(manifestPath))
-            {
-                throw new InvalidDataException("Trusted package manifest is missing.");
-            }
+            internal string Digest;
+            internal long Size;
+        }
+
+        private static Dictionary<string, TrustedFile> ReadTrustedManifest(ZipArchiveEntry entry, string root)
+        {
+            if (entry.Length > 1024 * 1024)
+                throw new InvalidDataException("Trusted package manifest is too large.");
             JavaScriptSerializer serializer = new JavaScriptSerializer();
-            Dictionary<string, object> manifest = serializer.Deserialize<
-                Dictionary<string, object>>(File.ReadAllText(manifestPath, Encoding.UTF8));
+            Dictionary<string, object> manifest;
+            using (Stream input = entry.Open())
+            using (StreamReader reader = new StreamReader(input, Encoding.UTF8))
+                manifest = serializer.Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
             object filesValue;
-            if (!manifest.TryGetValue("files", out filesValue))
+            object schema;
+            if (manifest == null || !manifest.TryGetValue("schemaVersion", out schema) ||
+                !String.Equals(schema as string, "5.0", StringComparison.Ordinal) ||
+                !manifest.TryGetValue("files", out filesValue))
             {
                 throw new InvalidDataException("Trusted package file list is missing.");
             }
@@ -207,7 +233,7 @@ namespace CSA.Collector
             {
                 throw new InvalidDataException("Trusted package file list is invalid.");
             }
-            HashSet<string> declared = new HashSet<string>(
+            Dictionary<string, TrustedFile> declared = new Dictionary<string, TrustedFile>(
                 StringComparer.OrdinalIgnoreCase);
             foreach (object value in entries)
             {
@@ -216,45 +242,34 @@ namespace CSA.Collector
                 {
                     throw new InvalidDataException("Trusted file entry is invalid.");
                 }
-                string relative = Convert.ToString(item["path"]);
-                string expected = Convert.ToString(item["sha256"]);
-                long expectedSize = Convert.ToInt64(item["size"]);
-                if (!declared.Add(relative))
+                object pathValue, digestValue, sizeValue;
+                if (!item.TryGetValue("path", out pathValue) ||
+                    !item.TryGetValue("sha256", out digestValue) ||
+                    !item.TryGetValue("size", out sizeValue))
+                    throw new InvalidDataException("Trusted file entry is incomplete.");
+                string relative = pathValue as string;
+                string expected = digestValue as string;
+                ResolvePackagePath(root, relative);
+                if (expected == null || !System.Text.RegularExpressions.Regex.IsMatch(
+                    expected, "^sha256:[0-9a-fA-F]{64}$") ||
+                    !(sizeValue is int || sizeValue is long) || Convert.ToInt64(sizeValue) < 0 ||
+                    String.Equals(relative, "trusted-manifest.json", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("Trusted file digest or size is invalid.");
+                if (declared.ContainsKey(relative))
                 {
                     throw new InvalidDataException("Trusted file path is duplicated.");
                 }
-                string path = ResolvePackagePath(root, relative);
-                FileInfo file = new FileInfo(path);
-                if (!file.Exists || file.Length != expectedSize ||
-                    !String.Equals(Sha256File(path), expected,
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new InvalidDataException(
-                        "Trusted Collector package verification failed.");
-                }
+                declared.Add(relative, new TrustedFile { Digest = expected, Size = Convert.ToInt64(sizeValue) });
             }
-            HashSet<string> actual = new HashSet<string>(
-                Directory.GetFiles(root, "*", SearchOption.AllDirectories)
-                    .Where(path => !String.Equals(
-                        Path.GetFileName(path),
-                        "trusted-manifest.json",
-                        StringComparison.OrdinalIgnoreCase))
-                    .Select(path => path.Substring(root.Length + 1)
-                        .Replace(Path.DirectorySeparatorChar, '/')),
-                StringComparer.OrdinalIgnoreCase);
-            if (!actual.SetEquals(declared))
-            {
-                throw new InvalidDataException(
-                    "Collector package contains undeclared files.");
-            }
+            return declared;
         }
 
         private static void PrintAssessmentSummary(string root)
         {
             JavaScriptSerializer serializer = new JavaScriptSerializer();
             Dictionary<string, object> configuration = serializer.Deserialize<
-                Dictionary<string, object>>(File.ReadAllText(
-                    Path.Combine(root, "session-config.json"), Encoding.UTF8));
+                Dictionary<string, object>>(RetryFileOperation(() => File.ReadAllText(
+                    Path.Combine(root, "session-config.json"), Encoding.UTF8)));
             Console.WriteLine("Assessment: " + Convert.ToString(
                 configuration["assessmentName"]));
             Console.WriteLine("Server: " + SafeServer(
@@ -344,8 +359,14 @@ namespace CSA.Collector
 
         private static string ResolvePackagePath(string root, string relative)
         {
-            if (Path.IsPathRooted(relative) ||
-                relative.Replace('\\', '/').Split('/').Contains(".."))
+            if (String.IsNullOrWhiteSpace(relative) || Path.IsPathRooted(relative) ||
+                relative.Contains("\\") || relative.Contains(":") ||
+                relative.Split('/').Any(part => String.IsNullOrEmpty(part) || part == "." ||
+                    part == ".." || part.EndsWith(".") || part.EndsWith(" ") ||
+                    part.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
+                    System.Text.RegularExpressions.Regex.IsMatch(part,
+                        "^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])($|\\.)",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase)))
             {
                 throw new InvalidDataException("Trusted path is unsafe.");
             }
@@ -375,13 +396,28 @@ namespace CSA.Collector
             return value;
         }
 
-        private static string Sha256File(string path)
+        private sealed class TransientFileLockException : IOException
         {
-            using (FileStream stream = File.OpenRead(path))
-            using (SHA256 sha = SHA256.Create())
+            internal TransientFileLockException(IOException cause) : base(
+                "TRANSIENT_FILE_LOCK: A Collector file remained locked after bounded retries. " +
+                "Endpoint security may still be scanning it. Retry the Collector shortly.", cause) { }
+        }
+
+        private static T RetryFileOperation<T>(Func<T> operation)
+        {
+            int[] delays = { 250, 500, 1000, 2000, 2000, 2000, 2000, 2000 };
+            for (int attempt = 0; ; attempt++)
             {
-                return "sha256:" + String.Concat(
-                    sha.ComputeHash(stream).Select(value => value.ToString("x2")));
+                try { return operation(); }
+                catch (IOException error)
+                {
+                    int code = error.HResult & 0xffff;
+                    if (code != 32 && code != 33) throw;
+                    if (attempt == delays.Length) throw new TransientFileLockException(error);
+                    if (attempt == 0) Console.WriteLine(
+                        "TRANSIENT_FILE_LOCK: Endpoint security may be scanning a Collector file. Waiting...");
+                    Thread.Sleep(delays[attempt]);
+                }
             }
         }
 

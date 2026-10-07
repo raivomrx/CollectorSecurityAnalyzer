@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import socket
 import tempfile
@@ -565,6 +566,9 @@ class LabServiceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Download CSA Collector", response.text)
         self.assertIn('href="download"', response.text)
+        self.assertIn("CSA Collector (.exe) — Recommended", response.text)
+        self.assertIn("PowerShell Collector — Enterprise compatibility", response.text)
+        self.assertIn('href="download-powershell"', response.text)
         self.assertNotIn("enrollmentToken", response.text)
         unavailable = requests.get(
             (
@@ -594,6 +598,24 @@ class LabServiceTests(unittest.TestCase):
             self.service.load_state(state.assessment_id).download_count,
             1,
         )
+        script_download = requests.get(
+            urljoin(response.url, "download-powershell"),
+            verify=session.tls_certificate_path,
+            timeout=5,
+        )
+        self.assertEqual(script_download.status_code, 200)
+        self.assertEqual(script_download.headers["Content-Type"], "application/zip")
+        self.assertIn('filename="CSA-PowerShell-Collector.zip"', script_download.headers["Content-Disposition"])
+        self.assertEqual(script_download.content, read_bound_collector_payload(state.collector_path))
+        with zipfile.ZipFile(io.BytesIO(script_download.content)) as scripts:
+            for name in scripts.namelist():
+                self.assertEqual(scripts.read(name), (Path(state.collector_path).parent / "package" / name).read_bytes())
+        self.assertEqual(self.service.load_state(state.assessment_id).download_count, 2)
+        invalid_script = requests.get(
+            f"https://127.0.0.1:{state.listener_port}/join/INVALID1/download-powershell",
+            verify=session.tls_certificate_path, timeout=5,
+        )
+        self.assertEqual(invalid_script.status_code, 410)
         admin = requests.get(
             f"https://127.0.0.1:{state.listener_port}/api/v1/assessments",
             verify=session.tls_certificate_path,
@@ -713,6 +735,7 @@ class LabServiceTests(unittest.TestCase):
         self.assertFalse(binding.authorize("wrong", "127.0.0.1"))
         binding.record_download("127.0.0.1")
         self.assertFalse(binding.authorize(code, "127.0.0.1"))
+
         binding.download_count = 0
         binding.expires_at = utc_text(utc_now() - timedelta(seconds=1))
         self.assertFalse(binding.authorize(code, "127.0.0.1"))
@@ -721,6 +744,13 @@ class LabServiceTests(unittest.TestCase):
             state.assessment_id, state.session_id, SessionStatus.CLOSED
         )
         self.assertFalse(binding.authorize(code, "127.0.0.1"))
+
+    def test_existing_assessment_exposes_original_trusted_script_package(self) -> None:
+        state = self.service.create_assessment(self.request())
+        script_path = Path(state.collector_path).with_name("CSA-PowerShell-Collector.zip")
+        script_path.unlink()
+        self.service.start_collection(state.assessment_id)
+        self.assertEqual(script_path.read_bytes(), read_bound_collector_payload(state.collector_path))
 
     def test_firewall_spec_rejects_broad_access_and_cleanup_is_exact(self) -> None:
         valid = FirewallRuleSpec(

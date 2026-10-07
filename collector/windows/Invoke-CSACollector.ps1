@@ -20,13 +20,35 @@ function Get-CSASha256Bytes {
 
 function Get-CSASha256File {
     param([Parameter(Mandatory = $true)][string]$Path)
-    $stream = [System.IO.File]::OpenRead($Path)
-    $sha = [System.Security.Cryptography.SHA256]::Create()
-    try {
-        return "sha256:" + ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace("-", "").ToLowerInvariant()
-    } finally {
-        $sha.Dispose()
-        $stream.Dispose()
+    Invoke-CSAFileLockRetry {
+        $stream = [System.IO.File]::OpenRead($Path)
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            return "sha256:" + ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace("-", "").ToLowerInvariant()
+        } finally {
+            $sha.Dispose()
+            $stream.Dispose()
+        }
+    }
+}
+
+function Invoke-CSAFileLockRetry {
+    param([Parameter(Mandatory = $true)][scriptblock]$Operation)
+    $delays = @(250, 500, 1000, 2000, 2000, 2000, 2000, 2000)
+    for ($attempt = 0; ; $attempt++) {
+        try { return (& $Operation) } catch {
+            $cause = $_.Exception
+            while ($null -ne $cause.InnerException) { $cause = $cause.InnerException }
+            $nativeCode = $cause.HResult -band 0xffff
+            if ($cause -isnot [System.IO.IOException] -or $nativeCode -notin @(32, 33)) { throw }
+            if ($attempt -eq $delays.Count) {
+                throw "CSA-COL-FILELOCK / TRANSIENT_FILE_LOCK: A Collector file remained locked after bounded retries. Endpoint security may still be scanning it. Retry the Collector shortly."
+            }
+            if ($attempt -eq 0) {
+                Write-Host "TRANSIENT_FILE_LOCK: Endpoint security may be scanning a Collector file. Waiting..."
+            }
+            Start-Sleep -Milliseconds $delays[$attempt]
+        }
     }
 }
 
@@ -67,8 +89,16 @@ function Write-CSACanonicalJson {
 
 function Resolve-CSAPackagePath {
     param([Parameter(Mandatory = $true)][string]$RelativePath)
-    if ([System.IO.Path]::IsPathRooted($RelativePath) -or $RelativePath -match '(^|[\\/])\.\.([\\/]|$)') {
+    if ([System.IO.Path]::IsPathRooted($RelativePath)) {
         throw "Trusted package contains an unsafe path."
+    }
+    foreach ($part in $RelativePath.Replace("\", "/").Split('/')) {
+        if ([string]::IsNullOrWhiteSpace($part) -or $part -in @('.', '..') -or
+            $part.EndsWith('.') -or $part.EndsWith(' ') -or
+            $part.IndexOfAny([System.IO.Path]::GetInvalidFileNameChars()) -ge 0 -or
+            $part -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])($|\.)') {
+            throw "Trusted package contains an unsafe path."
+        }
     }
     $candidate = [System.IO.Path]::GetFullPath((Join-Path $packageRoot $RelativePath))
     if (-not $candidate.StartsWith($packageRoot + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
@@ -82,13 +112,26 @@ function Test-CSATrustedPackage {
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
         throw "Trusted package manifest is missing."
     }
-    $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+    $manifestText = Invoke-CSAFileLockRetry { [System.IO.File]::ReadAllText($manifestPath) }
+    $manifest = $manifestText | ConvertFrom-Json
+    if ([string]$manifest.schemaVersion -ne '5.0' -or $null -eq $manifest.files -or $manifest.files -isnot [array]) {
+        throw "Trusted package manifest is invalid."
+    }
     $declared = @{}
     foreach ($file in @($manifest.files)) {
+        if ($file -isnot [pscustomobject] -or $file.path -isnot [string] -or
+            $file.sha256 -isnot [string] -or $file.sha256 -notmatch '\Asha256:[0-9a-f]{64}\z' -or
+            ($file.size -isnot [int] -and $file.size -isnot [long]) -or [long]$file.size -lt 0) {
+            throw "Trusted package file entry is invalid."
+        }
         $relative = [string]$file.path
+        if ($relative -eq 'trusted-manifest.json') { throw "Trusted package manifest cannot declare itself." }
         if ($declared.ContainsKey($relative)) { throw "Trusted package contains a duplicate path." }
-        $declared[$relative] = $true
-        $path = Resolve-CSAPackagePath $relative
+        $declared[$relative] = Resolve-CSAPackagePath $relative
+    }
+    # Reject all malformed declarations before opening any declared file.
+    foreach ($file in @($manifest.files)) {
+        $path = $declared[[string]$file.path]
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Trusted package file is missing." }
         if ((Get-Item -LiteralPath $path).Length -ne [long]$file.size) { throw "Trusted package file size mismatch." }
         if ((Get-CSASha256File $path) -ne [string]$file.sha256) { throw "Trusted package digest mismatch." }
@@ -466,7 +509,8 @@ $terminalError = $null
 try {
     $trustedManifest = Test-CSATrustedPackage
     $configPath = Resolve-CSAPackagePath "session-config.json"
-    $configuration = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
+    $configText = Invoke-CSAFileLockRetry { [System.IO.File]::ReadAllText($configPath) }
+    $configuration = $configText | ConvertFrom-Json
     if ([string]$configuration.collectorMode -ne "STANDARD_USER_COLLECTION") {
         throw "Collector package mode is not STANDARD_USER_COLLECTION."
     }

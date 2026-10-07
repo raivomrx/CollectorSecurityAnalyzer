@@ -46,7 +46,7 @@ from csa_console.server import ConsoleHttpsServer
 from csa_console.sessions import AssessmentSessionService
 from csa_console.storage import AssessmentStorage
 from csa_console.submission import SubmissionService
-from csa_lab.collector_executable import build_bound_collector
+from csa_lab.collector_executable import build_bound_collector, build_script_collector
 from csa_lab.firewall import (
     FirewallManager,
     NullFirewallManager,
@@ -220,6 +220,9 @@ class LabApplicationService:
                 self.collector_bootstrap,
                 package_directory,
                 collector_path,
+            )
+            build_script_collector(
+                package_directory, collector_path.with_name("CSA-PowerShell-Collector.zip")
             )
             state = LabAssessmentState(
                 assessment_id=assessment.assessment_id,
@@ -438,6 +441,10 @@ class LabApplicationService:
                 )
             if session.status != SessionStatus.OPEN:
                 raise ValueError("Collection session is no longer active")
+            script_path = Path(state.collector_path).with_name("CSA-PowerShell-Collector.zip")
+            if not script_path.is_file():
+                # Existing assessments already have a trusted script package.
+                build_script_collector(Path(state.collector_path).parent / "package", script_path)
             code = self.join_code(assessment_id)
             portal = PortalBinding(
                 assessment_id=assessment_id,
@@ -446,6 +453,7 @@ class LabApplicationService:
                     normalize_join_code(code).encode("utf-8")
                 ).hexdigest(),
                 collector_path=Path(state.collector_path),
+                script_collector_path=script_path,
                 expires_at=state.expires_at,
                 maximum_downloads=max(
                     state.expected_endpoints + 10,

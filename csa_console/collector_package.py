@@ -106,9 +106,11 @@ def create_collector_package(
         "Assessment mode: Standard Privileges Assessment\n"
         "Administrator rights required: NO\n"
         "Active security testing: NO\n\n"
+        "Extract every ZIP entry into a new folder before running.\n"
         "Run from a non-elevated PowerShell process:\n"
         "powershell.exe -NoProfile -ExecutionPolicy Bypass "
         "-File .\\Invoke-CSACollector.ps1\n"
+        "Execution policy is scoped to this process; organization policy still applies.\n"
     )
     (destination / "OPERATOR-INSTRUCTIONS.txt").write_text(
         instructions, encoding="utf-8"

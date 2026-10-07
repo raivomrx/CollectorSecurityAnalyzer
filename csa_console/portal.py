@@ -44,7 +44,7 @@ def normalize_join_code(value: str) -> str:
 
 @dataclass(slots=True)
 class PortalBinding:
-    """Bind one opaque join code to one bounded Collector executable."""
+    """Bind one opaque join code to the session's Collector transports."""
 
     assessment_id: str
     session_id: str
@@ -53,6 +53,7 @@ class PortalBinding:
     expires_at: str
     maximum_downloads: int
     storage: AssessmentStorage
+    script_collector_path: Path | None = None
     download_count: int = 0
     maximum_failed_attempts: int = 5
     failure_window_seconds: float = 60.0
@@ -166,6 +167,14 @@ class PortalBinding:
 
         safe_name = html.escape(assessment_name)
         safe_expiry = html.escape(self.expires_at)
+        script_option = ""
+        if self.script_collector_path is not None and self.script_collector_path.is_file():
+            script_option = """<p><a class="button" href="download-powershell">PowerShell Collector — Enterprise compatibility</a></p>
+  <p>Extract all files from <strong>CSA-PowerShell-Collector.zip</strong> into a new folder.
+     Open a standard-user PowerShell window in that folder and run:</p>
+  <pre><code>powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\Invoke-CSACollector.ps1</code></pre>
+  <p>The execution policy applies only to this process. Organization policy still applies.
+     Both downloads use the same assessment, integrity checks and privacy controls.</p>"""
         document = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -208,12 +217,14 @@ class PortalBinding:
   <p><strong>If Windows blocks the Collector, record the exact Windows Security message.</strong>
      Do not disable Smart App Control as the default remediation. Use a trusted,
      signed CSA Collector build or contact the assessment administrator.</p>
-  <p><a class="button" href="download">Download CSA Collector</a></p>
+  <p>Download CSA Collector:</p>
+  <p><a class="button" href="download">CSA Collector (.exe) — Recommended</a></p>
   <ol>
     <li>Open <strong>CSA-Collector.exe</strong>.</li>
     <li>Wait for <strong>Submission accepted</strong>.</li>
     <li>Close the collector.</li>
   </ol>
+  {script_option}
   <p class="meta">Collector version: 5.6.0<br>Package expires: {safe_expiry}</p>
 </main>
 </body>

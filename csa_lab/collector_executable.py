@@ -63,6 +63,21 @@ def read_bound_collector_payload(path: str | Path) -> bytes:
     return payload
 
 
+def build_script_collector(package_directory: str | Path, output_path: str | Path) -> Path:
+    """Archive the same verified session package used by the executable."""
+
+    from csa_console.collector_package import verify_collector_package
+
+    package = Path(package_directory).resolve()
+    verify_collector_package(package)
+    output = Path(output_path).resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_suffix(output.suffix + ".tmp")
+    temporary.write_bytes(_package_zip(package))
+    temporary.replace(output)
+    return output
+
+
 def _package_zip(root: Path) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(
