@@ -1,5 +1,16 @@
 # Collector Security Analyzer
 
+## Download CSA Lab for Windows
+
+**[Download CSA-Lab-Setup.exe](https://github.com/raivomrx/CollectorSecurityAnalyzer/releases/latest/download/CSA-Lab-Setup.exe)**
+
+[Release notes](https://github.com/raivomrx/CollectorSecurityAnalyzer/releases/latest)
+· [SHA-256 checksums](https://github.com/raivomrx/CollectorSecurityAnalyzer/releases/latest/download/SHA256SUMS.txt)
+· [Build information](https://github.com/raivomrx/CollectorSecurityAnalyzer/releases/latest/download/BUILD-INFO.md)
+
+The current installer is **CSA Lab 5.6.0** and is unsigned. After updating,
+create a new assessment to obtain the updated Collector package.
+
 Collector Security Analyzer (CSA) is an evidence-first Windows endpoint
 assessment toolkit. CSA Lab turns the secure collection, analysis, fleet
 aggregation, and reporting pipeline into one assessor-facing Windows
@@ -21,10 +32,14 @@ evaluation scope. See [semantics and live acceptance](docs/sprint-5.3.1-semantic
 9. Select **Generate Assessment Report**.
 10. Open the single self-contained HTML report and stop collection.
 
-The endpoint user does not install Python, unpack a ZIP, enter a token, change
-PowerShell policy, or run a command. CSA Collector does not require
-administrator rights, request UAC, install an agent, modify the endpoint
+With the recommended EXE, the endpoint user does not install Python, unpack a
+ZIP, enter a token, change PowerShell policy, or run a command. CSA Collector
+does not require administrator rights, request UAC, install an agent, modify the endpoint
 firewall or registry, or run Active Validation.
+
+The Lab Collector page also offers **PowerShell Collector — Enterprise
+compatibility** as an alternative download using the same assessment and
+security controls. See [Collector transport and file-lock handling](docs/collector-bootstrap-filelocks.md).
 
 ## Security Boundaries
 

@@ -12,4 +12,10 @@ the final response. State any validation or signing limits accurately. Never
 commit credentials, customer evidence, session enrollment tokens or local build
 outputs; use the existing GitHub Actions artifact workflow for the installer.
 
+Public installers should also be available through GitHub Releases. Keep the
+main README's installer, checksum and build-information links pointing to the
+current public release so downloads are visible on the repository homepage.
+Publish the verified CI installer with its actual source commit and version;
+do not retag or silently replace an existing release's installer.
+
 This preference was explicitly requested by the user on 2026-10-07.
