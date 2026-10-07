@@ -41,7 +41,9 @@ class CollectorBootstrapTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        # Hosted Windows runners can expose TEMP through an 8.3 alias. Match
+        # the canonical script root used by the production PowerShell runner.
+        self.root = Path(self.temporary.name).resolve()
         self.package = self.root / "package"
         self.package.mkdir()
         self.module = self.package / "collector/modules/Test.psm1"
@@ -121,7 +123,7 @@ foreach ($node in $ast.EndBlock.Statements) {
         . ([scriptblock]::Create($node.Extent.Text))
     }
 }
-$packageRoot = Split-Path (Split-Path (Split-Path $Module -Parent) -Parent) -Parent
+$packageRoot = [System.IO.Path]::GetFullPath((Split-Path (Split-Path (Split-Path $Module -Parent) -Parent) -Parent))
 try {
     if ($Mode -eq 'verify') { Test-CSATrustedPackage } else { Get-CSASha256File $Module }
 } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }
