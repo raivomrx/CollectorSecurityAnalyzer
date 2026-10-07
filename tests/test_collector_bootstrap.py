@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -65,10 +66,13 @@ class CollectorBootstrapTests(unittest.TestCase):
         return subprocess.run([str(self.harness), "extract", str(bound), str(target)],
                               capture_output=True, text=True, timeout=20)
 
-    def hold_module(self, seconds, path=None, wait=True):
+    def hold_module(self, seconds, path=None, wait=True, operation_gate=False):
         ready = self.root / "lock-ready"
-        process = subprocess.Popen([sys.executable, str(ROOT / "tests/fixtures/hold_collector_file.py"),
-                                    str(path or self.module), str(ready), str(seconds)])
+        arguments = [sys.executable, str(ROOT / "tests/fixtures/hold_collector_file.py"),
+                     str(path or self.module), str(ready), str(seconds)]
+        if operation_gate:
+            arguments.append(str(self.root / "operation-ready"))
+        process = subprocess.Popen(arguments)
         def close():
             if process.poll() is None:
                 process.terminate()
@@ -124,14 +128,26 @@ foreach ($node in $ast.EndBlock.Statements) {
     }
 }
 $packageRoot = [System.IO.Path]::GetFullPath((Split-Path (Split-Path (Split-Path $Module -Parent) -Parent) -Parent))
+$gate = Join-Path (Split-Path $packageRoot -Parent) 'operation-ready'
+[System.IO.File]::WriteAllText($gate, 'READY')
+$operationTimer = [System.Diagnostics.Stopwatch]::StartNew()
+$operationFailed = $false
 try {
     if ($Mode -eq 'verify') { Test-CSATrustedPackage } else { Get-CSASha256File $Module }
-} catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }
+} catch { [Console]::Error.WriteLine($_.Exception.Message); $operationFailed = $true }
+$operationTimer.Stop()
+Write-Output ('CSA_TEST_OPERATION_MS=' + $operationTimer.ElapsedMilliseconds)
+if ($operationFailed) { exit 1 }
 """, encoding="utf-8")
         return subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                                str(script), str(ROOT / "collector/windows/Invoke-CSACollector.ps1"), str(self.module),
                                "verify" if verify else "hash"],
-                              capture_output=True, text=True, timeout=20)
+                              capture_output=True, text=True, timeout=40)
+
+    def powershell_operation_seconds(self, result):
+        measured = re.search(r"CSA_TEST_OPERATION_MS=(\d+)", result.stdout)
+        self.assertIsNotNone(measured, result.stdout + result.stderr)
+        return int(measured.group(1)) / 1000
 
     def test_stream_extraction_verifies_entry_digest_and_size(self):
         self.assertEqual(self.extract().returncode, 0)
@@ -179,7 +195,7 @@ try {
         self.assertIn("trusted Collector module", result.stdout)
 
     def test_windows_powershell_hash_recovers_after_module_lock(self):
-        self.hold_module(3)
+        self.hold_module(3, operation_gate=True)
         result = self.powershell_hash()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("TRANSIENT_FILE_LOCK", result.stdout)
@@ -188,38 +204,39 @@ try {
     def test_powershell_rejects_malformed_manifest_before_touching_locked_module(self):
         self.manifest["files"][0]["sha256"] = "invalid-digest"
         self.write_manifest()
-        self.hold_module(30)
-        started = time.monotonic()
+        process = self.hold_module(30, operation_gate=True)
         result = self.powershell_hash(verify=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("file entry is invalid", result.stderr)
         self.assertNotIn("TRANSIENT_FILE_LOCK", result.stdout)
-        self.assertLess(time.monotonic() - started, 3)
+        self.assertIsNone(process.poll(), "Malformed manifest must fail while the module is still locked")
+        self.assertLess(self.powershell_operation_seconds(result), 3)
 
     def test_powershell_verifies_package_and_rejects_digest_mismatch(self):
-        self.hold_module(3)
+        self.hold_module(3, operation_gate=True)
         result = self.powershell_hash(verify=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("TRANSIENT_FILE_LOCK", result.stdout)
         self.module.write_bytes(self.module.read_bytes().replace(b"trusted", b"altered"))
-        started = time.monotonic()
         result = self.powershell_hash(verify=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("digest mismatch", result.stderr)
         self.assertNotIn("TRANSIENT_FILE_LOCK", result.stdout)
-        self.assertLess(time.monotonic() - started, 3)
+        self.assertLess(self.powershell_operation_seconds(result), 3)
 
     def test_windows_persistent_lock_fails_closed_in_both_transports(self):
         for mode in ("exe", "powershell"):
             with self.subTest(mode=mode):
                 self.setUp()
-                process = self.hold_module(30)
+                process = self.hold_module(60, operation_gate=mode == "powershell")
                 started = time.monotonic()
                 result = (self.powershell_hash() if mode == "powershell" else subprocess.run(
                     [str(self.harness), "read", str(self.module)], capture_output=True, text=True, timeout=20))
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("TRANSIENT_FILE_LOCK", result.stderr)
-                self.assertLess(time.monotonic() - started, 16)
+                elapsed = (self.powershell_operation_seconds(result) if mode == "powershell"
+                           else time.monotonic() - started)
+                self.assertLess(elapsed, 16)
                 process.terminate()
                 process.wait(timeout=5)
 

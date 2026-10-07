@@ -21,6 +21,12 @@ while True:
     time.sleep(0.002)
 try:
     Path(sys.argv[2]).write_text(str(time.monotonic()), encoding="utf-8")
+    if len(sys.argv) > 4:
+        deadline = time.monotonic() + 30
+        while not Path(sys.argv[4]).exists():
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Collector verification never signaled readiness")
+            time.sleep(0.002)
     time.sleep(float(sys.argv[3]))
 finally:
     api.CloseHandle(handle)
