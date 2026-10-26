@@ -32,25 +32,23 @@ filtering. Framework evaluation logic is unchanged.
 
 ## P1: Administrative Privileges
 
-The Executive Summary displays **distinct observed interactive administrator
-users** and **affected endpoints** separately, with endpoint links. Membership
-comes from existing ACC-011 PASS/FAIL evidence containing current-user SID
-correlation with the collected local Administrators list. Display names alone,
-a process privilege flag, unresolved membership, incomplete collection,
-contradictory identities or missing ACC-011 evidence do not establish membership.
-Those endpoints remain NOT_EVALUATED, and partial fleet coverage is explicit.
+The Executive Summary counts **Collector execution accounts with confirmed
+administrator membership** separately from affected endpoints and elevated
+Collector processes. It makes no claim to evaluate actual daily desktop users.
+The effective-membership correction supersedes the original direct-SID-only
+implementation; see [the decision matrix and token scope](sprint-5.6.1-effective-administrator-membership.md).
 
-Fleet identities are deduplicated by SID or the existing privacy-mode SID
-pseudonym. Domain/Entra identities can span endpoints. Known local identities
-remain device-scoped, including cloned-machine SIDs. This counts the execution
-users observed in the latest accepted endpoint evidence, not every logged-on
-user or all sessions. The collection implementation and privacy policy are not
-expanded.
+ACC-011 reconciles direct local Administrators membership with complete,
+identity-bound Windows token group evidence. Domain group inheritance can
+confirm membership when a group in the direct list is present in the token.
+UAC-filtered deny-only SIDs remain membership evidence without granting access
+or establishing an elevated process. Unresolved disagreements are PARTIAL /
+SOURCE_CONFLICT; missing token evidence and a direct SID miss cannot become PASS.
 
-Collector process elevation is reported independently using a boolean
-`privilegeContext.isElevated` observation. Membership never proves elevation;
-absence of process evidence remains NOT_EVALUATED. Other processes and sessions
-are explicitly outside this observation's scope.
+Fleet identities use collected SIDs or privacy pseudonyms. Domain/Entra accounts
+can span endpoints; local and unknown account scopes remain device-specific.
+Legacy direct-positive proofs remain usable. Old direct-negative proofs without
+token evidence are NOT_EVALUATED and require fresh collection to resolve.
 
 ## Validation and review
 
@@ -65,22 +63,24 @@ python -W error::ResourceWarning -m unittest discover -s tests -q
 python scripts/Generate-Sprint561-Review.py --output test-artifacts/CSA-5.6.1-Review.html
 ```
 
-The synthetic review report contains two endpoints sharing one observed domain
-administrator identity and one endpoint with unavailable membership evidence.
-The two detailed software results share two confirmed CVEs (one KEV) and one
-possible CVE; a third endpoint contributes a legacy summary-only confirmed CVE.
-Expected executive counts: one distinct observed administrator, two affected
-endpoints, one NOT_EVALUATED endpoint, and zero elevated Collector processes.
+The updated synthetic report covers eight endpoints: direct and inherited
+domain membership (one shared account), a proven standard token, token-only
+membership with an unavailable direct list, a source conflict, failed token
+groups, UAC-filtered local membership, and pseudonymized inherited membership.
+Expected counts: **4 distinct Collector administrator accounts, 5 affected
+endpoints, 6 evaluated endpoints, 2 unresolved endpoints including 1 source
+conflict, and 0 elevated Collector processes**. The existing confirmed/possible
+and legacy summary-only CVE cases remain in the fixture.
 
 For live acceptance, install the **CI 5.6.1 candidate artifact**, create a new
 assessment, and inspect single-endpoint and mixed-fleet reports. Confirm that
 the generic control appears only as an internal summary/control result, that
 actions identify product/version/actual CVEs, and that observed-user counts,
 affected endpoints, unknown evidence and process elevation agree with the
-existing ACC-011 evidence. Existing evidence may be reanalyzed without claiming
+reconciled ACC-011 evidence. Existing evidence may be reanalyzed without claiming
 it is a fresh collection. No customer evidence is committed or published.
 
-Local validation on 2026-10-26: **528 Python tests and 86 PowerShell tests passed**,
+Original reporting correction validation (before the effective-membership follow-up): **528 Python tests and 86 PowerShell tests passed**,
 with no failures or skips. The review-candidate installer build passed and is
 unsigned locally. The generated review HTML and model digests match their
 integrity record; all fragment links resolve and HTML anchors are unique. The
@@ -94,8 +94,9 @@ issued. Visual layout remains a live-review check; the HTML/model checks above
 are not presented as a browser acceptance result.
 
 Compatibility declaration: CVE applicability, source trust, risk scoring/rating
-inputs, evidence schemas, collection semantics, session binding and transport
-integrity are unchanged. Product version identifiers for new collection,
+inputs, session binding and transport integrity are unchanged. The follow-up
+adds optional token membership evidence and allows an unknown (null) membership
+flag; existing schema version and standard-user authorization gates are preserved. Product version identifiers for new collection,
 analysis, reporting and installer builds are aligned to 5.6.1. Stored older
 evidence retains its actual collector version. The existing public release is
 unchanged pending live acceptance of this candidate.

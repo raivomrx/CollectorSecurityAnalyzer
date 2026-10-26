@@ -104,6 +104,7 @@
         {"id": "LOCAL_USERS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "LOCAL_USERS", "canonical": true},
         {"id": "LOCAL_ADMINISTRATORS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "LOCAL_ADMINISTRATORS", "canonical": true},
         {"id": "CURRENT_EXECUTION_USER", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "CURRENT_EXECUTION_USER", "canonical": true},
+        {"id": "EXECUTION_TOKEN_ADMIN_MEMBERSHIP", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "EXECUTION_TOKEN_ADMIN_MEMBERSHIP", "canonical": true},
         {"id": "LOGGED_ON_USERS", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "LOGGED_ON_USERS", "canonical": true},
         {"id": "USER_PROFILES", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "USER_PROFILES", "canonical": true},
         {"id": "ACTIVE_LOCAL_ADMINISTRATOR_ACCOUNT_COUNT", "matchType": "LITERAL", "cardinality": "SINGLE", "evidenceUnitId": "ACTIVE_LOCAL_ADMINISTRATOR_ACCOUNT_COUNT", "canonical": true},

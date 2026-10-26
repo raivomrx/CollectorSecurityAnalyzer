@@ -19,17 +19,40 @@ function Get-CSAAccountsEvidence {
     $errors = @()
     $warnings = @()
     $moduleStatus = ""
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $currentUser = [ordered]@{
+        Name = Protect-CSAIdentifier $identity.Name $PrivacyMode
+        Sid = Protect-CSAIdentifier ([string]$identity.User.Value) $PrivacyMode
+        Classification = ConvertTo-CSAUserClassification $null $identity.Name
+        ObservationScope = "COLLECTOR_EXECUTION_ACCOUNT"
+    }
+    $currentSetting = New-CSASetting "CURRENT_EXECUTION_USER" "Accounts" $currentUser "RUNTIME_STATE" "SUCCESS" 100 "WindowsIdentity" "Current"
+    $settings += $currentSetting
+    $tokenContext = Get-CSAExecutionTokenContext -PrivacyMode $PrivacyMode
+    $tokenSetting = New-CSASetting "EXECUTION_TOKEN_ADMIN_MEMBERSHIP" "Accounts" $tokenContext.administratorMembership "RUNTIME_STATE" $tokenContext.administratorMembership.collectionStatus 100 "GetTokenInformation" "CurrentToken.Groups"
+    if ($tokenSetting.collectionStatus -ne "SUCCESS") { $tokenSetting.confidence = 0 }
+    $settings += $tokenSetting
+    $settings += New-CSASetting "LOGGED_ON_USERS" "Accounts" @() "RUNTIME_STATE" "NOT_AVAILABLE" 0 "WindowsIdentity" "Current" -ErrorCode "DESKTOP_USERS_NOT_EVALUATED" -Metadata @{ observationScope = "COLLECTOR_EXECUTION_ACCOUNT_ONLY" }
     $passwordPolicy = Get-CSAPasswordPolicyEvidence -Provider $PasswordPolicyProvider
     $settings += $passwordPolicy.Settings
     $errors += $passwordPolicy.Errors
     if (-not (Get-Command Get-LocalUser -ErrorAction SilentlyContinue)) {
         $errorItem = New-CSACollectionError "Accounts" "NOT_SUPPORTED" "CSA-ACCOUNTS-NOT-SUPPORTED" "Microsoft.PowerShell.LocalAccounts cmdlets are unavailable."
-        return New-CSAModuleResult -Module "Accounts" -Errors @($errorItem) -StartedAt $startedAt -Status "NOT_SUPPORTED"
+        return New-CSAModuleResult -Module "Accounts" -Settings $settings -Errors @($errorItem) -StartedAt $startedAt -Status "NOT_SUPPORTED"
     }
 
     try {
         $now = Get-Date
         $users = @(Get-LocalUser -ErrorAction Stop)
+        $localSidScopes = @($users | ForEach-Object { ([string]$_.SID) -replace '-\d+$', '' } | Select-Object -Unique)
+        $currentSidScope = ([string]$identity.User.Value) -replace '-\d+$', ''
+        if ($localSidScopes -contains $currentSidScope) {
+            $currentUser.Classification = "LOCAL"
+        } elseif ([string]$identity.User.Value -match '^S-1-12-1-') {
+            $currentUser.Classification = "ENTRA"
+        } elseif ([string]$identity.User.Value -match '^S-1-5-21-' -and $localSidScopes.Count -gt 0) {
+            $currentUser.Classification = "DOMAIN"
+        }
         $userEvidence = @()
         foreach ($user in $users) {
             $classification = ConvertTo-CSAUserClassification $user.PrincipalSource $user.Name
@@ -60,6 +83,13 @@ function Get-CSAAccountsEvidence {
             }
         })
         $settings += New-CSASetting "LOCAL_ADMINISTRATORS" "Accounts" $adminEvidence "RUNTIME_STATE" "SUCCESS" 90 "Get-LocalGroupMember" "S-1-5-32-544"
+        $groupSids = @($adminMembers | Where-Object { [string]$_.ObjectClass -eq "Group" } | ForEach-Object { [string]$_.SID })
+        $tokenContext = Get-CSAExecutionTokenContext -PrivacyMode $PrivacyMode -AdministratorGroupSids $groupSids
+        $tokenSetting.effectiveValue = $tokenContext.administratorMembership
+        $tokenSetting.configuredValue = $tokenContext.administratorMembership
+        $tokenSetting.collectionStatus = $tokenContext.administratorMembership.collectionStatus
+        $tokenSetting.confidence = if ($tokenSetting.collectionStatus -eq "SUCCESS") { 100 } else { 0 }
+        $tokenSetting.collectedAt = (Get-Date).ToUniversalTime().ToString("o")
         $settings += New-CSASetting "LOCAL_ADMINISTRATOR_COUNT" "Accounts" $adminEvidence.Count "RUNTIME_STATE" "SUCCESS" 95 "Get-LocalGroupMember" "S-1-5-32-544.Count"
         $unresolvedAdminCount = @($adminEvidence | Where-Object { -not $_.Resolved -or $_.Classification -eq "UNKNOWN" }).Count
         $settings += New-CSASetting "UNRESOLVED_LOCAL_ADMINISTRATOR_COUNT" "Accounts" $unresolvedAdminCount "RUNTIME_STATE" "SUCCESS" 85 "Get-LocalGroupMember" "S-1-5-32-544.Unresolved"
@@ -77,15 +107,6 @@ function Get-CSAAccountsEvidence {
         $staleCount = @($users | Where-Object { $_.Enabled -and $null -ne $_.LastLogon -and ($now - [datetime]$_.LastLogon).TotalDays -gt 90 }).Count
         $settings += New-CSASetting "PASSWORD_NEVER_EXPIRES_INTERACTIVE_COUNT" "Accounts" $passwordNeverExpiresCount "RUNTIME_STATE" "SUCCESS" 85 "Get-LocalUser" "PasswordNeverExpires"
         $settings += New-CSASetting "STALE_ENABLED_LOCAL_ACCOUNT_COUNT" "Accounts" $staleCount "RUNTIME_STATE" "SUCCESS" 75 "Get-LocalUser" "LastLogon" -Metadata @{ thresholdDays = 90 }
-
-        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-        $currentUser = [ordered]@{
-            Name = Protect-CSAIdentifier $identity.Name $PrivacyMode
-            Sid = Protect-CSAIdentifier ([string]$identity.User.Value) $PrivacyMode
-            Classification = ConvertTo-CSAUserClassification $null $identity.Name
-        }
-        $settings += New-CSASetting "CURRENT_EXECUTION_USER" "Accounts" $currentUser "RUNTIME_STATE" "SUCCESS" 100 "WindowsIdentity" "Current"
-        $settings += New-CSASetting "LOGGED_ON_USERS" "Accounts" @($currentUser) "RUNTIME_STATE" "SUCCESS" 70 "WindowsIdentity" "CurrentInteractiveContext"
 
         try {
             $profiles = @(Get-CimInstance Win32_UserProfile -ErrorAction Stop | ForEach-Object {

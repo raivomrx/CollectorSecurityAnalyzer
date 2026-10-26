@@ -13,7 +13,7 @@ if str(ROOT) not in sys.path:
 
 from csa_console.canonical import read_json, write_canonical_json
 from tests.test_console_sprint5 import Sprint5TestCase
-from tests.test_sprint561_reporting import build_review_fixture
+from tests.test_effective_admin_membership import build_effective_membership_review_fixture
 
 
 def main():
@@ -25,7 +25,7 @@ def main():
     case = Sprint5TestCase(methodName="runTest")
     case.setUp()
     try:
-        generator = build_review_fixture(case)
+        generator = build_effective_membership_review_fixture(case)
         case.storage.write_json(case.assessment.assessment_id, ("lab-state.json",), {
             "organization": "Synthetic review",
             "description": "Synthetic demonstration of CSA 5.6.1 reporting corrections. This is not a real endpoint assessment or live-acceptance result.",
@@ -38,7 +38,7 @@ def main():
         write_canonical_json(output.with_suffix(".integrity.json"), integrity)
         write_canonical_json(output.with_suffix(".model.json"), model)
         print("Synthetic review report: " + str(output))
-        print("Observed administrator users: 1; affected endpoints: 2; membership NOT_EVALUATED: 1")
+        print("Synthetic Collector accounts: 4; affected endpoints: 5; unresolved: 2 (one source conflict); elevated processes: 0")
     finally:
         case.doCleanups()
 

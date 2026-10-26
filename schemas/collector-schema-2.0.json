@@ -34,7 +34,7 @@
           ]
         },
         "isElevated": { "type": "boolean" },
-        "isLocalAdministratorMember": { "type": "boolean" },
+        "isLocalAdministratorMember": { "type": ["boolean", "null"] },
         "integrityLevel": { "type": "string" },
         "effectiveUserHash": { "type": "string" }
       }

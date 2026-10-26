@@ -27,7 +27,7 @@ jobs:
       - name: Verify Sprint 5.6 identity posture and intelligence semantics
         run: python -W error::ResourceWarning -m unittest tests.test_sprint56 -v
       - name: Verify 5.6.1 vulnerability and administrator reporting
-        run: python -W error::ResourceWarning -m unittest tests.test_sprint561_reporting -v
+        run: python -W error::ResourceWarning -m unittest tests.test_sprint561_reporting tests.test_effective_admin_membership -v
       - name: Generate synthetic 5.6.1 live-review artifact
         run: python scripts/Generate-Sprint561-Review.py --output test-artifacts/CSA-5.6.1-Review.html
       - name: Generate mixed-fleet semantic acceptance report

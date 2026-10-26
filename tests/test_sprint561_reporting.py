@@ -39,7 +39,11 @@ def membership(sid=SID, name="DEMO\\admin", member=True, classification="DOMAIN"
              "membership_source": "LOCAL_ADMINISTRATORS_SID_CORRELATION"}
     if member:
         value["matched_principal"] = {"sid": sid, "name": name, "classification": classification, "resolved": True}
-    return audit(status="FAIL" if member else "PASS", evidence=value)
+    if not member:
+        from tests.test_effective_admin_membership import membership_settings, evaluate
+        finding, _ = evaluate(membership_settings('STANDARD', sid=sid, classification=classification))
+        return AuditFinding(finding, KnowledgeRepository().get('ACC-011')).to_dict()
+    return audit(status="FAIL", evidence=value)
 
 
 def endpoint(label="DEMO-01", *, sid=SID, name="DEMO\\admin", member=True,
@@ -239,7 +243,7 @@ class ReportSemanticsTests(Sprint5TestCase):
         html = self.generator.generate(self.assessment.assessment_id, include_technical_evidence=False).read_text(encoding="utf-8")
         self.assertIn('href="#administrative-privileges"', html)
         self.assertIn('id="administrative-privileges"', html)
-        self.assertIn("1 distinct observed interactive administrator user across 2 affected endpoints", html)
+        self.assertIn("1 distinct observed Collector administrator account across 2 affected endpoints", html)
         self.assertIn("DEMO\\admin õäöü", html)
         self.assertIn("Other processes and sessions were not evaluated", html)
         for left, right in (("priority", "systemic"), ("systemic", "remediation"), ("remediation", "cve")):

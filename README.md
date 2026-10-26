@@ -13,7 +13,8 @@ create a new assessment to obtain the updated Collector package.
 
 **5.6.1 is a review candidate**, available from the
 [CSA Lab Build workflow](https://github.com/raivomrx/CollectorSecurityAnalyzer/actions/workflows/csa-lab-build.yml).
-Its [reporting corrections](docs/sprint-5.6.1-reporting.md) await live acceptance;
+Its [reporting corrections](docs/sprint-5.6.1-reporting.md), including the
+[ACC-011 inherited membership fix](docs/sprint-5.6.1-effective-administrator-membership.md), await live acceptance;
 the published release above remains unchanged.
 
 Collector Security Analyzer (CSA) is an evidence-first Windows endpoint

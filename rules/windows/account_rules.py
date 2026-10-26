@@ -7,6 +7,7 @@ from typing import Any
 
 from analysis_context import AnalysisContext
 from risk import Finding, Severity, Status
+from evidence.administrator_membership import membership_observation, resolve_administrator_membership
 from rules.base import BaseRule
 from rules.categories import RuleCategory
 from rules.metadata import RuleMetadata
@@ -123,111 +124,45 @@ class Acc009Rule(BaseRule):
 
 
 class Acc011Rule(BaseRule):
-    """Detect when the interactive user is a local Administrators member."""
+    """Assess the Collector execution account's effective administrator membership."""
 
     metadata = RuleMetadata(
-        id="ACC-011",
-        title="Daily user has local administrator privileges",
-        version="1.0",
-        author="CSA",
-        category=RuleCategory.ACCOUNTS,
-        severity=Severity.HIGH,
-        enabled=True,
-        description=(
-            "Correlates the current interactive user SID with local "
-            "Administrators membership."
-        ),
+        id="ACC-011", title="Collector execution account administrator membership",
+        version="1.1", author="CSA", category=RuleCategory.ACCOUNTS,
+        severity=Severity.HIGH, enabled=True,
+        description="Reconciles direct SID membership and identity-bound Windows token groups, including UAC deny-only SIDs.",
     )
 
-    def check(
-        self,
-        data: dict[str, Any],
-        context: AnalysisContext | None = None,
-    ) -> list[Finding]:
-        """Return a SID-backed least-privilege finding."""
-
+    def check(self, data: dict[str, Any], context: AnalysisContext | None = None) -> list[Finding]:
         LOGGER.info("Running Acc011Rule")
         try:
             registry = context.evidence_registry if context else None
             if registry is None:
-                return self.not_evaluated(
-                    ["CURRENT_EXECUTION_USER", "LOCAL_ADMINISTRATORS"]
-                )
-            current = registry.get("CURRENT_EXECUTION_USER")
-            administrators = registry.get("LOCAL_ADMINISTRATORS")
-            if current is None or administrators is None:
-                return self.not_evaluated(
-                    ["CURRENT_EXECUTION_USER", "LOCAL_ADMINISTRATORS"]
-                )
-            if (
-                current.collection_status.value != "SUCCESS"
-                or administrators.collection_status.value != "SUCCESS"
-            ):
-                return self.not_evaluated(
-                    ["CURRENT_EXECUTION_USER", "LOCAL_ADMINISTRATORS"],
-                    "EVIDENCE_NOT_SUCCESSFUL",
-                )
-
-            current_value = (
-                current.effective_value
-                if isinstance(current.effective_value, dict)
-                else {}
-            )
-            current_sid = _principal_value(current_value, "Sid")
-            if not current_sid and context.collector_document:
-                current_sid = str(
-                    context.collector_document.device.current_user_sid or ""
-                ).strip()
-            if not current_sid:
-                return self.not_evaluated(
-                    ["CURRENT_EXECUTION_USER"], "CURRENT_USER_SID_UNAVAILABLE"
-                )
-
-            members = (
-                administrators.effective_value
-                if isinstance(administrators.effective_value, list)
-                else []
-            )
-            matched = next(
-                (
-                    member
-                    for member in members
-                    if isinstance(member, dict)
-                    and _principal_value(member, "Sid").casefold()
-                    == current_sid.casefold()
-                ),
-                None,
-            )
-            affected_asset = (
-                context.collector_document.device.computer_name
-                if context.collector_document
-                else None
-            )
+                return self.not_evaluated(["CURRENT_EXECUTION_USER", "LOCAL_ADMINISTRATORS", "EXECUTION_TOKEN_ADMIN_MEMBERSHIP"])
+            ids = {"CURRENT_EXECUTION_USER", "LOCAL_ADMINISTRATORS", "EXECUTION_TOKEN_ADMIN_MEMBERSHIP"}
+            if ids.intersection(registry.duplicates):
+                return [Finding(rule_id=self.id, severity=Severity.INFO, status=Status.PARTIAL, score=0,
+                                evidence={"state": "SOURCE_CONFLICT", "reason": "Membership evidence contains duplicate settings."})]
+            def setting(key):
+                row = registry.get(key)
+                return {"effectiveValue": row.effective_value, "collectionStatus": row.collection_status.value,
+                        "provider": row.provider} if row is not None else {}
+            document = context.collector_document
+            fallback_sid = document.device.current_user_sid if document else None
+            observation = membership_observation(setting("CURRENT_EXECUTION_USER"), setting("LOCAL_ADMINISTRATORS"),
+                                                 setting("EXECUTION_TOKEN_ADMIN_MEMBERSHIP"), fallback_sid)
+            resolved = resolve_administrator_membership(observation)
+            direct = observation["direct"]
             evidence = {
-                "current_user": _principal_value(current_value, "Name"),
-                "current_user_sid": current_sid,
-                "membership_source": "LOCAL_ADMINISTRATORS_SID_CORRELATION",
-                "matched": matched is not None,
+                "current_user": observation["identity"]["name"], "current_user_sid": observation["identity"]["sid"],
+                "matched": direct["isMember"], "matched_principal": direct["matchedPrincipal"],
+                "membership_source": "LOCAL_ADMINISTRATORS_SID_CORRELATION" if direct["isMember"] is True else "WINDOWS_TOKEN_GROUP_RECONCILIATION",
+                "membership_evidence": observation, "effective_membership": resolved,
+                "reason": resolved["reason"], "observation_scope": "COLLECTOR_EXECUTION_ACCOUNT",
             }
-            if matched is not None:
-                evidence["matched_principal"] = {
-                    "name": _principal_value(matched, "Name"),
-                    "sid": _principal_value(matched, "Sid"),
-                    "classification": _principal_value(
-                        matched, "Classification"
-                    ),
-                    "resolved": bool(matched.get("Resolved", False)),
-                }
-            return [
-                Finding(
-                    rule_id=self.id,
-                    severity=Severity.HIGH if matched else Severity.LOW,
-                    status=Status.FAIL if matched else Status.PASS,
-                    score=20 if matched else 0,
-                    evidence=evidence,
-                    affected_asset=affected_asset,
-                )
-            ]
+            return [Finding(rule_id=self.id, severity=Severity.HIGH if resolved["status"] == "FAIL" else Severity.LOW if resolved["status"] == "PASS" else Severity.INFO,
+                            status=Status(resolved["status"]), score=20 if resolved["status"] == "FAIL" else 0,
+                            evidence=evidence, affected_asset=document.device.computer_name if document else None)]
         except Exception as error:
             LOGGER.exception("Acc011Rule failed")
             return self.error(str(error))

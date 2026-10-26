@@ -488,4 +488,173 @@ function Get-CSAGeneralEvidence {
     New-CSAModuleResult -Module "General" -Errors $errors -Warnings $warnings -StartedAt $startedAt -Status $status -SoftwareItems $softwareItems -Services $services -ScheduledTasks $scheduledTasks
 }
 
-Export-ModuleMember -Function New-CSASetting, New-CSACollectionError, New-CSAModuleResult, Test-CSASettingMatchesManifestEntry, Resolve-CSAModuleEvidence, Test-CSAEvidenceManifest, Get-CSARegistryValue, Resolve-CSAExceptionStatus, Protect-CSAIdentifier, Protect-CSAPath, Get-CSAInstalledSoftware, Get-CSAGeneralEvidence
+function Invoke-CSANativeTokenSnapshot {
+    param([string[]]$AdministratorGroupSids = @())
+    if (-not ("CSA.Native.ExecutionToken" -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Security.Principal;
+namespace CSA.Native {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TokenSidAttributes { public IntPtr Sid; public uint Attributes; }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TokenGroupsHeader { public uint Count; public TokenSidAttributes First; }
+    public class MatchedTokenGroup { public string Sid; public uint Attributes; }
+    public class TokenSnapshot {
+        public string SubjectSid;
+        public bool? IsElevated;
+        public string ElevationType = "UNKNOWN", IntegrityLevel = "UNKNOWN";
+        public string GroupsStatus = "FAILED";
+        public int GroupsError = -1;
+        public bool AdministratorSidPresent;
+        public uint? AdministratorAttributes;
+        public List<MatchedTokenGroup> MatchedGroups = new List<MatchedTokenGroup>();
+    }
+    public static class ExecutionToken {
+        [DllImport("advapi32.dll", SetLastError=true)]
+        private static extern bool GetTokenInformation(IntPtr token, int kind, IntPtr buffer, int size, out int needed);
+        private static IntPtr Query(IntPtr token, int kind, out int length) {
+            GetTokenInformation(token, kind, IntPtr.Zero, 0, out length);
+            if (Marshal.GetLastWin32Error() != 122 || length <= 0 || length > 1048576)
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            IntPtr buffer = Marshal.AllocHGlobal(length);
+            try {
+                int returned;
+                if (!GetTokenInformation(token, kind, buffer, length, out returned))
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                if (returned <= 0 || returned > length) throw new InvalidOperationException();
+                length = returned;
+                return buffer;
+            } catch { Marshal.FreeHGlobal(buffer); throw; }
+        }
+        private static int Scalar(IntPtr token, int kind) {
+            int length; IntPtr buffer = Query(token, kind, out length);
+            try { if (length < 4) throw new InvalidOperationException(); return Marshal.ReadInt32(buffer); }
+            finally { Marshal.FreeHGlobal(buffer); }
+        }
+        public static TokenSnapshot Read(string[] administratorGroups) {
+            var result = new TokenSnapshot();
+            var allowed = new HashSet<string>(administratorGroups ?? new string[0], StringComparer.OrdinalIgnoreCase);
+            using (WindowsIdentity identity = WindowsIdentity.GetCurrent()) {
+                result.SubjectSid = identity.User.Value;
+                IntPtr token = identity.Token;
+                try { result.IsElevated = Scalar(token, 20) != 0; } catch { }
+                try {
+                    int value = Scalar(token, 18);
+                    result.ElevationType = value == 1 ? "DEFAULT" : value == 2 ? "FULL" : value == 3 ? "LIMITED" : "UNKNOWN";
+                } catch { }
+                try {
+                    int length; IntPtr buffer = Query(token, 25, out length);
+                    try {
+                        if (length < Marshal.SizeOf(typeof(TokenSidAttributes))) throw new InvalidOperationException();
+                        string label = new SecurityIdentifier(Marshal.ReadIntPtr(buffer)).Value;
+                        result.IntegrityLevel = label == "S-1-16-16384" ? "SYSTEM" : label == "S-1-16-12288" ? "HIGH" :
+                            label == "S-1-16-8192" || label == "S-1-16-8448" ? "MEDIUM" : label == "S-1-16-4096" ? "LOW" : "UNKNOWN";
+                    } finally { Marshal.FreeHGlobal(buffer); }
+                } catch { }
+                try {
+                    int length; IntPtr buffer = Query(token, 2, out length);
+                    try {
+                        int offset = Marshal.OffsetOf(typeof(TokenGroupsHeader), "First").ToInt32();
+                        int size = Marshal.SizeOf(typeof(TokenSidAttributes));
+                        uint count = unchecked((uint)Marshal.ReadInt32(buffer));
+                        if (length < offset || count > (length - offset) / size) throw new InvalidOperationException();
+                        for (int index = 0; index < count; index++) {
+                            var group = (TokenSidAttributes)Marshal.PtrToStructure(IntPtr.Add(buffer, offset + index * size), typeof(TokenSidAttributes));
+                            string sid = new SecurityIdentifier(group.Sid).Value;
+                            if (sid == "S-1-5-32-544") { result.AdministratorSidPresent = true; result.AdministratorAttributes = group.Attributes; }
+                            if (allowed.Contains(sid)) result.MatchedGroups.Add(new MatchedTokenGroup { Sid = sid, Attributes = group.Attributes });
+                        }
+                        result.GroupsStatus = "SUCCESS"; result.GroupsError = 0;
+                    } finally { Marshal.FreeHGlobal(buffer); }
+                } catch (Win32Exception error) { result.GroupsError = error.NativeErrorCode; }
+                  catch { result.GroupsError = -1; }
+            }
+            return result;
+        }
+    }
+}
+'@
+    }
+    [CSA.Native.ExecutionToken]::Read($AdministratorGroupSids)
+}
+
+function Invoke-CSAIntegrityGroupQuery {
+    $lines = @(& "$env:SystemRoot\System32\whoami.exe" /groups /fo csv /nh 2>$null)
+    return [pscustomobject]@{ Lines = $lines; ExitCode = $LASTEXITCODE }
+}
+
+function Get-CSAExecutionTokenContext {
+    param([string]$PrivacyMode = "Strict", [string[]]$AdministratorGroupSids = @())
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    try {
+        $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+        # Preserve the existing authorization check even if a native query is blocked.
+        $isElevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+        $integrity = "UNKNOWN"
+        $membership = [ordered]@{
+            schemaVersion = "1.0"; provider = "GetTokenInformation"; collectionStatus = "FAILED"
+            subjectSid = Protect-CSAIdentifier ([string]$identity.User.Value) $PrivacyMode
+            administratorSid = "S-1-5-32-544"; groupsComplete = $false
+            administratorSidPresent = $null; administratorGroupEnabled = $null
+            administratorGroupDenyOnly = $null; administratorGroupAttributes = $null
+            elevationType = "UNKNOWN"; matchedAdministratorGroups = @(); errorCode = "TOKEN_QUERY_UNAVAILABLE"
+        }
+        try {
+            $snapshot = Invoke-CSANativeTokenSnapshot -AdministratorGroupSids $AdministratorGroupSids
+            if ($null -ne $snapshot.IsElevated) { $isElevated = [bool]$snapshot.IsElevated }
+            $integrity = [string]$snapshot.IntegrityLevel
+            $membership.subjectSid = Protect-CSAIdentifier ([string]$snapshot.SubjectSid) $PrivacyMode
+            $membership.elevationType = [string]$snapshot.ElevationType
+            if ($snapshot.GroupsStatus -eq "SUCCESS") {
+                $membership.collectionStatus = "SUCCESS"
+                $membership.groupsComplete = $true
+                $membership.administratorSidPresent = [bool]$snapshot.AdministratorSidPresent
+                $membership.administratorGroupAttributes = $snapshot.AdministratorAttributes
+                $membership.administratorGroupEnabled = $null -ne $snapshot.AdministratorAttributes -and (($snapshot.AdministratorAttributes -band 4) -ne 0)
+                $membership.administratorGroupDenyOnly = $null -ne $snapshot.AdministratorAttributes -and (($snapshot.AdministratorAttributes -band 16) -ne 0)
+                $membership.matchedAdministratorGroups = @($snapshot.MatchedGroups | ForEach-Object {
+                    [ordered]@{ sid = Protect-CSAIdentifier ([string]$_.Sid) $PrivacyMode; attributes = [long]$_.Attributes }
+                })
+                $membership.errorCode = $null
+            } else { $membership.errorCode = "TOKEN_GROUPS_QUERY_FAILED" }
+        } catch { $membership.errorCode = "TOKEN_QUERY_UNAVAILABLE" }
+        if ($integrity -eq "UNKNOWN") {
+            # Fallback is only for the existing process-integrity authorization gate.
+            # Never turn failed whoami output into a false membership observation.
+            try {
+                $groupQuery = Invoke-CSAIntegrityGroupQuery
+                if ($groupQuery.ExitCode -eq 0) {
+                    $groups = @($groupQuery.Lines | ConvertFrom-Csv -Header Name,Type,Sid,Attributes)
+                    $sids = @($groups | ForEach-Object { [string]$_.Sid })
+                    if ($sids -contains "S-1-16-16384") { $integrity = "SYSTEM" }
+                    elseif ($sids -contains "S-1-16-12288") { $integrity = "HIGH" }
+                    elseif ($sids -contains "S-1-16-8192" -or $sids -contains "S-1-16-8448") { $integrity = "MEDIUM" }
+                    elseif ($sids -contains "S-1-16-4096") { $integrity = "LOW" }
+                }
+            } catch { $integrity = "UNKNOWN" }
+        }
+        $adminMember = $null
+        if ($membership.collectionStatus -eq "SUCCESS") {
+            if ($membership.administratorSidPresent -eq $false) { $adminMember = $false }
+            elseif ($membership.administratorGroupEnabled -or $membership.administratorGroupDenyOnly) { $adminMember = $true }
+        }
+        $mode = if ($identity.User.Value -eq "S-1-5-18") { "SYSTEM" }
+            elseif ($isElevated) { "ELEVATED_ADMINISTRATOR" }
+            elseif ($adminMember -eq $true) { "ADMIN_MEMBER_NOT_ELEVATED" }
+            else { "STANDARD_USER" } # Process mode; unknown account membership stays null.
+        return [ordered]@{
+            executionMode = $mode; isElevated = [bool]$isElevated
+            isLocalAdministratorMember = $adminMember; integrityLevel = $integrity
+            administratorMembership = $membership; uacVirtualization = $null
+            effectiveUserHash = Protect-CSAIdentifier $identity.Name "Strict"
+            collectionScope = "CURRENT_USER_AND_PUBLIC_MACHINE_STATE"
+            identityScope = "COLLECTOR_EXECUTION_ACCOUNT"
+        }
+    } finally { $identity.Dispose() }
+}
+
+Export-ModuleMember -Function New-CSASetting, New-CSACollectionError, New-CSAModuleResult, Test-CSASettingMatchesManifestEntry, Resolve-CSAModuleEvidence, Test-CSAEvidenceManifest, Get-CSARegistryValue, Resolve-CSAExceptionStatus, Protect-CSAIdentifier, Protect-CSAPath, Get-CSAInstalledSoftware, Get-CSAGeneralEvidence, Invoke-CSANativeTokenSnapshot, Get-CSAExecutionTokenContext

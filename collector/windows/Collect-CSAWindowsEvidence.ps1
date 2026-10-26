@@ -67,30 +67,7 @@ foreach ($entry in @($manifestDocument.modules)) {
 }
 
 function Get-CSACollectionPrivilegeContext {
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-    $isElevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-    $groupOutput = (& "$env:SystemRoot\System32\whoami.exe" /groups /fo csv /nh 2>$null) -join "`n"
-    $isAdministratorMember = $groupOutput -match "S-1-5-32-544"
-    $integrityLevel = "UNKNOWN"
-    if ($groupOutput -match "S-1-16-16384") { $integrityLevel = "SYSTEM" }
-    elseif ($groupOutput -match "S-1-16-12288") { $integrityLevel = "HIGH" }
-    elseif ($groupOutput -match "S-1-16-(8192|8448)") { $integrityLevel = "MEDIUM" }
-    elseif ($groupOutput -match "S-1-16-4096") { $integrityLevel = "LOW" }
-    $executionMode = "UNKNOWN"
-    if ($identity.User.Value -eq "S-1-5-18") { $executionMode = "SYSTEM" }
-    elseif ($isElevated) { $executionMode = "ELEVATED_ADMINISTRATOR" }
-    elseif ($isAdministratorMember) { $executionMode = "ADMIN_MEMBER_NOT_ELEVATED" }
-    else { $executionMode = "STANDARD_USER" }
-    return [ordered]@{
-        executionMode = $executionMode
-        isElevated = [bool]$isElevated
-        isLocalAdministratorMember = [bool]$isAdministratorMember
-        integrityLevel = $integrityLevel
-        uacVirtualization = $null
-        effectiveUserHash = Protect-CSAIdentifier $identity.Name "Strict"
-        collectionScope = "CURRENT_USER_AND_PUBLIC_MACHINE_STATE"
-    }
+    return Get-CSAExecutionTokenContext -PrivacyMode $PrivacyMode
 }
 
 function ConvertTo-CSACapabilityStatus {

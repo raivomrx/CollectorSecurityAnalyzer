@@ -1785,12 +1785,14 @@ def _administrative_privileges_summary(endpoints: list[dict[str, Any]]) -> dict[
     evaluated = 0
     elevated = 0
     process_evaluated = 0
+    source_conflicts = 0
     for index, endpoint in enumerate(endpoints):
         posture = endpoint.get("administrativePrivileges") or administrative_privilege_posture(
             {"privilegeContext": endpoint.get("privilegeContext", {})}, endpoint.get("findings", [])
         )
         if posture["status"] in {"PASS", "FAIL"}:
             evaluated += 1
+        source_conflicts += int(posture.get("state") == "SOURCE_CONFLICT")
         process = posture["processElevation"]["isElevated"]
         if process is not None:
             process_evaluated += 1
@@ -1801,13 +1803,16 @@ def _administrative_privileges_summary(endpoints: list[dict[str, Any]]) -> dict[
         user = posture["user"]
         # Local identities are scoped to a device, including cloned-machine SIDs.
         local_scope = ""
-        if user["classification"] == "LOCAL":
+        if user["classification"] not in {"DOMAIN", "ENTRA"}:
             local_scope = str(endpoint.get("deviceId") or endpoint.get("submissionId") or f"observation-{index}")
         key = (local_scope, user["identity"])
         row = users.setdefault(key, {
             "name": user["name"], "classification": user["classification"], "endpointLinks": [],
+            "membershipTypes": [], "tokenStates": [],
         })
         row["name"] = min(row["name"], user["name"], key=str.casefold)
+        row["membershipTypes"] = sorted(set(row["membershipTypes"] + [posture.get("membershipType", "DIRECT")]))
+        row["tokenStates"] = sorted(set(row["tokenStates"] + [posture.get("tokenState", "NOT_EVALUATED")]))
         row["endpointLinks"].append({
             "name": endpoint.get("displayName", "Endpoint"), "anchor": endpoint.get("anchorId", "endpoints"),
         })
@@ -1822,7 +1827,9 @@ def _administrative_privileges_summary(endpoints: list[dict[str, Any]]) -> dict[
         "users": sorted(users.values(), key=lambda row: (row["name"].casefold(), row["endpointLinks"][0]["name"])),
         "elevatedCollectorProcesses": elevated if process_evaluated else None,
         "processNotEvaluatedEndpoints": len(endpoints) - process_evaluated,
-        "scope": "Observed interactive Collector users only; other users and sessions were not evaluated.",
+        "sourceConflictEndpoints": source_conflicts,
+        "desktopUsersState": "NOT_EVALUATED",
+        "scope": "Collector execution accounts only. Actual interactive desktop users and other sessions were NOT EVALUATED.",
     }
 
 
@@ -2944,8 +2951,9 @@ def _verification_for_finding(finding: dict[str, Any]) -> str:
         return "Rerun CSA and verify all applicable Windows Firewall profiles pass."
     if rule_id == "ACC-011":
         return (
-            "Rerun CSA and verify the daily user SID is no longer present in "
-            "local Administrators and ACC-011 reports PASS."
+            "Collect again for the identified Collector execution account. Review direct and inherited "
+            "group assignments; verify complete token-group evidence confirms non-membership and "
+            "ACC-011 reports PASS. Investigate missing or conflicting evidence before closing the action."
         )
     if rule_id == "ACC-006":
         return (

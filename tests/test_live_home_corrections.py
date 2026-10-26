@@ -121,7 +121,7 @@ class HomeLiveAcceptanceTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("Computers with BitLocker enabled", template)
-        self.assertIn("Interactive users in local Administrators", template)
+        self.assertIn("Collector accounts with administrator membership", template)
         self.assertIn("Administrative Privileges", template)
 
     def test_report_and_lab_expose_terminal_diagnostics(self) -> None:

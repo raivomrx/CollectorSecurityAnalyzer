@@ -148,26 +148,9 @@ function Test-CSATrustedPackage {
 }
 
 function Get-CSAPrivilegeContext {
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-    $elevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-    $groups = (& "$env:SystemRoot\System32\whoami.exe" /groups /fo csv /nh 2>$null) -join "`n"
-    $adminMember = $groups -match "S-1-5-32-544"
-    $integrity = "UNKNOWN"
-    if ($groups -match "S-1-16-16384") { $integrity = "SYSTEM" }
-    elseif ($groups -match "S-1-16-12288") { $integrity = "HIGH" }
-    elseif ($groups -match "S-1-16-(8192|8448)") { $integrity = "MEDIUM" }
-    elseif ($groups -match "S-1-16-4096") { $integrity = "LOW" }
-    $mode = if ($identity.User.Value -eq "S-1-5-18") { "SYSTEM" }
-        elseif ($elevated) { "ELEVATED_ADMINISTRATOR" }
-        elseif ($adminMember) { "ADMIN_MEMBER_NOT_ELEVATED" }
-        else { "STANDARD_USER" }
-    return [ordered]@{
-        executionMode = $mode
-        isElevated = [bool]$elevated
-        isLocalAdministratorMember = [bool]$adminMember
-        integrityLevel = $integrity
-    }
+    # Called only after trusted-package verification; both transports use General.
+    Invoke-CSAFileLockRetry { Import-Module (Resolve-CSAPackagePath "collector/modules/General.psm1") -Force }
+    return Get-CSAExecutionTokenContext -PrivacyMode Standard
 }
 
 function New-CSATemporaryDirectory {
