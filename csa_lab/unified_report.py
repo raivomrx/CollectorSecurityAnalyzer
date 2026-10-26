@@ -13,7 +13,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from csa_console.audit import ConsoleAuditLog
 from csa_console.canonical import sha256_bytes, sha256_value
-from csa_console.finding_semantics import client_finding_semantics
+from csa_console.finding_semantics import client_finding_semantics, is_internal_summary_control
 from csa_console.fleet import FleetAnalyzer
 from csa_console.identifiers import utc_text
 from csa_console.sessions import AssessmentSessionService
@@ -24,6 +24,7 @@ from knowledge.repository import KnowledgeRepository
 from evidence.bitlocker import resolve_bitlocker
 from evidence.credential_posture import credential_posture
 from evidence.identity_posture import identity_posture
+from evidence.administrative_privileges import administrative_privilege_posture
 from software.intelligence_worklist import intelligence_worklist
 
 TEMPLATE_ROOT = Path(__file__).resolve().parent / "templates"
@@ -117,8 +118,12 @@ class UnifiedReportGenerator:
                     f"{_slug(str(software.get('productKey') or software.get('displayName')))}"
                 )
                 software["productLabel"] = _product_label(software)
-        fleet_findings = [
+        risk_control_findings = [
             self._fleet_finding(item) for item in fleet.fleet_findings
+        ]
+        fleet_findings = [
+            item for item in risk_control_findings
+            if not is_internal_summary_control(item["ruleId"])
         ]
         endpoint_labels = {
             item["deviceId"]: item["displayName"] for item in endpoints
@@ -130,6 +135,7 @@ class UnifiedReportGenerator:
             ]
         software_findings = _software_security_findings(endpoints)
         fleet_findings.extend(software_findings)
+        risk_control_findings.extend(software_findings)
         for endpoint in endpoints:
             endpoint_findings = [
                 item
@@ -143,6 +149,9 @@ class UnifiedReportGenerator:
                 severity = finding["severity"]
                 endpoint["severityCounts"][severity] = (
                     endpoint["severityCounts"].get(severity, 0) + 1
+                )
+                endpoint["riskSeverityCounts"][severity] = (
+                    endpoint["riskSeverityCounts"].get(severity, 0) + 1
                 )
             endpoint["risk"] = _endpoint_risk_model(endpoint)
         fleet_findings.sort(
@@ -237,7 +246,7 @@ class UnifiedReportGenerator:
         )
         risk = _assessment_risk(
             fleet.fleet_risk_score,
-            fleet_findings,
+            risk_control_findings,
             cve,
         )
         endpoint_anchor_by_name = {
@@ -271,7 +280,7 @@ class UnifiedReportGenerator:
         framework_rows = _framework_rows(fleet_findings)
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.6.0",
+            "reportVersion": "CSA-5.6.1",
             "generatedAt": generated_at,
             "dataClassification": "Confidential - Security Assessment Data",
             "containsPersonalData": True,
@@ -325,6 +334,7 @@ class UnifiedReportGenerator:
                 "identityMode": "REAL_ENDPOINT_IDENTITIES",
             },
             "executiveEndpointMetrics": executive_endpoint_metrics,
+            "administrativePrivileges": _administrative_privileges_summary(endpoints),
             "intelligenceWorklist": intelligence_worklist(endpoints),
             "malwareProtection": {
                 "statusCounts": dict(sorted(status_summary["malwareProtection"].items())),
@@ -361,6 +371,9 @@ class UnifiedReportGenerator:
             },
             "controlResults": {
                 "total": total_control_results,
+                "vulnerabilityAssessmentStatusCounts": dict(sorted(Counter(
+                    _rule_status(endpoint["findings"], "CVE-001") for endpoint in endpoints
+                ).items())),
                 "statusDistribution": dict(
                     sorted(control_status_distribution.items())
                 ),
@@ -553,7 +566,7 @@ class UnifiedReportGenerator:
                 str(item.get("finding", {}).get("rule_id", "")),
             ),
         )
-        severity_counts = Counter(
+        risk_severity_counts = Counter(
             str(item.get("finding", {}).get("severity", "INFO"))
             for item in findings
             if item.get("finding", {}).get("status") in {"FAIL", "WARNING"}
@@ -563,6 +576,9 @@ class UnifiedReportGenerator:
             for item in findings
         )
         security_findings = _security_findings(findings)
+        severity_counts = Counter(
+            str(item.get("finding", {}).get("severity", "INFO")) for item in security_findings
+        )
         security_finding_count = len(security_findings)
         privilege = evidence.get("privilegeContext", {})
         device = evidence.get("identity", evidence.get("device", {}))
@@ -648,6 +664,7 @@ class UnifiedReportGenerator:
             "controlResultCount": len(findings),
             "statusCounts": dict(sorted(status_counts.items())),
             "severityCounts": dict(sorted(severity_counts.items())),
+            "riskSeverityCounts": dict(sorted(risk_severity_counts.items())),
             "collectorVersion": str(
                 evidence.get("collectorVersion", "UNKNOWN")
             ),
@@ -672,6 +689,7 @@ class UnifiedReportGenerator:
                 for setting in evidence.get(group, {}).get("settings", [])
             ]),
             "identityPosture": identity_posture(evidence, findings),
+            "administrativePrivileges": administrative_privilege_posture(evidence, findings),
             "securityControls": _security_control_summary(
                 findings, bitlocker, evidence, malware_protection
             ),
@@ -719,6 +737,8 @@ def _security_findings(
     result: list[dict[str, Any]] = []
     for item in findings:
         finding = item.get("finding", {})
+        if is_internal_summary_control(str(finding.get("rule_id", ""))):
+            continue
         if finding.get("status") not in {"FAIL", "WARNING"}:
             continue
         knowledge = item.get("knowledge", {})
@@ -1077,11 +1097,16 @@ def _software_security_findings(
         version = row["installedVersion"]
         finding_key = "CVE-001:" + ":".join(key)
         recommendation = (
-            f"Update {software} to a vendor-supported non-affected version."
+            f"Update {software} {version} to a vendor-supported non-affected version."
         )
+        if row["fixedVersions"]:
+            recommendation += (
+                " Vendor-listed fixed versions: " + ", ".join(sorted(row["fixedVersions"]))
+                + ". Verify the applicable release branch against the vendor advisory."
+            )
         verification = (
-            f"Rerun CVE analysis and confirm that {software} {version} is no "
-            "longer affected by the listed CVEs."
+            f"Collect again to verify the installed {software} version, then rerun CVE "
+            "analysis and confirm that " + ", ".join(cve_ids) + " are no longer applicable."
         )
         affected_count = len(endpoints_affected)
         findings.append(
@@ -1091,6 +1116,7 @@ def _software_security_findings(
                 ),
                 "findingKey": finding_key,
                 "kind": "SOFTWARE_CVE",
+                "displayId": "SW-VULN-" + sha256_value(finding_key).split(":", 1)[1][:12],
                 "ruleId": "CVE-001",
                 "title": (
                     f"Confirmed vulnerabilities affect {software} {version}"
@@ -1424,7 +1450,8 @@ def _assessment_risk(
 def _endpoint_risk_model(endpoint: dict[str, Any]) -> dict[str, Any]:
     """Calculate endpoint risk without treating its numeric score as severity."""
 
-    severities = endpoint.get("severityCounts", {})
+    # Presentation hides the aggregate CVE control; risk still consumes it.
+    severities = endpoint.get("riskSeverityCounts", endpoint.get("severityCounts", {}))
     confirmed_critical = 0
     confirmed_high = 0
     for software in endpoint.get("softwareResults", []):
@@ -1744,12 +1771,59 @@ def _daily_user_has_local_admin_privileges(
 ) -> bool:
     """Return whether trusted evidence identifies the daily user as an admin."""
 
-    membership = endpoint.get("privilegeContext", {}).get(
-        "isLocalAdministratorMember"
+    posture = endpoint.get("administrativePrivileges") or administrative_privilege_posture(
+        {"privilegeContext": endpoint.get("privilegeContext", {})}, endpoint.get("findings", [])
     )
-    if membership is True:
-        return True
-    return _rule_status(endpoint.get("findings", []), "ACC-011") == "FAIL"
+    return posture["isAdministratorMember"] is True
+
+
+def _administrative_privileges_summary(endpoints: list[dict[str, Any]]) -> dict[str, Any]:
+    """Deduplicate observed administrator users by SID, never by display name."""
+
+    users: dict[tuple[str, str], dict[str, Any]] = {}
+    affected = 0
+    evaluated = 0
+    elevated = 0
+    process_evaluated = 0
+    for index, endpoint in enumerate(endpoints):
+        posture = endpoint.get("administrativePrivileges") or administrative_privilege_posture(
+            {"privilegeContext": endpoint.get("privilegeContext", {})}, endpoint.get("findings", [])
+        )
+        if posture["status"] in {"PASS", "FAIL"}:
+            evaluated += 1
+        process = posture["processElevation"]["isElevated"]
+        if process is not None:
+            process_evaluated += 1
+            elevated += int(process)
+        if posture["isAdministratorMember"] is not True:
+            continue
+        affected += 1
+        user = posture["user"]
+        # Local identities are scoped to a device, including cloned-machine SIDs.
+        local_scope = ""
+        if user["classification"] == "LOCAL":
+            local_scope = str(endpoint.get("deviceId") or endpoint.get("submissionId") or f"observation-{index}")
+        key = (local_scope, user["identity"])
+        row = users.setdefault(key, {
+            "name": user["name"], "classification": user["classification"], "endpointLinks": [],
+        })
+        row["name"] = min(row["name"], user["name"], key=str.casefold)
+        row["endpointLinks"].append({
+            "name": endpoint.get("displayName", "Endpoint"), "anchor": endpoint.get("anchorId", "endpoints"),
+        })
+    for user in users.values():
+        user["endpointLinks"].sort(key=lambda row: (row["name"], row["anchor"]))
+    return {
+        "status": "NOT_EVALUATED" if not evaluated else "PARTIAL" if evaluated < len(endpoints) else "EVALUATED",
+        "observedAdminUsers": len(users) if evaluated else None,
+        "affectedEndpoints": affected if evaluated else None,
+        "evaluatedEndpoints": evaluated,
+        "notEvaluatedEndpoints": len(endpoints) - evaluated,
+        "users": sorted(users.values(), key=lambda row: (row["name"].casefold(), row["endpointLinks"][0]["name"])),
+        "elevatedCollectorProcesses": elevated if process_evaluated else None,
+        "processNotEvaluatedEndpoints": len(endpoints) - process_evaluated,
+        "scope": "Observed interactive Collector users only; other users and sessions were not evaluated.",
+    }
 
 
 def _setting_status(evidence: dict[str, Any], setting_id: str) -> str:
@@ -2753,7 +2827,7 @@ def _priority_actions(
             finding["endpointReferences"],
             finding["severity"].title(),
             "Medium",
-            [finding["ruleId"]],
+            finding.get("cveIds", ["Software vulnerability"]),
             finding["verification"],
         )
         if known_exploited:
@@ -2798,7 +2872,7 @@ def _remediation_plan(
     for action in priority_actions:
         grouped[action["action"].casefold()] = dict(action)
     for finding in findings:
-        if finding.get("ruleId") == "CVE-001" and finding.get("kind") != "SOFTWARE_CVE":
+        if is_internal_summary_control(str(finding.get("ruleId", ""))) and finding.get("kind") != "SOFTWARE_CVE":
             continue
         recommendation = str(finding.get("recommendation", "")).strip()
         if not recommendation or recommendation == "Unknown":
@@ -2820,7 +2894,10 @@ def _remediation_plan(
             set(row["affectedEndpoints"]) | set(finding["endpointReferences"])
         )
         row["relatedFindings"] = sorted(
-            set(row["relatedFindings"]) | {finding["ruleId"]}
+            set(row["relatedFindings"]) | set(
+                finding.get("cveIds", ["Software vulnerability"])
+                if finding.get("kind") == "SOFTWARE_CVE" else [finding["ruleId"]]
+            )
         )
         if (
             finding.get("kind") == "SOFTWARE_CVE"

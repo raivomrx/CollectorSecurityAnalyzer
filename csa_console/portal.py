@@ -225,7 +225,7 @@ class PortalBinding:
     <li>Close the collector.</li>
   </ol>
   {script_option}
-  <p class="meta">Collector version: 5.6.0<br>Package expires: {safe_expiry}</p>
+  <p class="meta">Collector version: 5.6.1<br>Package expires: {safe_expiry}</p>
 </main>
 </body>
 </html>"""

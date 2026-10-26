@@ -11,6 +11,11 @@
 The current installer is **CSA Lab 5.6.0** and is unsigned. After updating,
 create a new assessment to obtain the updated Collector package.
 
+**5.6.1 is a review candidate**, available from the
+[CSA Lab Build workflow](https://github.com/raivomrx/CollectorSecurityAnalyzer/actions/workflows/csa-lab-build.yml).
+Its [reporting corrections](docs/sprint-5.6.1-reporting.md) await live acceptance;
+the published release above remains unchanged.
+
 Collector Security Analyzer (CSA) is an evidence-first Windows endpoint
 assessment toolkit. CSA Lab turns the secure collection, analysis, fleet
 aggregation, and reporting pipeline into one assessor-facing Windows

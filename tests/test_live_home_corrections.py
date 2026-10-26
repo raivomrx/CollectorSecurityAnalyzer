@@ -95,7 +95,7 @@ class HomeLiveAcceptanceTests(unittest.TestCase):
             {
                 "bitLocker": {"status": "PASS"},
                 "privilegeContext": self.fixture["privilegeContext"],
-                "findings": [],
+                "findings": [{"finding": Acc011Rule().check({}, self._context())[0].to_dict()}],
             },
             {
                 "bitLocker": {"status": "FAIL"},
@@ -121,7 +121,8 @@ class HomeLiveAcceptanceTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("Computers with BitLocker enabled", template)
-        self.assertIn("Computers with daily-user admin privileges", template)
+        self.assertIn("Interactive users in local Administrators", template)
+        self.assertIn("Administrative Privileges", template)
 
     def test_report_and_lab_expose_terminal_diagnostics(self) -> None:
         """Both customer report and Advanced Details must expose root cause."""

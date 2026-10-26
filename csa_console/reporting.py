@@ -12,6 +12,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from csa_console.audit import ConsoleAuditLog
 from csa_console.canonical import sha256_bytes, sha256_value
 from csa_console.fleet import FleetAnalyzer
+from csa_console.finding_semantics import is_internal_summary_control
 from csa_console.identifiers import utc_text
 from csa_console.sessions import AssessmentSessionService
 from csa_console.storage import AssessmentStorage
@@ -45,7 +46,10 @@ class ConsoleReportGenerator:
         evidence = self.storage.read_json(
             assessment_id, "normalized", f"{submission_id}.json"
         )
-        findings = endpoint.get("findings", [])
+        findings = [
+            item for item in endpoint.get("findings", [])
+            if not is_internal_summary_control(str(item.get("finding", {}).get("rule_id", "")))
+        ]
         status_counts = Counter(
             str(item.get("finding", {}).get("status", "UNKNOWN"))
             for item in findings
@@ -142,12 +146,12 @@ class ConsoleReportGenerator:
             "systemicFindings": [
                 _fleet_finding_dict(item)
                 for item in fleet.fleet_findings
-                if item.systemic
+                if item.systemic and not is_internal_summary_control(item.rule_id)
             ],
             "isolatedFindings": [
                 _fleet_finding_dict(item)
                 for item in fleet.fleet_findings
-                if not item.systemic
+                if not item.systemic and not is_internal_summary_control(item.rule_id)
             ],
             "integrity": self._integrity(
                 assessment_id, fleet.evidence_set_digest

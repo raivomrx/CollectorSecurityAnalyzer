@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from collector_schema.enums import PrivacyMode
+from csa_console.finding_semantics import is_internal_summary_control
 from collector_schema.models import CollectorDocument
 from evidence.provenance import pseudonymize_hostname, redact_value
 from evidence.registry import WindowsEvidenceRegistry
@@ -72,15 +73,18 @@ def generate_html_report(
     collection_quality = _build_collection_quality(collector_document, privacy_mode)
     if active_validation is not None:
         validate_evidence([active_run_to_dict(active_validation)])
+    client_findings = [
+        item for item in audit_findings if not is_internal_summary_control(item.finding.rule_id)
+    ]
     html = template.render(
         data=data,
-        summary=_build_summary(data, audit_findings, score, privacy_mode),
+        summary=_build_summary(data, client_findings, score, privacy_mode),
         collection_quality=collection_quality,
         windows_evidence=_group_evidence(evidence_registry),
         missing_evidence=_missing_evidence(evidence_registry),
         policy_profile=policy_profile,
-        audit_findings=audit_findings,
-        high_findings=_high_findings(audit_findings),
+        audit_findings=client_findings,
+        high_findings=_high_findings(client_findings),
         score=score,
         software_inventory=software_inventory,
         cve_summary=cve_summary,

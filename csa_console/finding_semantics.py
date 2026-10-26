@@ -6,6 +6,12 @@ import re
 from typing import Any
 
 
+def is_internal_summary_control(rule_id: str) -> bool:
+    """Keep the aggregate vulnerability control out of client finding lists."""
+
+    return rule_id == "CVE-001"
+
+
 def client_finding_semantics(
     rule_id: str,
     title: str,
