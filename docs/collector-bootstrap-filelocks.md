@@ -1,3 +1,7 @@
+> CSA 5.6.2 adds [PowerShell Quick Start](sprint-5.6.2-powershell-bootstrap.md).
+> The following describes the original ZIP transport and file-lock correction;
+> use the current Join-page instructions without an execution-policy override.
+
 # Collector bootstrap integrity and Enterprise PowerShell transport
 
 The EXE remains the recommended Collector and the Home/public distribution
@@ -18,7 +22,7 @@ For the PowerShell transport, extract **all** ZIP entries into a new folder and
 open a **non-elevated** PowerShell window there:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Invoke-CSACollector.ps1
+.\Invoke-CSACollector.ps1
 ```
 
 The execution policy applies only to that process; organization policy still

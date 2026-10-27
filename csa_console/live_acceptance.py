@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
+import secrets
 import threading
 from pathlib import Path
 from typing import Any
@@ -19,12 +21,15 @@ from csa_console.server import ConsoleHttpsServer
 from csa_console.sessions import AssessmentSessionService
 from csa_console.storage import AssessmentStorage
 from csa_console.submission import SubmissionService
+from csa_console.portal import PortalBinding
+from csa_console.file_security import restrict_directory
 
 
 def run_live_acceptance(
     output_root: str | Path,
     *,
     allow_admin_member: bool = False,
+    transport: str = "package",
 ) -> dict[str, Any]:
     """Run a real non-elevated Windows Collector through the HTTPS Console."""
 
@@ -32,6 +37,7 @@ def run_live_acceptance(
         raise RuntimeError("Standard-user live acceptance requires Windows")
     output = Path(output_root).resolve()
     output.mkdir(parents=True, exist_ok=False)
+    restrict_directory(output)
     storage = AssessmentStorage(output / "assessments")
     sessions = AssessmentSessionService(storage)
     assessment_id = "CSA-LIVE-" + random_id()[-10:]
@@ -47,38 +53,57 @@ def run_live_acceptance(
         listen_address="127.0.0.1",
         listen_port=0,
     )
+    if transport not in {"package", "launcher"}:
+        raise ValueError("Unknown Collector transport")
+    portal = PortalBinding(
+        assessment_id=assessment.assessment_id, session_id=session.session_id,
+        join_code_hash="", collector_path=output / "unused.exe", expires_at=session.expires_at,
+        maximum_downloads=5, storage=storage,
+    ) if transport == "launcher" else None
     server = ConsoleHttpsServer(
         assessment.assessment_id,
         session.session_id,
         storage,
         analyze_automatically=True,
+        portal=portal,
     )
-    host, port = server.address
-    package_root = output / "collector-package"
-    create_collector_package(
-        session,
-        token,
-        package_root,
-        server_url=f"https://{host}:{port}",
-    )
-    package_manifest = verify_collector_package(package_root)
-    sessions.trust_collector_build(
-        session, str(package_manifest["collectorBuildDigest"])
-    )
+    try:
+        host, port = server.address
+        package_root = output / "collector-package"
+        create_collector_package(
+            session,
+            token,
+            package_root,
+            server_url=f"https://{host}:{port}",
+        )
+        package_manifest = verify_collector_package(package_root)
+        sessions.trust_collector_build(
+            session, str(package_manifest["collectorBuildDigest"])
+        )
+        if portal is not None:
+            from csa_lab.collector_executable import build_script_collector
+            from csa_lab.collector_launcher import build_powershell_launcher
+            archive = build_script_collector(package_root, output / "CSA-PowerShell-Collector.zip")
+            credential = secrets.token_urlsafe(32)
+            portal.script_collector_path = archive
+            portal.launcher_token_hash = hashlib.sha256(credential.encode()).hexdigest()
+            portal.launcher_bytes = build_powershell_launcher(archive, session, f"https://{host}:{port}", credential, output / "signing")
+            entrypoint = output / "Start-CSACollector.ps1"
+            entrypoint.write_bytes(portal.launcher_bytes)
+            # Exercise the delivered file under existing execution restrictions.
+            command = ["powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(entrypoint)]
+        else:
+            command = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                       "-File", str(package_root / "Invoke-CSACollector.ps1")]
+    except BaseException:
+        server.shutdown()
+        raise
     before_temp = _temp_children()
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
         completed = subprocess.run(
-            [
-                "powershell.exe",
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                str(package_root / "Invoke-CSACollector.ps1"),
-            ],
+            command,
             cwd=package_root,
             capture_output=True,
             text=True,
@@ -140,6 +165,7 @@ def run_live_acceptance(
     if leaked_temp:
         raise RuntimeError("Collector left temporary directories behind")
     result = {
+        "transport": transport,
         "assessmentId": assessment.assessment_id,
         "sessionId": session.session_id,
         "submissionId": submission_id,
@@ -164,6 +190,7 @@ def run_live_acceptance(
     from csa_console.canonical import write_canonical_json
 
     write_canonical_json(result_path, result)
+    write_canonical_json(output / "acceptance-summary.json", _public_summary(result))
     return result
 
 
@@ -171,9 +198,17 @@ def _temp_children() -> set[str]:
     """Return current CSA temporary child names."""
 
     root = Path(os.environ.get("TEMP", ".")) / "CSA"
-    if not root.exists():
-        return set()
-    return {item.name for item in root.iterdir()}
+    values = {"CSA/" + item.name for item in root.iterdir()} if root.exists() else set()
+    values.update(item.name for item in root.parent.glob("CSA-Launcher-*"))
+    return values
+
+
+def _public_summary(result: dict[str, Any]) -> dict[str, Any]:
+    """Keep host identifiers, paths and raw evidence out of CI/log output."""
+    keys = ("transport", "collectorExitCode", "submissionAccepted", "analysisCompleted",
+            "endpointReportGenerated", "executionMode", "integrityLevel", "isElevated",
+            "uacPromptTriggered", "activeValidationPerformed", "productionNonAdminAcceptance")
+    return {key: result[key] for key in keys}
 
 
 def _safe_process_summary(stdout: str, stderr: str) -> str:
@@ -206,12 +241,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-root", required=True)
     parser.add_argument("--allow-admin-member", action="store_true")
+    parser.add_argument("--transport", choices=("package", "launcher"), default="package")
     args = parser.parse_args()
     result = run_live_acceptance(
         args.output_root,
         allow_admin_member=args.allow_admin_member,
+        transport=args.transport,
     )
-    print(json.dumps(result, indent=2, sort_keys=True))
+    print(json.dumps(_public_summary(result), indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

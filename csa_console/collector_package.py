@@ -22,7 +22,7 @@ from csa_console.models import AssessmentSession
 
 ROOT = Path(__file__).resolve().parents[1]
 COLLECTOR_SOURCE = ROOT / "collector" / "windows"
-COLLECTOR_VERSION = "5.6.1"
+COLLECTOR_VERSION = "5.6.2"
 
 
 class CollectorPackageError(ValueError):
@@ -108,9 +108,9 @@ def create_collector_package(
         "Active security testing: NO\n\n"
         "Extract every ZIP entry into a new folder before running.\n"
         "Run from a non-elevated PowerShell process:\n"
-        "powershell.exe -NoProfile -ExecutionPolicy Bypass "
+        "powershell.exe -NoProfile "
         "-File .\\Invoke-CSACollector.ps1\n"
-        "Execution policy is scoped to this process; organization policy still applies.\n"
+        "Organization execution restrictions remain in force; no policy changes are made.\n"
     )
     (destination / "OPERATOR-INSTRUCTIONS.txt").write_text(
         instructions, encoding="utf-8"
@@ -149,6 +149,13 @@ def create_collector_package(
         "createdAt": utc_text(),
         "files": file_entries,
     }
+    signing_metadata = COLLECTOR_SOURCE / "script-signing.json"
+    if signing_metadata.is_file():
+        import re
+        signing = read_json(signing_metadata)
+        if not re.fullmatch(r"[0-9A-Fa-f]{40}", str(signing.get("thumbprint", ""))):
+            raise CollectorPackageError("Collector signing metadata is invalid")
+        manifest["scriptSigning"] = {"thumbprint": signing["thumbprint"]}
     write_canonical_json(destination / "trusted-manifest.json", manifest)
     return destination
 

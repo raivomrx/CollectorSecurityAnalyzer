@@ -201,7 +201,7 @@ def _handler_factory(
     limiter = _RateLimiter()
 
     class SubmissionHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Lab/5.6.1"
+        server_version = "CSA-Lab/5.6.2"
         protocol_version = "HTTP/1.1"
 
         def do_GET(self) -> None:
@@ -251,6 +251,10 @@ def _handler_factory(
                     download_path = portal.script_collector_path
                     content_type = "application/zip"
                     filename = "CSA-PowerShell-Collector.zip"
+                elif parts[1] == "download-launcher" and portal.launcher_bytes:
+                    portal.record_download(source)
+                    self._bytes(HTTPStatus.OK, portal.launcher_bytes, "application/octet-stream", attachment="Start-CSACollector.ps1")
+                    return
                 else:
                     self._json(HTTPStatus.NOT_FOUND, {"error": "NOT_FOUND"})
                     return
@@ -276,7 +280,18 @@ def _handler_factory(
                 return
             path = urlparse(self.path).path
             try:
-                if path == "/api/v1/nonce":
+                if path == "/api/v1/collector-package":
+                    self._read_body(0)
+                    authorization = self.headers.get("Authorization", "")
+                    credential = authorization[len("CSA-Launcher "):] if authorization.startswith("CSA-Launcher ") else ""
+                    if (portal is None or portal.script_collector_path is None or
+                            not portal.authorize_launcher(credential, source)):
+                        self._json(HTTPStatus.FORBIDDEN, {"error": "LAUNCHER_UNAVAILABLE"})
+                        return
+                    body = portal.script_collector_path.read_bytes()
+                    portal.record_download(source)
+                    self._bytes(HTTPStatus.OK, body, "application/zip")
+                elif path == "/api/v1/nonce":
                     self._nonce(source)
                 elif path.startswith("/api/v1/submissions/"):
                     submission_id = path.rsplit("/", 1)[-1]

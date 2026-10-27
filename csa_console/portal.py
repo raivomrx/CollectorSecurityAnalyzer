@@ -54,6 +54,8 @@ class PortalBinding:
     maximum_downloads: int
     storage: AssessmentStorage
     script_collector_path: Path | None = None
+    launcher_bytes: bytes = field(default=b"", repr=False)
+    launcher_token_hash: str = field(default="", repr=False)
     download_count: int = 0
     maximum_failed_attempts: int = 5
     failure_window_seconds: float = 60.0
@@ -84,6 +86,24 @@ class PortalBinding:
         if not hmac.compare_digest(supplied, self.join_code_hash):
             self._record_failed_authorization(source_address, now)
             return False
+        return self._authorize_session(source_address)
+
+    def authorize_launcher(self, credential: str, source_address: str) -> bool:
+        """Check a download-only header credential; never use a secret URL."""
+        now = time.monotonic()
+        with self._lock:
+            if now < self._blocked_until.get(source_address, 0.0):
+                self.throttled_authorization_count += 1
+                return False
+        supplied = hashlib.sha256(credential.encode("utf-8")).hexdigest()
+        if not self.launcher_token_hash or not hmac.compare_digest(supplied, self.launcher_token_hash):
+            self._record_failed_authorization(source_address, now)
+            return False
+        return self._authorize_session(source_address)
+
+    def _authorize_session(self, source_address: str) -> bool:
+        """Apply the same source, state, expiry and budget to all transports."""
+        now = time.monotonic()
         session = AssessmentSessionService(self.storage).load_session(
             self.assessment_id, self.session_id
         )
@@ -169,12 +189,21 @@ class PortalBinding:
         safe_expiry = html.escape(self.expires_at)
         script_option = ""
         if self.script_collector_path is not None and self.script_collector_path.is_file():
-            script_option = """<p><a class="button" href="download-powershell">PowerShell Collector — Enterprise compatibility</a></p>
+            script_option = """<p><a class="button" href="download-powershell">PowerShell Offline Package (.zip) — Manual/offline fallback</a></p>
   <p>Extract all files from <strong>CSA-PowerShell-Collector.zip</strong> into a new folder.
      Open a standard-user PowerShell window in that folder and run:</p>
-  <pre><code>powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\Invoke-CSACollector.ps1</code></pre>
-  <p>The execution policy applies only to this process. Organization policy still applies.
-     Both downloads use the same assessment, integrity checks and privacy controls.</p>"""
+  <pre><code>.\\Invoke-CSACollector.ps1</code></pre>
+  <p>Organization execution restrictions still apply. The ZIP can be transferred for manual/offline use;
+     use <code>-NoSubmit -ExportPath &lt;path&gt;</code> for an encrypted offline submission.</p>"""
+        launcher_option = ""
+        if self.launcher_bytes:
+            launcher_option = """<p><a class="button" href="download-launcher">PowerShell Quick Start (.ps1) — Recommended Lab/enterprise alternative</a></p>
+  <p>Save <strong>Start-CSACollector.ps1</strong>. Open a standard-user Windows PowerShell window
+     in its download folder and run:</p><pre><code>.\\Start-CSACollector.ps1</code></pre>
+  <p>The launcher downloads and verifies this session's existing Collector package automatically.
+     No manual ZIP extraction is needed. Keep the launcher private and delete it after use.</p>
+  <p>If organization policy blocks execution, contact your IT administrator for an approved,
+     signed Collector. Do not change execution policy or disable endpoint protection.</p>"""
         document = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -218,14 +247,16 @@ class PortalBinding:
      Do not disable Smart App Control as the default remediation. Use a trusted,
      signed CSA Collector build or contact the assessment administrator.</p>
   <p>Download CSA Collector:</p>
-  <p><a class="button" href="download">CSA Collector (.exe) — Recommended</a></p>
+  <p><a class="button" href="download">CSA Collector (.exe) — Default/Home</a></p>
   <ol>
     <li>Open <strong>CSA-Collector.exe</strong>.</li>
     <li>Wait for <strong>Submission accepted</strong>.</li>
     <li>Close the collector.</li>
   </ol>
+  {launcher_option}
   {script_option}
-  <p class="meta">Collector version: 5.6.1<br>Package expires: {safe_expiry}</p>
+  <p>All three methods use the same Collector engine, session, integrity checks and privacy controls.</p>
+  <p class="meta">Collector version: 5.6.2<br>Package expires: {safe_expiry}</p>
 </main>
 </body>
 </html>"""

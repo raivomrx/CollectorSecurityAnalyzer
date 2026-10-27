@@ -566,8 +566,8 @@ class LabServiceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Download CSA Collector", response.text)
         self.assertIn('href="download"', response.text)
-        self.assertIn("CSA Collector (.exe) — Recommended", response.text)
-        self.assertIn("PowerShell Collector — Enterprise compatibility", response.text)
+        self.assertIn("CSA Collector (.exe) — Default/Home", response.text)
+        self.assertIn("PowerShell Offline Package (.zip) — Manual/offline fallback", response.text)
         self.assertIn('href="download-powershell"', response.text)
         self.assertNotIn("enrollmentToken", response.text)
         unavailable = requests.get(

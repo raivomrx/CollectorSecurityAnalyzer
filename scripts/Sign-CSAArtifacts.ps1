@@ -28,6 +28,16 @@ try {
         [Convert]::FromBase64String($env:CSA_SIGNING_CERTIFICATE_BASE64)
     )
     foreach ($path in $Paths) {
+        if ([IO.Path]::GetExtension($path) -in @('.ps1', '.psm1')) {
+            $scriptCertificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
+                $certificate, $env:CSA_SIGNING_CERTIFICATE_PASSWORD
+            )
+            try {
+                $signature = Set-AuthenticodeSignature -LiteralPath $path -Certificate $scriptCertificate -HashAlgorithm SHA256 -TimestampServer 'http://timestamp.digicert.com'
+                if ([string]$signature.Status -ne 'Valid') { throw 'PowerShell signing failed.' }
+            } finally { $scriptCertificate.Dispose() }
+            continue
+        }
         & $signtool.FullName sign `
             /fd SHA256 `
             /td SHA256 `

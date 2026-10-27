@@ -47,6 +47,8 @@ from csa_console.sessions import AssessmentSessionService
 from csa_console.storage import AssessmentStorage
 from csa_console.submission import SubmissionService
 from csa_lab.collector_executable import build_bound_collector, build_script_collector
+from csa_lab.collector_executable import read_bound_collector_payload
+from csa_lab.collector_launcher import build_powershell_launcher
 from csa_lab.firewall import (
     FirewallManager,
     NullFirewallManager,
@@ -99,7 +101,7 @@ class LabApplicationService:
         self._secret = self._load_or_create_join_secret()
         self._application_audit().append(
             "application_started",
-            {"version": "5.6.1", "processId": os.getpid()},
+            {"version": "5.6.2", "processId": os.getpid()},
         )
         self.detect_recovery_items()
 
@@ -446,6 +448,15 @@ class LabApplicationService:
                 # Existing assessments already have a trusted script package.
                 build_script_collector(Path(state.collector_path).parent / "package", script_path)
             code = self.join_code(assessment_id)
+            # Anchor the launcher to the identical package shipped in this EXE.
+            if not hmac.compare_digest(script_path.read_bytes(), read_bound_collector_payload(state.collector_path)):
+                raise ValueError("Collector transport package mismatch")
+            credential = secrets.token_urlsafe(32)
+            launcher = build_powershell_launcher(
+                script_path, session,
+                f"https://{state.listener_address}:{state.listener_port}", credential,
+                self.storage.path(assessment_id, "downloads", state.session_id, "signing"),
+            )
             portal = PortalBinding(
                 assessment_id=assessment_id,
                 session_id=state.session_id,
@@ -454,6 +465,8 @@ class LabApplicationService:
                 ).hexdigest(),
                 collector_path=Path(state.collector_path),
                 script_collector_path=script_path,
+                launcher_bytes=launcher,
+                launcher_token_hash=hashlib.sha256(credential.encode("utf-8")).hexdigest(),
                 expires_at=state.expires_at,
                 maximum_downloads=max(
                     state.expected_endpoints + 10,
@@ -1202,7 +1215,7 @@ class LabApplicationService:
         summary = {
             "schemaVersion": "5.2",
             "generatedAt": utc_text(),
-            "applicationVersion": "5.6.1",
+            "applicationVersion": "5.6.2",
             "assessmentCount": len(assessments),
             "assessments": assessments,
             "containsEvidence": False,

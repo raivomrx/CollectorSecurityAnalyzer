@@ -25,9 +25,14 @@ jobs:
             throw "Runner account is a Local Administrators group member; true non-admin account required."
           }
           python -m csa_console.live_acceptance --output-root test-artifacts/standard-user-live
-      - name: Upload live acceptance evidence
+      - name: Run one-file launcher under existing execution policy
+        shell: powershell
+        run: python -m csa_console.live_acceptance --transport launcher --output-root test-artifacts/standard-user-launcher-live
+      - name: Upload identifier-free live acceptance summaries
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: standard-user-live-acceptance
-          path: test-artifacts/standard-user-live/
+          path: |
+            test-artifacts/standard-user-live/acceptance-summary.json
+            test-artifacts/standard-user-launcher-live/acceptance-summary.json

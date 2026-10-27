@@ -21,7 +21,7 @@ jobs:
       - name: Run Collector overlay contract tests
         run: python -W error::ResourceWarning -m unittest tests.test_lab_sprint51.CollectorExecutableTests -v
       - name: Verify stream integrity and transient Windows file locks
-        run: python -W error::ResourceWarning -m unittest tests.test_collector_bootstrap -v
+        run: python -W error::ResourceWarning -m unittest tests.test_collector_bootstrap tests.test_collector_launcher -v
       - name: Validate standard-user PowerShell contract
         shell: pwsh
         run: |

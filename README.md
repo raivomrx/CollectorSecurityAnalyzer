@@ -11,9 +11,10 @@
 The current installer is **CSA Lab 5.6.0** and is unsigned. After updating,
 create a new assessment to obtain the updated Collector package.
 
-**5.6.1 is a review candidate**, available from the
+**5.6.2 is a review candidate**, available from the
 [CSA Lab Build workflow](https://github.com/raivomrx/CollectorSecurityAnalyzer/actions/workflows/csa-lab-build.yml).
-Its [reporting corrections](docs/sprint-5.6.1-reporting.md), including the
+The [one-file PowerShell bootstrap](docs/sprint-5.6.2-powershell-bootstrap.md) and
+prior [reporting corrections](docs/sprint-5.6.1-reporting.md), including the
 [ACC-011 inherited membership fix](docs/sprint-5.6.1-effective-administrator-membership.md), await live acceptance;
 the published release above remains unchanged.
 
@@ -43,9 +44,14 @@ ZIP, enter a token, change PowerShell policy, or run a command. CSA Collector
 does not require administrator rights, request UAC, install an agent, modify the endpoint
 firewall or registry, or run Active Validation.
 
-The Lab Collector page also offers **PowerShell Collector — Enterprise
-compatibility** as an alternative download using the same assessment and
-security controls. See [Collector transport and file-lock handling](docs/collector-bootstrap-filelocks.md).
+The Lab Collector page also offers **PowerShell Quick Start (.ps1)**: save
+`Start-CSACollector.ps1` and run `.\Start-CSACollector.ps1` from a standard-user
+Windows PowerShell window. It downloads and verifies the existing session
+package automatically. **PowerShell Offline Package (.zip)** remains the
+manual/offline fallback. All three transports use the same Collector engine
+and security controls. Existing execution restrictions apply; an unsigned
+candidate may require an IT-approved signed build.
+See [one-file bootstrap and signing](docs/sprint-5.6.2-powershell-bootstrap.md).
 
 ## Security Boundaries
 

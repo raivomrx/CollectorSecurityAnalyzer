@@ -24,8 +24,10 @@ is recorded separately from elevation.
 escaping paths, hashes every declared file, and rejects undeclared files before
 loading the session configuration or invoking the Collector.
 
-`ExecutionPolicy Bypass` applies only to this verified package invocation. The
-machine or user execution policy is never changed.
+The EXE retains its existing verified-package process invocation. The one-file
+PowerShell launcher and ZIP instructions use existing execution restrictions;
+no execution-policy override or persistent policy change is introduced. See
+[the 5.6.2 transport trust and signing model](sprint-5.6.2-powershell-bootstrap.md).
 
 ## Transport
 

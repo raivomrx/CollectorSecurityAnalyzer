@@ -1,0 +1,347 @@
+#requires -Version 5.1
+param([switch]$NoSubmit, [string]$ExportPath)
+
+# Session-bound download. Run normally: .\Start-CSACollector.ps1
+# Organization execution restrictions remain in force. Delete this downloaded
+# launcher after use; its download-only credential expires with the session.
+Set-StrictMode -Version 2.0
+$ErrorActionPreference = 'Stop'
+$embeddedBinding = '__CSA_SESSION_BINDING_BASE64__'
+
+function Invoke-CSABootstrapFileRetry {
+    param([scriptblock]$Operation)
+    $delays = @(250, 500, 1000, 2000, 2000, 2000, 2000, 2000)
+    for ($attempt = 0; ; $attempt++) {
+        try { return (& $Operation) } catch {
+            $cause = $_.Exception
+            while ($null -ne $cause.InnerException) { $cause = $cause.InnerException }
+            if ($cause -isnot [IO.IOException] -or ($cause.HResult -band 0xffff) -notin @(32, 33)) { throw }
+            if ($attempt -eq $delays.Count) { throw 'CSA-BOOT-FILELOCK' }
+            if ($attempt -eq 0) { Write-Host 'TRANSIENT_FILE_LOCK: Endpoint security may be scanning a Collector file. Waiting...' }
+            Start-Sleep -Milliseconds $delays[$attempt]
+        }
+    }
+}
+
+function Get-CSABootstrapDigest {
+    param([byte[]]$Bytes)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return 'sha256:' + ([BitConverter]::ToString($sha.ComputeHash($Bytes))).Replace('-', '').ToLowerInvariant() }
+    finally { $sha.Dispose() }
+}
+
+function Test-CSABootstrapSignature {
+    param([string]$Path, [string]$RequiredSigner = '')
+    # Hold a shared read handle across Windows SIP verification. An exclusive
+    # scanner lock is retried before signature verification, never accepted.
+    Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
+    $guard = Invoke-CSABootstrapFileRetry { [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read) }
+    try {
+        $signature = Get-AuthenticodeSignature -LiteralPath $Path -ErrorAction Stop
+        $signatureClaimed = [IO.File]::ReadAllText($Path) -match '(?m)^# SIG # Begin signature block\s*$'
+    }
+    finally { $guard.Dispose() }
+    if ([string]$signature.Status -eq 'NotSigned' -and -not $RequiredSigner) {
+        if ($signatureClaimed) { throw 'CSA-BOOT-SIGNATURE' }
+        return
+    }
+    if ([string]$signature.Status -ne 'Valid' -or
+        ($RequiredSigner -and $signature.SignerCertificate.Thumbprint -ne $RequiredSigner)) { throw 'CSA-BOOT-SIGNATURE' }
+}
+
+function Test-CSABootstrapBinding {
+    param($Binding)
+    if ($Binding.schemaVersion -ne '1.0') { throw 'CSA-BOOT-BINDING' }
+    foreach ($name in @('assessmentId','sessionId','collectionProfile','collectionProfileDigest',
+                         'serverCertificateFingerprint','packageDigest','manifestDigest','expiration','downloadCredential')) {
+        if ($Binding.$name -isnot [string] -or [string]::IsNullOrWhiteSpace($Binding.$name)) { throw 'CSA-BOOT-BINDING' }
+    }
+    foreach ($name in @('collectionProfileDigest','serverCertificateFingerprint','packageDigest','manifestDigest')) {
+        if ($Binding.$name -cnotmatch '\Asha256:[0-9a-f]{64}\z') { throw 'CSA-BOOT-BINDING' }
+    }
+    if ($Binding.downloadCredential -cnotmatch '\A[A-Za-z0-9_-]{40,100}\z' -or
+        ($Binding.scriptSignerThumbprint -and $Binding.scriptSignerThumbprint -notmatch '\A[0-9A-Fa-f]{40}\z')) { throw 'CSA-BOOT-BINDING' }
+    $origin = [Uri]$Binding.serverUrl
+    if (-not $origin.IsAbsoluteUri -or $origin.Scheme -ne 'https' -or $origin.UserInfo -or
+        $origin.Query -or $origin.Fragment -or $origin.AbsolutePath -ne '/') { throw 'CSA-BOOT-TLS' }
+    if (($Binding.packageSize -isnot [int] -and $Binding.packageSize -isnot [long]) -or
+        $Binding.packageSize -le 0 -or $Binding.packageSize -gt 67108864) { throw 'CSA-BOOT-BINDING' }
+    if ([DateTimeOffset]::UtcNow -ge [DateTimeOffset]::Parse($Binding.expiration)) { throw 'CSA-BOOT-EXPIRED' }
+}
+
+function Test-CSABootstrapPrivilege {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    try {
+        $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+        if ($identity.User.Value -eq 'S-1-5-18' -or $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'CSA-BOOT-ELEVATED'
+        }
+    } finally { $identity.Dispose() }
+    # The existing Collector independently enforces medium integrity as well.
+}
+
+function Receive-CSABootstrapPackage {
+    param($Binding)
+    $previousProtocol = [Net.ServicePointManager]::SecurityProtocol
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $request = $null
+    $response = $null
+    $memory = New-Object IO.MemoryStream
+    $expected = [string]$Binding.serverCertificateFingerprint
+    try {
+        $callback = {
+            param($Sender, $Certificate, $Chain, $Errors)
+            if ($null -eq $Certificate) { return $false }
+            $sha = [Security.Cryptography.SHA256]::Create()
+            try {
+                $actual = 'sha256:' + ([BitConverter]::ToString($sha.ComputeHash($Certificate.GetRawCertData()))).Replace('-', '').ToLowerInvariant()
+                $now = [DateTime]::Now
+                return ($actual -eq $expected -and $now -ge $Certificate.NotBefore -and $now -le $Certificate.NotAfter)
+            } catch { return $false } finally { $sha.Dispose() }
+        }.GetNewClosure()
+        $request = [Net.HttpWebRequest]::Create(([string]$Binding.serverUrl).TrimEnd('/') + '/api/v1/collector-package')
+        $request.ServerCertificateValidationCallback = $callback
+        $request.AllowAutoRedirect = $false
+        $request.UseDefaultCredentials = $false
+        $request.Method = 'POST'
+        $request.ContentLength = 0
+        $request.Timeout = 30000
+        $request.ReadWriteTimeout = 30000
+        $request.Headers['Authorization'] = 'CSA-Launcher ' + [string]$Binding.downloadCredential
+        $response = $request.GetResponse()
+        if ([int]$response.StatusCode -ne 200 -or $response.ContentType -ne 'application/zip') { throw 'CSA-BOOT-DOWNLOAD' }
+        if ($response.ContentLength -ne [long]$Binding.packageSize) { throw 'CSA-BOOT-DIGEST' }
+        $input = $response.GetResponseStream()
+        try {
+            $buffer = New-Object byte[] 81920
+            while (($count = $input.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                if ($memory.Length + $count -gt [long]$Binding.packageSize) { throw 'CSA-BOOT-DIGEST' }
+                $memory.Write($buffer, 0, $count)
+            }
+        } finally { $input.Dispose() }
+        if ($memory.Length -ne [long]$Binding.packageSize) { throw 'CSA-BOOT-NETWORK' }
+        return ,$memory.ToArray()
+    } catch {
+        if ($_.Exception.Message -match '^CSA-BOOT-') { throw }
+        $cause = $_.Exception
+        while ($null -ne $cause.InnerException -and $cause -isnot [Net.WebException]) { $cause = $cause.InnerException }
+        if ($cause -is [Net.WebException]) {
+            if ($cause.Status -in @([Net.WebExceptionStatus]::TrustFailure, [Net.WebExceptionStatus]::SecureChannelFailure)) { throw 'CSA-BOOT-TLS' }
+            if ($null -ne $cause.Response) {
+                try { $status = [int]$cause.Response.StatusCode } finally { $cause.Response.Dispose() }
+                if ($status -in @(403,410,429)) { throw 'CSA-BOOT-UNAVAILABLE' }
+            }
+        }
+        throw 'CSA-BOOT-NETWORK'
+    } finally {
+        if ($null -ne $response) { $response.Dispose() }
+        if ($null -ne $request) { $request.Abort() }
+        $memory.Dispose()
+        [Net.ServicePointManager]::SecurityProtocol = $previousProtocol
+    }
+}
+
+function New-CSABootstrapDirectory {
+    $base = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    $path = Join-Path $base ('CSA-Launcher-' + [guid]::NewGuid().ToString('N'))
+    if ([IO.Directory]::Exists($path) -or [IO.File]::Exists($path)) { throw 'CSA-BOOT-TEMP' }
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    try {
+        $acl = New-Object Security.AccessControl.DirectorySecurity
+        $acl.SetAccessRuleProtection($true, $false)
+        foreach ($sid in @($identity.User, [Security.Principal.SecurityIdentifier]::new('S-1-5-18'))) {
+            $rule = [Security.AccessControl.FileSystemAccessRule]::new($sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+            $acl.AddAccessRule($rule)
+        }
+        if ($PSVersionTable.PSEdition -eq 'Desktop') {
+            [IO.Directory]::CreateDirectory($path, $acl) | Out-Null
+        } else {
+            [IO.FileSystemAclExtensions]::Create([IO.DirectoryInfo]::new($path), $acl)
+        }
+        return $path
+    } finally { $identity.Dispose() }
+}
+
+function Resolve-CSABootstrapPath {
+    param([string]$Root, [string]$Relative)
+    if ([string]::IsNullOrWhiteSpace($Relative) -or [IO.Path]::IsPathRooted($Relative) -or $Relative.Contains('\')) { throw 'CSA-BOOT-PATH' }
+    foreach ($part in $Relative.Split('/')) {
+        if ([string]::IsNullOrWhiteSpace($part) -or $part -in @('.','..') -or $part.EndsWith('.') -or $part.EndsWith(' ') -or
+            $part.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0 -or $part -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])($|\.)') { throw 'CSA-BOOT-PATH' }
+    }
+    $candidate = [IO.Path]::GetFullPath((Join-Path $Root $Relative))
+    if (-not $candidate.StartsWith($Root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'CSA-BOOT-PATH' }
+    return $candidate
+}
+
+function Expand-CSABootstrapPackage {
+    param([byte[]]$Bytes, $Binding, [string]$Root)
+    if ((Get-CSABootstrapDigest $Bytes) -ne $Binding.packageDigest) { throw 'CSA-BOOT-DIGEST' }
+    Add-Type -AssemblyName System.IO.Compression
+    $memory = New-Object IO.MemoryStream(,$Bytes)
+    $archive = [IO.Compression.ZipArchive]::new($memory, [IO.Compression.ZipArchiveMode]::Read, $false)
+    try {
+        if ($archive.Entries.Count -gt 512) { throw 'CSA-BOOT-MANIFEST' }
+        $inventory = @{}
+        $expanded = [long]0
+        foreach ($entry in $archive.Entries) {
+            $null = Resolve-CSABootstrapPath $Root $entry.FullName
+            if ($inventory.ContainsKey($entry.FullName) -or ($entry.ExternalAttributes -band 1024) -ne 0 -or
+                (($entry.ExternalAttributes -shr 16) -band 61440) -eq 40960) { throw 'CSA-BOOT-PATH' }
+            $expanded += $entry.Length
+            if ($expanded -gt 134217728) { throw 'CSA-BOOT-MANIFEST' }
+            $inventory[$entry.FullName] = $entry
+        }
+        if (-not $inventory.ContainsKey('trusted-manifest.json')) { throw 'CSA-BOOT-MANIFEST' }
+        $manifestEntry = $inventory['trusted-manifest.json']
+        if ($manifestEntry.Length -gt 1048576) { throw 'CSA-BOOT-MANIFEST' }
+        $manifestMemory = New-Object IO.MemoryStream
+        $manifestInput = $manifestEntry.Open()
+        try { $manifestInput.CopyTo($manifestMemory); $manifestBytes = $manifestMemory.ToArray() }
+        finally { $manifestInput.Dispose(); $manifestMemory.Dispose() }
+        if ((Get-CSABootstrapDigest $manifestBytes) -ne $Binding.manifestDigest) { throw 'CSA-BOOT-MANIFEST' }
+        try { $manifest = [Text.Encoding]::UTF8.GetString($manifestBytes) | ConvertFrom-Json } catch { throw 'CSA-BOOT-MANIFEST' }
+        if ($manifest -isnot [pscustomobject] -or $manifest.PSObject.Properties.Name -notcontains 'schemaVersion' -or
+            $manifest.PSObject.Properties.Name -notcontains 'files' -or $manifest.schemaVersion -ne '5.0' -or $manifest.files -isnot [array]) { throw 'CSA-BOOT-MANIFEST' }
+        foreach ($name in @('assessmentId','sessionId','collectionProfile','collectionProfileDigest','serverCertificateFingerprint','expiration')) {
+            if ($manifest.$name -cne $Binding.$name) { throw 'CSA-BOOT-BINDING' }
+        }
+        $declared = @{}
+        foreach ($file in $manifest.files) {
+            if ($file -isnot [pscustomobject] -or $file.path -isnot [string] -or $file.sha256 -isnot [string] -or $file.sha256 -cnotmatch '\Asha256:[0-9a-f]{64}\z' -or
+                ($file.size -isnot [int] -and $file.size -isnot [long]) -or $file.size -lt 0 -or
+                $file.path -eq 'trusted-manifest.json' -or $declared.ContainsKey($file.path)) { throw 'CSA-BOOT-MANIFEST' }
+            $null = Resolve-CSABootstrapPath $Root $file.path
+            if (-not $inventory.ContainsKey($file.path) -or $inventory[$file.path].Length -ne $file.size) { throw 'CSA-BOOT-MANIFEST' }
+            $declared[$file.path] = $file
+        }
+        if ($inventory.Count -ne $declared.Count + 1) { throw 'CSA-BOOT-MANIFEST' }
+        # Validate every path and manifest entry before creating any package file.
+        foreach ($entry in $archive.Entries) {
+            $path = Resolve-CSABootstrapPath $Root $entry.FullName
+            [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($path)) | Out-Null
+            $input = $entry.Open()
+            try {
+                $output = Invoke-CSABootstrapFileRetry { [IO.File]::Open($path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None) }
+                $sha = [Security.Cryptography.SHA256]::Create()
+                try {
+                    $buffer = New-Object byte[] 81920
+                    $size = [long]0
+                    while (($count = $input.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                        $size += $count
+                        if ($size -gt $entry.Length) { throw 'CSA-BOOT-DIGEST' }
+                        $output.Write($buffer, 0, $count)
+                        $null = $sha.TransformBlock($buffer, 0, $count, $buffer, 0)
+                    }
+                    $null = $sha.TransformFinalBlock((New-Object byte[] 0), 0, 0)
+                    $digest = 'sha256:' + ([BitConverter]::ToString($sha.Hash)).Replace('-', '').ToLowerInvariant()
+                    if ($size -ne $entry.Length -or ($declared.ContainsKey($entry.FullName) -and $digest -ne $declared[$entry.FullName].sha256)) { throw 'CSA-BOOT-DIGEST' }
+                } finally { $sha.Dispose(); $output.Dispose() }
+            } finally { $input.Dispose() }
+        }
+        # The trusted archive anchors configuration; verify its session binding explicitly.
+        $config = Invoke-CSABootstrapFileRetry { [IO.File]::ReadAllText((Join-Path $Root 'session-config.json')) } | ConvertFrom-Json
+        foreach ($name in @('assessmentId','sessionId','collectionProfile','collectionProfileDigest','serverCertificateFingerprint')) {
+            if ($config.$name -cne $Binding.$name) { throw 'CSA-BOOT-BINDING' }
+        }
+        if ($config.serverUrl -cne $Binding.serverUrl -or $config.expiresAt -cne $Binding.expiration -or
+            $config.collectorMode -ne 'STANDARD_USER_COLLECTION' -or $config.activeValidation -ne $false) { throw 'CSA-BOOT-BINDING' }
+        foreach ($file in $manifest.files) {
+            if ([IO.Path]::GetExtension($file.path) -in @('.ps1','.psm1')) {
+                Test-CSABootstrapSignature (Resolve-CSABootstrapPath $Root $file.path) $Binding.scriptSignerThumbprint
+            }
+        }
+    } finally { $archive.Dispose(); $memory.Dispose() }
+}
+
+function Invoke-CSABootstrapCollector {
+    param([string]$Root, [switch]$NoSubmit, [string]$ExportPath)
+    $arguments = @('-NoProfile','-File',(Join-Path $Root 'Invoke-CSACollector.ps1'))
+    if ($NoSubmit) { $arguments += @('-NoSubmit','-ExportPath',$ExportPath) }
+    $previousTemp = $env:TEMP
+    $previousTmp = $env:TMP
+    try {
+        # Keep the shared engine's evidence staging and compiler temp files
+        # inside this launcher's restricted tree, including on cancellation.
+        $work = Join-Path $Root 'work'
+        [IO.Directory]::CreateDirectory($work) | Out-Null
+        $env:TEMP = $work
+        $env:TMP = $work
+        try { & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" @arguments }
+        catch { throw 'CSA-BOOT-COLLECTOR' }
+        if ($LASTEXITCODE -ne 0) { throw 'CSA-BOOT-COLLECTOR' }
+    } finally { $env:TEMP = $previousTemp; $env:TMP = $previousTmp }
+}
+
+function Remove-CSABootstrapDirectory {
+    param([string]$Root)
+    $base = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    $full = [IO.Path]::GetFullPath($Root)
+    if ([IO.Path]::GetDirectoryName($full).TrimEnd('\') -ne $base.TrimEnd('\') -or
+        [IO.Path]::GetFileName($full) -notmatch '\ACSA-Launcher-[0-9a-f]{32}\z') { throw 'CSA-BOOT-CLEANUP' }
+    if ([IO.Directory]::Exists($full)) {
+        if (((Get-Item -LiteralPath $full -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'CSA-BOOT-CLEANUP' }
+        Invoke-CSABootstrapFileRetry { [IO.Directory]::Delete($full, $true) }
+    }
+}
+
+function Invoke-CSABootstrap {
+    param($Binding, [string]$LauncherPath, [switch]$NoSubmit, [string]$ExportPath)
+    $root = $null
+    $bytes = $null
+    $code = 0
+    try {
+        Test-CSABootstrapSignature $LauncherPath
+        Test-CSABootstrapBinding $Binding
+        Test-CSABootstrapPrivilege
+        if ($NoSubmit -and [string]::IsNullOrWhiteSpace($ExportPath)) { throw 'CSA-BOOT-EXPORT' }
+        Write-Host 'Downloading the session-bound Collector package...'
+        $bytes = Receive-CSABootstrapPackage $Binding
+        Test-CSABootstrapBinding $Binding
+        Write-Host 'Checking package integrity...'
+        $root = New-CSABootstrapDirectory
+        Expand-CSABootstrapPackage $bytes $Binding $root
+        Test-CSABootstrapBinding $Binding
+        Write-Host 'Starting standard-user Collector. Administrator rights required: NO'
+        Invoke-CSABootstrapCollector -Root $root -NoSubmit:$NoSubmit -ExportPath $ExportPath | Out-Host
+    } catch {
+        $code = 1
+        $diagnostic = $_.Exception.Message
+        $messages = @{
+            'CSA-BOOT-DOWNLOAD' = 'The package download response is invalid. Execution stopped; contact the assessor.'
+            'CSA-BOOT-EXPIRED' = 'This session has expired. Download a launcher from an active assessment.'
+            'CSA-BOOT-UNAVAILABLE' = 'This download is no longer authorized. Reopen the active Collector page or contact the assessor.'
+            'CSA-BOOT-NETWORK' = 'Package download was interrupted. Check connectivity and rerun this launcher while the session remains open. No collection was started.'
+            'CSA-BOOT-TLS' = 'The CSA Lab server identity could not be verified. Contact the assessor.'
+            'CSA-BOOT-FILELOCK' = 'TRANSIENT_FILE_LOCK: Endpoint security is still holding a Collector file. Retry shortly; keep endpoint protection enabled.'
+            'CSA-BOOT-SIGNATURE' = 'A PowerShell signature is invalid or its required signer could not be verified. Execution stopped.'
+            'CSA-BOOT-DIGEST' = 'Collector package integrity verification failed. Execution stopped.'
+            'CSA-BOOT-MANIFEST' = 'The trusted package manifest is invalid. Execution stopped.'
+            'CSA-BOOT-PATH' = 'The package contains an unsafe or duplicate path. Execution stopped.'
+            'CSA-BOOT-BINDING' = 'The package does not match this assessment and session. Execution stopped.'
+            'CSA-BOOT-ELEVATED' = 'Open a standard-user PowerShell window. Elevated or SYSTEM execution is refused.'
+            'CSA-BOOT-COLLECTOR' = 'Collector did not complete submission. Review its diagnostic. Retry while the session is open, or use the offline ZIP instructions.'
+            'CSA-BOOT-CLEANUP' = 'Temporary data cleanup could not be confirmed. Contact the assessor.'
+            'CSA-BOOT-EXPORT' = 'An explicit offline export path is required with -NoSubmit.'
+        }
+        if (-not $messages.ContainsKey($diagnostic)) { $diagnostic = 'CSA-BOOT-FAILED'; $message = 'Collector bootstrap stopped safely. Organization execution restrictions may apply; contact the assessor.' }
+        else { $message = $messages[$diagnostic] }
+        [Console]::Error.WriteLine($diagnostic + ': ' + $message)
+    } finally {
+        if ($null -ne $bytes) { [Array]::Clear($bytes, 0, $bytes.Length) }
+        if ($null -ne $root) {
+            try { Remove-CSABootstrapDirectory $root; Write-Host 'Bootstrap temporary files removed: YES' }
+            catch { $code = 1; [Console]::Error.WriteLine('CSA-BOOT-CLEANUP: Temporary data cleanup could not be confirmed. Contact the assessor.'); Write-Host 'Bootstrap temporary files removed: NO' }
+        }
+        if ($null -ne $Binding) { $Binding.downloadCredential = $null }
+    }
+    return $code
+}
+
+$binding = $null
+try {
+    $binding = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($embeddedBinding)) | ConvertFrom-Json
+    $embeddedBinding = $null
+    $result = Invoke-CSABootstrap -Binding $binding -LauncherPath $PSCommandPath -NoSubmit:$NoSubmit -ExportPath $ExportPath
+    exit $result
+} catch { [Console]::Error.WriteLine('CSA-BOOT-BINDING: Launcher configuration is invalid. Download a fresh launcher.'); exit 1 }

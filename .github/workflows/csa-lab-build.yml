@@ -32,7 +32,9 @@ jobs:
             build/collector/CSA-Collector.exe, `
             dist/installer/CSA-Lab-Setup.exe
           $requiredRuntimeFiles = @(
-            "dist/CSA-Lab/_internal/policies/windows_endpoint_default.json"
+            "dist/CSA-Lab/_internal/policies/windows_endpoint_default.json",
+            "dist/CSA-Lab/_internal/csa_lab/powershell/Start-CSACollector.ps1.in",
+            "dist/CSA-Lab/_internal/csa_lab/powershell/Sign-CSALauncher.ps1"
           )
           foreach ($requiredFile in $requiredRuntimeFiles) {
             if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
@@ -47,6 +49,9 @@ jobs:
           $checksums | Set-Content `
             -LiteralPath dist/installer/SHA256SUMS.txt `
             -Encoding ascii
+      - name: Smoke test packaged Lab with isolated data
+        shell: pwsh
+        run: ./scripts/Invoke-CSALabSmoke.ps1
       - name: Record installer creation time
         shell: pwsh
         run: |

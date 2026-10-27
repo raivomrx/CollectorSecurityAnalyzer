@@ -28,10 +28,42 @@ try {
         -Paths $collector
     if ($LASTEXITCODE -ne 0) { throw "Collector signing stage failed." }
 
-    & $PythonExecutable -m PyInstaller `
+    # Sign copies before trusted manifests are generated, never mutate source.
+    $buildRoot = [IO.Path]::GetFullPath((Join-Path $root 'build'))
+    $scriptStage = [IO.Path]::GetFullPath((Join-Path $buildRoot 'collector-scripts'))
+    if (-not $scriptStage.StartsWith($buildRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Collector script staging path is unsafe.'
+    }
+    if (Test-Path -LiteralPath $scriptStage) { Remove-Item -LiteralPath $scriptStage -Recurse -Force }
+    Copy-Item -LiteralPath (Join-Path $root 'collector/windows') -Destination $scriptStage -Recurse
+    $labScriptStage = [IO.Path]::GetFullPath((Join-Path $buildRoot 'lab-powershell'))
+    if (-not $labScriptStage.StartsWith($buildRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Lab script staging path is unsafe.'
+    }
+    if (Test-Path -LiteralPath $labScriptStage) { Remove-Item -LiteralPath $labScriptStage -Recurse -Force }
+    Copy-Item -LiteralPath (Join-Path $root 'csa_lab/powershell') -Destination $labScriptStage -Recurse
+    $scriptPaths = @(Get-ChildItem -LiteralPath $scriptStage,$labScriptStage -Recurse -File | Where-Object { $_.Extension -in @('.ps1','.psm1') } | ForEach-Object FullName)
+    foreach ($scriptPath in $scriptPaths) {
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'scripts/Sign-CSAArtifacts.ps1') -Paths $scriptPath
+        if ($LASTEXITCODE -ne 0) { throw 'Collector script signing failed.' }
+    }
+    $signature = Get-AuthenticodeSignature -LiteralPath (Join-Path $scriptStage 'Invoke-CSACollector.ps1')
+    if ([string]$signature.Status -eq 'Valid') {
+        @{ thumbprint = $signature.SignerCertificate.Thumbprint } | ConvertTo-Json -Compress |
+            Set-Content -LiteralPath (Join-Path $scriptStage 'script-signing.json') -Encoding utf8
+    }
+    $previousSource = $env:CSA_COLLECTOR_SOURCE_DIR
+    $previousLabScripts = $env:CSA_LAB_POWERSHELL_SOURCE_DIR
+    $env:CSA_COLLECTOR_SOURCE_DIR = $scriptStage
+    $env:CSA_LAB_POWERSHELL_SOURCE_DIR = $labScriptStage
+    try { & $PythonExecutable -m PyInstaller `
         --noconfirm `
         --clean `
         (Join-Path $root "packaging\csa-lab.spec")
+    } finally {
+        $env:CSA_COLLECTOR_SOURCE_DIR = $previousSource
+        $env:CSA_LAB_POWERSHELL_SOURCE_DIR = $previousLabScripts
+    }
     if ($LASTEXITCODE -ne 0) { throw "CSA Lab PyInstaller build failed." }
 
     $lab = Join-Path $root "dist\CSA-Lab\CSA-Lab.exe"

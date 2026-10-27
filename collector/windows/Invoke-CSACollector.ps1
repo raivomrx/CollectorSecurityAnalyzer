@@ -144,6 +144,26 @@ function Test-CSATrustedPackage {
     if (@($actual | Where-Object { -not $declared.ContainsKey($_) }).Count -gt 0 -or $actual.Count -ne $declared.Count) {
         throw "Trusted package contains an undeclared file."
     }
+    Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
+    $requiredSigner = ''
+    if ($manifest.PSObject.Properties.Name -contains 'scriptSigning') {
+        $requiredSigner = [string]$manifest.scriptSigning.thumbprint
+        if ($requiredSigner -notmatch '\A[0-9A-Fa-f]{40}\z') { throw 'Trusted script signing metadata is invalid.' }
+    }
+    foreach ($file in @($manifest.files)) {
+        if ([IO.Path]::GetExtension([string]$file.path) -in @('.ps1','.psm1')) {
+            $guard = Invoke-CSAFileLockRetry { [IO.File]::Open($declared[[string]$file.path], [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read) }
+            try {
+                $signature = Get-AuthenticodeSignature -LiteralPath $declared[[string]$file.path] -ErrorAction Stop
+                $signatureClaimed = [IO.File]::ReadAllText($declared[[string]$file.path]) -match '(?m)^# SIG # Begin signature block\s*$'
+            }
+            finally { $guard.Dispose() }
+            if ([string]$signature.Status -eq 'NotSigned' -and -not $requiredSigner -and -not $signatureClaimed) { continue }
+            if ([string]$signature.Status -ne 'Valid' -or ($requiredSigner -and $signature.SignerCertificate.Thumbprint -ne $requiredSigner)) {
+                throw 'CSA-COL-SIGNATURE: A Collector script signature is invalid or its required signer could not be verified.'
+            }
+        }
+    }
     return $manifest
 }
 
