@@ -10,7 +10,7 @@ ADMIN_SID = "S-1-5-32-544"
 
 def valid_principal_sid(value: Any) -> bool:
     return isinstance(value, str) and bool(re.fullmatch(
-        r"(?:S-\d+(?:-\d+){2,}|id-[0-9a-f]{12})", value, re.IGNORECASE
+        r"(?:S-\d+(?:-\d+){2,}|id-(?:[0-9a-f]{12}|[0-9a-f]{24}))", value, re.IGNORECASE
     ))
 
 

@@ -23,6 +23,7 @@ from compliance.profile_resolver import ComplianceProfileResolver
 from compliance.repository import FrameworkRepository
 from config import load_config
 from csa_console.identifiers import utc_text
+from cve.status import assessment_status
 from cve.cache import NvdCache
 from cve.client import NvdClient
 from cve.exceptions import CveScanCancelled
@@ -378,7 +379,7 @@ def _cve_analysis_metadata(
                 {
                     "provider": item.provider,
                     "status": (
-                        "COMPLETE"
+                        "SUCCESS"
                         if item.succeeded and not item.partial
                         else "PARTIAL"
                         if item.succeeded or item.partial
@@ -402,14 +403,17 @@ def _cve_analysis_metadata(
         if enrichment is not None
         else set()
     )
-    status = (
-        "NOT_EVALUATED"
-        if context.software_inventory.collection_status != "SUCCESS"
-        else nvd_status
-    )
+    status = assessment_status({
+        "status": "EVALUATED", "scanCompleted": summary.scan_complete, "softwareCollectionStatus": context.software_inventory.collection_status,
+        "cveEligibleProducts": summary.eligible_products,
+        "successfullyEvaluatedProducts": summary.evaluated_products,
+        "productEvaluations": [_product_evaluation_dict(item) for item in summary.product_evaluations],
+    })
+    provider_coverage[0]["evaluationCoverageStatus"] = status
+
     return {
         **base_metadata,
-        "status": status,
+        "status": status, "assessmentStatus": status, "providerStatus": nvd_status, "statusContractVersion": "1.0", "scanCompleted": summary.scan_complete,
         "timestamp": utc_text(),
         "telemetry": dict(summary.telemetry),
         "installedSoftwareRecords": summary.scanned_products,

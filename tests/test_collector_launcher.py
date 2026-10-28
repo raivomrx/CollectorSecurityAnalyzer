@@ -72,10 +72,13 @@ class LauncherCase(unittest.TestCase):
             fixture['collectorBuildDigest'] = ''
             fixture['collectorBuildCommit'] = ''
             encoded = base64.b64encode(json.dumps(fixture).encode()).decode()
-            (source/'Collect-CSAWindowsEvidence.ps1').write_text('''param($OutputPath,$PrivacyMode,$CollectionMode,$CapabilityRegistryPath,$CollectionProfilePath,$CollectorBuildDigest,$CollectorBuildCommit)
+            (source/'Collect-CSAWindowsEvidence.ps1').write_text('''param($OutputPath,$PrivacyMode,$CollectionMode,$CapabilityRegistryPath,$CollectionProfilePath,$CollectorBuildDigest,$CollectorBuildCommit,$PrivacyContext,$PrivacyPolicyPath)
 $data = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('''+"'"+encoded+"'"+''')) | ConvertFrom-Json
 $data.collectorBuildDigest = $CollectorBuildDigest
 $data.collectorBuildCommit = $CollectorBuildCommit
+Import-Module (Join-Path $PSScriptRoot 'modules/Privacy.psm1') -Force
+$policy = Get-Content -LiteralPath $PrivacyPolicyPath -Raw | ConvertFrom-Json
+$data = Invoke-CSACollectionPrivacy -Document $data -Policy $policy -Context $PrivacyContext
 [IO.File]::WriteAllText($OutputPath, ($data | ConvertTo-Json -Depth 32 -Compress), [Text.UTF8Encoding]::new($false))
 ''', encoding='utf-8-sig')
             (source/'modules/General.psm1').write_text('''function Get-CSAExecutionTokenContext {

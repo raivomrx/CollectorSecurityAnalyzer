@@ -11,6 +11,8 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from cve.status import normalize_metadata, aggregate_statuses
+from csa_console.integrity import verify_recorded_evidence
 from csa_console.audit import ConsoleAuditLog
 from csa_console.canonical import sha256_bytes, sha256_value
 from csa_console.finding_semantics import client_finding_semantics, is_internal_summary_control
@@ -45,6 +47,8 @@ SECRET_KEYS = {
     "ntlmresponse",
     "recoverykey",
     "browsercookie",
+    "privacycontext",
+    "assessmentprivacykey",
 }
 
 
@@ -438,14 +442,12 @@ class UnifiedReportGenerator:
                 ),
             },
             "integrity": {
-                "reportIntegrity": "VERIFIED",
-                "evidencePackageIntegrity": "VERIFIED",
-                "collectorBuildTrusted": "YES",
+                **verify_recorded_evidence(self.storage, assessment_id, latest, index),
                 "auditChain": audit_summary[
                     "auditVerificationStatus"
                 ],
                 "offlinePackagePathsNormalized": (
-                    "YES"
+                    "RECORDED"
                     if any(
                         item.get("eventType")
                         == "offline_archive_paths_normalized"
@@ -621,6 +623,8 @@ class UnifiedReportGenerator:
         software_intelligence = _software_intelligence_coverage(
             software_results
         )
+        cve_metadata = normalize_metadata(endpoint.get("cveSummary", {}),
+            evidence.get("softwareCollection", {}).get("status", "NOT_EVALUATED"), endpoint.get("cveAnalysisStatus", "NOT_PERFORMED"))
         return {
             "deviceId": str(endpoint.get("deviceId", "UNKNOWN")),
             "displayName": display_name,
@@ -674,10 +678,8 @@ class UnifiedReportGenerator:
             "collectorBuildCommit": str(
                 evidence.get("collectorBuildCommit", "")
             ),
-            "cveAnalysisStatus": str(
-                endpoint.get("cveAnalysisStatus", "NOT_PERFORMED")
-            ),
-            "cveSummary": dict(endpoint.get("cveSummary", {})),
+            "cveAnalysisStatus": cve_metadata["status"],
+            "cveSummary": cve_metadata,
             "softwareCollection": evidence.get("softwareCollection", {}),
             "softwareResults": software_results,
             "softwareIntelligence": software_intelligence,
@@ -791,24 +793,10 @@ def _aggregate_cve(
     """Aggregate CVEs with confirmed applicability dominating possible matches."""
 
     summaries = [item.get("cveSummary", {}) for item in endpoints]
-    statuses = {
-        str(item.get("cveAnalysisStatus", "NOT_PERFORMED"))
+    status = aggregate_statuses(
+        normalize_metadata(item.get("cveSummary", {}), workflow_status=item.get("cveAnalysisStatus"))["status"]
         for item in endpoints
-    }
-    if statuses == {"COMPLETE"}:
-        status = "COMPLETE"
-    elif statuses == {"NOT_EVALUATED"}:
-        status = "NOT_EVALUATED"
-    elif statuses == {"SKIPPED"}:
-        status = "SKIPPED"
-    elif statuses == {"NOT_PERFORMED"}:
-        status = "NOT_PERFORMED"
-    elif statuses == {"FAILED"}:
-        status = "FAILED"
-    elif "RUNNING" in statuses:
-        status = "RUNNING"
-    else:
-        status = "PARTIAL"
+    )
 
     def total(key: str) -> int:
         return sum(int(item.get(key, 0) or 0) for item in summaries)
@@ -885,7 +873,7 @@ def _aggregate_cve(
     coverage_complete = status == "COMPLETE" and not_evaluated == 0
     primary_display = (
         str(len(unique_ids))
-        if coverage > 0.0 or status == "COMPLETE"
+        if unique_ids or (status in {"COMPLETE", "PARTIAL"} and (evaluated > 0 or eligible == 0))
         else "NOT EVALUATED"
     )
     return {
@@ -926,7 +914,7 @@ def _aggregate_cve(
         "coveragePercent": coverage,
         "softwareVulnerabilityEvaluation": _software_vulnerability_evaluation(eligible, evaluated, coverage),
         "coverageComplete": coverage_complete,
-        "coverageStatement": _cve_coverage_statement(
+        "coverageStatement": "No eligible software products were present in the successfully collected inventory." if status == "COMPLETE" and eligible == 0 else _cve_coverage_statement(
             status, coverage, len(unique_ids)
         ),
         "relationships": relationships,

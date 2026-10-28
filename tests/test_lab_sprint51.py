@@ -881,7 +881,7 @@ class CollectorExecutableTests(unittest.TestCase):
 class UnifiedReportTests(Sprint5TestCase):
     """Verify the one-file report and 13-endpoint synthetic flow."""
 
-    def _accept_and_analyze(self, submission_id: str) -> None:
+    def _accept_and_analyze(self, submission_id: str, evidence: dict | None = None) -> None:
         service = SubmissionService(self.storage)
         nonce = service.request_nonce(
             self.assessment.assessment_id,
@@ -898,7 +898,7 @@ class UnifiedReportTests(Sprint5TestCase):
             nonce=nonce,
             source_address="127.0.0.1",
             archive_bytes=self.package(
-                submission_id, nonce, f"{submission_id}.zip"
+                submission_id, nonce, f"{submission_id}.zip", evidence=evidence
             ).read_bytes(),
         )
         ConsoleAnalysisPipeline(self.storage).analyze(package)
@@ -1174,7 +1174,9 @@ class UnifiedReportTests(Sprint5TestCase):
         """CVE retry should persist a terminal status and typed counts."""
 
         submission_id = "SUB-CVE-LIFECYCLE-01"
-        self._accept_and_analyze(submission_id)
+        evidence = self.evidence()
+        evidence["software"].update(collectionStatus="SUCCESS", recordsCollected=1)
+        self._accept_and_analyze(submission_id, evidence=evidence)
         existing_report = self.storage.path(
             self.assessment.assessment_id,
             "reports",

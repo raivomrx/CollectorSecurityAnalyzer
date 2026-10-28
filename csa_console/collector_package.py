@@ -19,6 +19,7 @@ from csa_console.capabilities import (
 )
 from csa_console.identifiers import utc_text
 from csa_console.models import AssessmentSession
+from csa_console.collection_privacy import assessment_privacy_context
 
 ROOT = Path(__file__).resolve().parents[1]
 COLLECTOR_SOURCE = ROOT / "collector" / "windows"
@@ -95,7 +96,8 @@ def create_collector_package(
         "enrollmentToken": enrollment_token,
         "expiresAt": session.expires_at,
         "activeValidation": False,
-        "privacyPolicy": "collector/profiles/privacy-default.json",
+        "privacyPolicy": "collector/profiles/" + profile.privacy_policy,
+        "privacyContext": assessment_privacy_context(session),
         "offlinePublicKey": "offline-public.xml",
     }
     write_canonical_json(destination / "session-config.json", configuration)

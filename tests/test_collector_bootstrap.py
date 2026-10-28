@@ -158,6 +158,17 @@ if ($operationFailed) { exit 1 }
         self.assertIn("verification failed", result.stderr)
         self.assertNotIn("TRANSIENT_FILE_LOCK", result.stdout)
 
+    def test_col1_self_supplied_digests_do_not_establish_publisher_authenticity(self):
+        # COL-1 investigation only: harmless data, production verifier, no
+        # change to runtime acceptance. Rewriting both the module and its
+        # self-supplied manifest passes consistency checks on an unsigned stub.
+        self.module.write_bytes(b"# synthetic COL-1 consistency demonstration\n")
+        self.manifest['files'][0].update(size=self.module.stat().st_size,
+            sha256='sha256:'+hashlib.sha256(self.module.read_bytes()).hexdigest())
+        self.write_manifest()
+        result=self.extract_into_new_target()
+        self.assertEqual(result.returncode,0,result.stderr)
+
     def extract_into_new_target(self):
         bound = build_bound_collector(self.harness, self.package, self.root / "bound.exe")
         target = self.root / ("target-" + str(time.monotonic_ns()))

@@ -170,6 +170,7 @@ function Test-CSATrustedPackage {
 function Get-CSAPrivilegeContext {
     # Called only after trusted-package verification; both transports use General.
     Invoke-CSAFileLockRetry { Import-Module (Resolve-CSAPackagePath "collector/modules/General.psm1") -Force }
+    Invoke-CSAFileLockRetry { Import-Module (Resolve-CSAPackagePath "collector/modules/Privacy.psm1") -Force }
     return Get-CSAExecutionTokenContext -PrivacyMode Standard
 }
 
@@ -311,8 +312,7 @@ function New-CSAEvidencePackage {
     }
     $signaturePath = Join-Path $payload "signatures\submission.sig"
     Write-CSACanonicalJson $signaturePath $signature
-    $deviceSeed = "$($Configuration.sessionId)|$env:COMPUTERNAME"
-    $deviceId = Get-CSASha256Bytes ([Text.Encoding]::UTF8.GetBytes($deviceSeed))
+    $deviceId = Get-CSAPrivacyDeviceId -Hostname $env:COMPUTERNAME -Context $Configuration.privacyContext
     $manifest = [ordered]@{
         assessmentId = [string]$Configuration.assessmentId
         collectionProfile = [string]$Configuration.collectionProfile
@@ -531,15 +531,15 @@ try {
     if ([string]$privilege.integrityLevel -ne "MEDIUM") {
         throw "STANDARD_USER_COLLECTION requires a medium-integrity process."
     }
-    Write-Host "Assessment: $($configuration.assessmentName)"
-    Write-Host "Organization reference: $($configuration.customerReference)"
+    Write-Host "Assessment: session-bound CSA assessment"
     Write-Host "Assessment mode: Standard Privileges Assessment"
     Write-Host "Administrator rights required: NO"
     Write-Host "Active security testing: NO"
-    Write-Host "Data destination: $($configuration.serverUrl)"
+    Write-Host "Data destination: session-bound CSA Lab server (TLS pin enforced)"
     $submissionId = "SUB-" + [guid]::NewGuid().ToString("N")
     $temporaryDirectory = New-CSATemporaryDirectory $submissionId
     $evidencePath = Join-Path $temporaryDirectory "collector-evidence.json"
+    $privacyContext = @{ assessmentId = [string]$configuration.privacyContext.assessmentId; key = [string]$configuration.privacyContext.key }
     & (Resolve-CSAPackagePath "collector\Collect-CSAWindowsEvidence.ps1") `
         -OutputPath $evidencePath `
         -PrivacyMode Standard `
@@ -547,7 +547,9 @@ try {
         -CapabilityRegistryPath (Resolve-CSAPackagePath "collector\collection-capabilities.json") `
         -CollectionProfilePath (Resolve-CSAPackagePath "collector\profiles\windows-standard-v1.json") `
         -CollectorBuildDigest ([string]$trustedManifest.collectorBuildDigest) `
-        -CollectorBuildCommit ([string]$trustedManifest.collectorBuildCommit)
+        -CollectorBuildCommit ([string]$trustedManifest.collectorBuildCommit) `
+        -PrivacyContext $privacyContext `
+        -PrivacyPolicyPath (Resolve-CSAPackagePath ([string]$configuration.privacyPolicy))
     $evidence = Get-Content -Raw -LiteralPath $evidencePath | ConvertFrom-Json
     if ([bool]$evidence.privilegeContext.isElevated) {
         throw "Collected evidence unexpectedly reports an elevated context."

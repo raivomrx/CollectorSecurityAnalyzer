@@ -16,6 +16,7 @@ from csa_console.package import ValidatedPackage
 from csa_console.serde import model_to_dict
 from csa_console.storage import AssessmentStorage
 from cve.exceptions import CveScanCancelled
+from cve.status import normalize_metadata
 
 
 class ConsoleAnalysisPipeline:
@@ -87,6 +88,7 @@ class ConsoleAnalysisPipeline:
             privacy_mode="strict",
             analysis_metadata=cve_metadata,
         )
+        cve_metadata = normalize_metadata(cve_metadata, normalized_data.get("softwareCollection", {}).get("status", "NOT_EVALUATED"))
         finding_values = [item.to_dict() for item in findings]
         finding_values.sort(
             key=lambda item: (
@@ -272,6 +274,7 @@ class ConsoleAnalysisPipeline:
             if run_cve:
                 self.mark_cve_analysis_failed(assessment_id, submission_id)
             raise
+        cve_metadata = normalize_metadata(cve_metadata, normalized.get("softwareCollection", {}).get("status", "NOT_EVALUATED"))
         finding_values = [item.to_dict() for item in findings]
         finding_values.sort(
             key=lambda item: (

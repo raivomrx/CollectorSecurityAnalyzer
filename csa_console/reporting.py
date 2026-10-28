@@ -46,6 +46,11 @@ class ConsoleReportGenerator:
         evidence = self.storage.read_json(
             assessment_id, "normalized", f"{submission_id}.json"
         )
+        from cve.status import normalize_metadata
+        endpoint = dict(endpoint)
+        endpoint["cveSummary"] = normalize_metadata(endpoint.get("cveSummary", {}),
+            evidence.get("softwareCollection", {}).get("status", "NOT_EVALUATED"), endpoint.get("cveAnalysisStatus"))
+        endpoint["cveAnalysisStatus"] = endpoint["cveSummary"]["status"]
         findings = [
             item for item in endpoint.get("findings", [])
             if not is_internal_summary_control(str(item.get("finding", {}).get("rule_id", "")))

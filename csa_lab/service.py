@@ -22,6 +22,7 @@ from typing import Any
 
 from csa_lab.secrets import NvdSecretStore
 from cve.exceptions import CveScanCancelled
+from cve.status import normalize_metadata, aggregate_statuses
 
 from csa_console.audit import ConsoleAuditLog
 from csa_console.canonical import read_json, write_canonical_json
@@ -703,12 +704,10 @@ class LabApplicationService:
                     capability_gaps=[
                         value for value in limitations if isinstance(value, dict)
                     ],
-                    cve_analysis_status=str(
-                        endpoint.get(
-                            "cveAnalysisStatus", "NOT_PERFORMED"
-                        )
-                    ),
-                    cve_summary=dict(endpoint.get("cveSummary", {})),
+                    cve_analysis_status=normalize_metadata(endpoint.get("cveSummary", {}),
+                        evidence.get("softwareCollection", {}).get("status", "NOT_EVALUATED"), endpoint.get("cveAnalysisStatus", "NOT_PERFORMED"))["status"],
+                    cve_summary=normalize_metadata(endpoint.get("cveSummary", {}),
+                        evidence.get("softwareCollection", {}).get("status", "NOT_EVALUATED"), endpoint.get("cveAnalysisStatus", "NOT_PERFORMED")),
                 )
             )
         pending_states = {
@@ -833,6 +832,7 @@ class LabApplicationService:
         completed = 0
         partial = 0
         failed = 0
+        not_evaluated = 0
         endpoint_total = len(latest)
         for endpoint_index, endpoint in enumerate(latest, start=1):
             if cancel_event is not None and cancel_event.is_set():
@@ -935,6 +935,8 @@ class LabApplicationService:
                 completed += 1
             elif result.cve_analysis_status == "PARTIAL":
                 partial += 1
+            elif result.cve_analysis_status == "NOT_EVALUATED":
+                not_evaluated += 1
             else:
                 failed += 1
         audit.append(
@@ -944,6 +946,7 @@ class LabApplicationService:
                 "complete": completed,
                 "partial": partial,
                 "failed": failed,
+                "notEvaluated": not_evaluated,
             },
         )
         if state.report_path:
@@ -1052,13 +1055,8 @@ class LabApplicationService:
                 for item in endpoints
                 if item.status == EndpointUiStatus.COMPLETE
             }
-            result = (
-                "COMPLETE"
-                if statuses == {"COMPLETE"}
-                else "PARTIAL"
-                if statuses
-                else "FAILED"
-            )
+            result = aggregate_statuses(statuses)
+
             update(
                 {
                     "state": "COMPLETED",
@@ -1474,7 +1472,7 @@ def _cve_progress_message(progress: dict[str, Any]) -> str:
     if state == "CANCELLING":
         return "Cancelling CVE analysis"
     if state == "COMPLETED":
-        result = str(progress.get("result", "COMPLETE"))
+        result = str(progress.get("result", "NOT_EVALUATED"))
         return f"CVE analysis completed with status {result}"
     phase = str(progress.get("phase", ""))
     if phase in {"RATE_LIMIT_WAIT", "RETRY_WAIT"}:

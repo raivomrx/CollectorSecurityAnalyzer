@@ -29,9 +29,9 @@ function Get-CSACertificatesEvidence {
                 $certificates += [ordered]@{
                     Store = [string]$store.Name
                     SubjectIdentifier = Protect-CSAIdentifier `
-                        ([string]$certificate.Subject) "Strict"
+                        ([string]$certificate.Subject) $PrivacyMode
                     IssuerIdentifier = Protect-CSAIdentifier `
-                        ([string]$certificate.Issuer) "Strict"
+                        ([string]$certificate.Issuer) $PrivacyMode
                     ValidFrom = $certificate.NotBefore.ToUniversalTime().ToString("o")
                     ValidTo = $certificate.NotAfter.ToUniversalTime().ToString("o")
                     SignatureAlgorithm = [string]$certificate.SignatureAlgorithm.FriendlyName

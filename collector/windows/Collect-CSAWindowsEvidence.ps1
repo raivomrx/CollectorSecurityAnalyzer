@@ -14,7 +14,11 @@ param(
 
     [string]$CollectorBuildDigest = "",
 
-    [string]$CollectorBuildCommit = ""
+    [string]$CollectorBuildCommit = "",
+
+    [hashtable]$PrivacyContext = $null,
+
+    [string]$PrivacyPolicyPath = ""
 )
 
 Set-StrictMode -Version 2.0
@@ -34,6 +38,7 @@ $started = (Get-Date).ToUniversalTime()
 $moduleRoot = Join-Path $PSScriptRoot "modules"
 $manifestPath = Join-Path $PSScriptRoot "evidence-manifest.json"
 Import-Module (Join-Path $moduleRoot "General.psm1") -Force
+Import-Module (Join-Path $moduleRoot "Privacy.psm1") -Force
 $manifest = @{}
 if (-not (Test-Path -LiteralPath $manifestPath)) {
     throw "Evidence manifest was not found: $manifestPath"
@@ -48,6 +53,25 @@ if (-not (Test-Path -LiteralPath $CollectionProfilePath)) {
 }
 $capabilityRegistry = Get-Content -Raw -LiteralPath $CapabilityRegistryPath | ConvertFrom-Json
 $collectionProfile = Get-Content -Raw -LiteralPath $CollectionProfilePath | ConvertFrom-Json
+if ([string]::IsNullOrWhiteSpace($PrivacyPolicyPath)) {
+    $PrivacyPolicyPath = Join-Path (Split-Path -Parent $CollectionProfilePath) ([string]$collectionProfile.privacyPolicy)
+}
+$privacyPolicy = Get-Content -LiteralPath $PrivacyPolicyPath -Raw | ConvertFrom-Json
+# Providers gather into memory; the selected profile is enforced once, including
+# metadata copies, before the first evidence write. No raw staging file is used.
+$requestedPrivacyMode = $PrivacyMode
+if ($requestedPrivacyMode -eq 'Strict') {
+    $privacyPolicy.includeHostname=$false
+    $privacyPolicy.hashUsername=$true
+    $privacyPolicy.hashTenantId=$true
+    $privacyPolicy.includeIpAddresses=$false
+    $privacyPolicy.includeMacAddresses=$false
+    $privacyPolicy.includeCertificateSubjects=$false
+    $privacyPolicy.includeLocalAdminNames=$false
+    $privacyPolicy.includeRawRegistryValues=$false
+    if($privacyPolicy.includeFilePaths -eq 'FULL') { $privacyPolicy.includeFilePaths='REDACT_USER_PROFILE' }
+}
+$PrivacyMode = 'Standard'
 $profileCapabilityIds = @($collectionProfile.capabilities | ForEach-Object { [string]$_ })
 $selectedCapabilities = @(
     $capabilityRegistry.capabilities |
@@ -372,7 +396,8 @@ if (-not [string]::IsNullOrWhiteSpace($outputDirectory)) {
     [System.IO.Directory]::CreateDirectory($outputDirectory) | Out-Null
 }
 $tmpPath = "$resolvedOutput.tmp"
-$json = $document | ConvertTo-Json -Depth 12
+$document = Invoke-CSACollectionPrivacy -Document $document -Policy $privacyPolicy -Context $PrivacyContext
+$json = $document | ConvertTo-Json -Depth 24
 $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($tmpPath, $json, $utf8WithoutBom)
 Move-Item -LiteralPath $tmpPath -Destination $resolvedOutput -Force

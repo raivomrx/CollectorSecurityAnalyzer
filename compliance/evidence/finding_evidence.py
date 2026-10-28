@@ -27,12 +27,16 @@ class FindingEvidenceExtractor(EvidenceExtractor):
             return evidence_record(requirement, EvidenceResult.MISSING, None, 0, "Finding not produced")
 
         actual = finding.status.value
+        if actual in {"NOT_EVALUATED", "NOT_APPLICABLE"}:
+            return evidence_record(requirement, EvidenceResult.MISSING, actual, 0,
+                                   f"Finding {finding.rule_id} does not establish compliance evidence")
+        if actual in {"ERROR", "PARTIAL", "INFO", "WARNING"}:
+            return evidence_record(requirement, EvidenceResult.INCONCLUSIVE, actual, 0,
+                                   f"Finding {finding.rule_id} is insufficient to establish compliance")
         operator = EvidenceOperator(requirement.operator)
         if operator == EvidenceOperator.STATUS_IS:
             if actual == requirement.expected_result:
                 return evidence_record(requirement, EvidenceResult.SUPPORTS, actual, 95, f"Finding {finding.rule_id}")
-            if actual == "WARNING":
-                return evidence_record(requirement, EvidenceResult.INCONCLUSIVE, actual, 60, f"Finding {finding.rule_id}")
             return evidence_record(requirement, EvidenceResult.CONTRADICTS, actual, 95, f"Finding {finding.rule_id}")
         if operator == EvidenceOperator.SEVERITY_AT_LEAST:
             order = ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"]

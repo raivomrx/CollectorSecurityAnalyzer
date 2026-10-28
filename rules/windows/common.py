@@ -82,8 +82,14 @@ def create_setting_rule(spec: SettingRuleSpec) -> type[BaseRule]:
                         )]
                 if spec.only_when_setting_id:
                     gate = registry.get(spec.only_when_setting_id)
-                    if gate is None or gate.effective_value != spec.only_when_value:
-                        return [_pass(spec, {"reason": "Prerequisite setting is not active."})]
+                    if (gate is None or spec.only_when_setting_id in registry.duplicates or
+                            gate.collection_status != CollectionStatus.SUCCESS or
+                            type(gate.effective_value) is not type(spec.only_when_value)):
+                        return [_not_evaluated(spec, "Prerequisite evidence is missing, unsuccessful or unreadable.", gate)]
+                    if gate.effective_value != spec.only_when_value:
+                        return [Finding(rule_id=spec.rule_id, severity=Severity.INFO,
+                                        status=Status.NOT_APPLICABLE, score=0,
+                                        evidence=_evidence(gate, "A successful prerequisite observation confirms this control is inactive."))]
                 setting = registry.get(spec.setting_id)
                 if setting is None:
                     return [_not_evaluated(spec, "Required evidence was not collected.", None)]
