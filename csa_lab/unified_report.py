@@ -817,7 +817,7 @@ def _aggregate_cve(
     else:
         eligible = total("cveEligibleProducts")
         evaluated = total("successfullyEvaluatedProducts")
-    if eligible == 0 or evaluated == 0:
+    if eligible == 0:
         if status in {"COMPLETE", "PARTIAL"}:
             status = "NOT_EVALUATED"
     elif status == "COMPLETE" and evaluated != eligible:

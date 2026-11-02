@@ -106,6 +106,14 @@ class CveCompletionBoundaryTests(unittest.TestCase):
         self.assertEqual(result['coveragePercent'],0.0)
         self.assertFalse(result['coverageComplete'])
 
+    def test_partial_product_evidence_remains_partial_without_a_fully_completed_product(self):
+        endpoint=_endpoint(status='PARTIAL',eligible=1,evaluated=0)
+        endpoint['cveSummary']['productEvaluations']=[{'eligibilityStatus':'ELIGIBLE','terminalStatus':'PARTIAL'}]
+        result=_aggregate_cve([endpoint])
+        self.assertEqual(result['status'],'PARTIAL')
+        self.assertFalse(result['coverageComplete'])
+        self.assertEqual(result['coveragePercent'],0.0)
+
     def test_confirmed_vulnerability_retains_its_failure_and_risk_with_incomplete_inventory(self):
         from cve.models import ApplicabilityStatus, CveAssessment
         from tests.test_cve_engine import _software, _cpe, _cve_record
