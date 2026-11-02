@@ -26,6 +26,8 @@ def main():
     try:
         for label,unmapped,collection in [('FULL',False,'SUCCESS'),('PARTIAL',True,'SUCCESS'),('COLLECTION-FAILED',False,'ERROR')]:
             case.accepted_case(label,unmapped=unmapped,collection=collection)
+        case.accepted_case('EMPTY',empty=True)
+        case.accepted_case('UNFINISHED',scan_completed=False)
         case.storage.write_json(case.assessment.assessment_id,('lab-state.json',),{
             'organization':'Synthetic audit review',
             'description':'Synthetic fixture only. Deterministic fake CVE provider; no live collection. Release HOLD pending architecture acceptance.'})
@@ -40,9 +42,18 @@ def main():
         report=generator.generate(case.assessment.assessment_id)
         model=captured
         states={row['submissionId']:row['cveAnalysisStatus'] for row in model['endpoints']}
-        assert states=={'SUB-AUDIT-FULL':'COMPLETE','SUB-AUDIT-PARTIAL':'PARTIAL','SUB-AUDIT-COLLECTION-FAILED':'NOT_EVALUATED'},states
+        assert states=={'SUB-AUDIT-FULL':'COMPLETE','SUB-AUDIT-PARTIAL':'PARTIAL','SUB-AUDIT-COLLECTION-FAILED':'NOT_EVALUATED',
+                       'SUB-AUDIT-EMPTY':'NOT_EVALUATED','SUB-AUDIT-UNFINISHED':'PARTIAL'},states
         assert model['cve']['status']=='PARTIAL'
-        assert all(row['cveSummary']['providerStatus']=='SUCCESS' for row in model['endpoints'])
+        assert all(row['cveSummary']['providerStatus']=='SUCCESS' for row in model['endpoints'] if row['submissionId']!='SUB-AUDIT-EMPTY')
+        empty=next(row for row in model['endpoints'] if row['submissionId']=='SUB-AUDIT-EMPTY')
+        unfinished=next(row for row in model['endpoints'] if row['submissionId']=='SUB-AUDIT-UNFINISHED')
+        assert empty['cveSummary']['coveragePercent']==0.0
+        assert empty['cveSummary']['assessmentReasonCode']=='NO_ELIGIBLE_PRODUCTS'
+        assert unfinished['cveSummary']['coveragePercent'] is None
+        assert unfinished['cveSummary']['scanCompleted'] is False
+        for endpoint in (empty,unfinished):
+            assert next(row['finding']['status'] for row in endpoint['findings'] if row['finding']['rule_id']=='CVE-001')=='NOT_EVALUATED'
         assert model['integrity']['evidencePackageIntegrity']=='VERIFIED'
         assert model['integrity']['reportIntegrity']=='NOT_EVALUATED'
         assert model['administrativePrivileges']['observedAdminUsers']==1
@@ -62,7 +73,7 @@ def main():
         combined=output.read_text(encoding='utf-8')+json.dumps(model)
         for identifier in ['AuditAlice_OnlyFixture','AUDIT-HOST-ONLYFIXTURE','S-1-5-21-111-222-333','AUDITDOMAIN','10.77.88.99']:
             assert identifier not in combined,'Prohibited synthetic identifier leaked'
-        print('Synthetic audit report verified: COMPLETE / PARTIAL / NOT_EVALUATED; provider SUCCESS; privacy correlations and independent sidecar PASS.')
+        print('Synthetic audit report verified: five endpoints, including empty scope and unfinished scan; no false COMPLETE or full coverage; provider health, privacy correlations and independent sidecar PASS.')
     finally:
         case.doCleanups()
 

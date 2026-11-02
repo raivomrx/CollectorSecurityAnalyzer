@@ -23,7 +23,7 @@ from compliance.profile_resolver import ComplianceProfileResolver
 from compliance.repository import FrameworkRepository
 from config import load_config
 from csa_console.identifiers import utc_text
-from cve.status import assessment_status
+from cve.status import scan_metadata
 from cve.cache import NvdCache
 from cve.client import NvdClient
 from cve.exceptions import CveScanCancelled
@@ -403,17 +403,14 @@ def _cve_analysis_metadata(
         if enrichment is not None
         else set()
     )
-    status = assessment_status({
-        "status": "EVALUATED", "scanCompleted": summary.scan_complete, "softwareCollectionStatus": context.software_inventory.collection_status,
-        "cveEligibleProducts": summary.eligible_products,
-        "successfullyEvaluatedProducts": summary.evaluated_products,
-        "productEvaluations": [_product_evaluation_dict(item) for item in summary.product_evaluations],
-    })
+    completion = scan_metadata(summary, context.software_inventory.collection_status)
+    status = completion["status"]
     provider_coverage[0]["evaluationCoverageStatus"] = status
 
     return {
         **base_metadata,
-        "status": status, "assessmentStatus": status, "providerStatus": nvd_status, "statusContractVersion": "1.0", "scanCompleted": summary.scan_complete,
+        **completion,
+        "providerStatus": nvd_status,
         "timestamp": utc_text(),
         "telemetry": dict(summary.telemetry),
         "installedSoftwareRecords": summary.scanned_products,
@@ -441,7 +438,7 @@ def _cve_analysis_metadata(
             else 0
         ),
         "cisaKevCveIds": sorted(kev_ids),
-        "coveragePercent": summary.coverage_percent,
+        "coveragePercent": completion["coveragePercent"],
         "sourceConflictCount": (
             enrichment.conflict_count if enrichment is not None else 0
         ),

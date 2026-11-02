@@ -57,6 +57,8 @@ def generate_html_report(
     """Generate an HTML audit report from analyzer results."""
 
     output = Path(output_path)
+    from cve.status import scan_metadata
+    cve_assessment = scan_metadata(cve_summary, software_inventory.collection_status) if cve_summary is not None else None
     output.parent.mkdir(parents=True, exist_ok=True)
     _copy_stylesheet(output.parent)
     _copy_script(output.parent)
@@ -88,6 +90,7 @@ def generate_html_report(
         score=score,
         software_inventory=software_inventory,
         cve_summary=cve_summary,
+        cve_assessment=cve_assessment,
         cve_enrichment=cve_enrichment,
         compliance_summary=compliance_summary,
         framework_evaluations=framework_evaluations,

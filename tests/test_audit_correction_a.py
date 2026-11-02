@@ -164,7 +164,7 @@ class IntegrityRegressionTests(Sprint5TestCase):
 
 
 class AuditEndToEndTests(Sprint5TestCase):
-    def accepted_case(self, label, *, unmapped=False, collection='SUCCESS'):
+    def accepted_case(self, label, *, unmapped=False, collection='SUCCESS', empty=False, scan_completed=True):
         from tests.test_audit_privacy import PrivacySerializationTests, privacy_document
         from csa_console.submission import SubmissionService
         from csa_console.pipeline import ConsoleAnalysisPipeline
@@ -185,6 +185,8 @@ class AuditEndToEndTests(Sprint5TestCase):
             raw['software']['items'].append({'displayName':'Microsoft Visual Studio Code','displayVersion':'1.99.0',
                                             'publisher':'Microsoft Corporation','scope':'MACHINE','source':'HKLM_UNINSTALL'})
             raw['software']['recordsCollected']=2
+        if empty:
+            raw['software'].update(items=[],recordsCollected=0)
         serializer=PrivacySerializationTests('test_default_policy_is_enforced_before_output_including_metadata_copies')
         serializer.setUp()
         self.addCleanup(serializer.doCleanups)
@@ -205,8 +207,12 @@ class AuditEndToEndTests(Sprint5TestCase):
             def __init__(self, **kwargs):
                 self.cache=kwargs.get('cache')
                 self.session=SimpleNamespace(close=lambda:None)
+        class Service(CveService):
+            def scan_inventory(self, *args, **kwargs):
+                summary=super().scan_inventory(*args, **kwargs)
+                return summary if scan_completed else replace(summary,scan_complete=False)
         with mock.patch('analyzer.NvdClient',Provider), mock.patch('analyzer.NvdCache',side_effect=lambda:NvdCache(self.storage.root/'fake-cve.db')), \
-                mock.patch('analyzer._run_cve_enrichment',return_value=None):
+                mock.patch('analyzer._run_cve_enrichment',return_value=None), mock.patch('analyzer.CveService',Service):
             result=pipeline.retry_analysis(self.assessment.assessment_id,submission,run_cve=True)
         return result
 
@@ -236,5 +242,40 @@ class AuditEndToEndTests(Sprint5TestCase):
         try:
             rows=lab.dashboard(self.assessment.assessment_id)
             self.assertEqual({row.submission_id:row.cve_analysis_status for row in rows},states)
+        finally:
+            lab.shutdown()
+
+    @unittest.skipUnless(os.name=='nt','Windows serialization end-to-end path')
+    def test_empty_and_unfinished_scan_boundaries_survive_pipeline_lab_report_and_compliance(self):
+        from csa_lab.unified_report import UnifiedReportGenerator
+        from csa_lab.service import LabApplicationService
+        from csa_lab.firewall import NullFirewallManager
+        from compliance.evidence.finding_evidence import FindingEvidenceExtractor
+        from compliance.models import EvidenceRequirement
+        from compliance.enums import EvidenceSourceType
+        requirement=EvidenceRequirement('CVE-CLEAN','Synthetic clean CVE requirement',EvidenceSourceType.FINDING,
+            'CVE-001','PASS','STATUS_IS',1.0,True)
+        for label,options,expected in [('EMPTY',{'empty':True},'NOT_EVALUATED'),
+                                       ('UNFINISHED',{'scan_completed':False},'PARTIAL')]:
+            result=self.accepted_case(label,**options)
+            self.assertEqual(result.cve_analysis_status,expected)
+            self.assertNotEqual(result.cve_summary['coveragePercent'],100.0)
+            finding=next(row['finding'] for row in result.findings if row['finding']['rule_id']=='CVE-001')
+            self.assertEqual(finding['status'],'NOT_EVALUATED')
+            record=FindingEvidenceExtractor().extract(requirement,AnalysisContext(raw_data={},software_inventory=SoftwareInventory()),
+                [AuditFinding(Finding('CVE-001',Severity.INFO,status=Status(finding['status'])),KnowledgeRepository().get('CVE-001'))])
+            self.assertEqual(record.result,EvidenceResult.MISSING)
+        generator=UnifiedReportGenerator(self.storage)
+        model=generator.build_model(self.assessment.assessment_id)
+        self.assertNotEqual(model['cve']['coveragePercent'],100.0)
+        states={row['submissionId']:row['cveAnalysisStatus'] for row in model['endpoints']}
+        self.assertEqual(states,{'SUB-AUDIT-EMPTY':'NOT_EVALUATED','SUB-AUDIT-UNFINISHED':'PARTIAL'})
+        report=generator.generate(self.assessment.assessment_id).read_text(encoding='utf-8')
+        self.assertIn('Not established',report)
+        self.assertIn('No eligible software products were assessed',report)
+        self.assertNotIn('No known vulnerabilities found in evaluated software versions',report)
+        lab=LabApplicationService(self.storage.root,firewall=NullFirewallManager())
+        try:
+            self.assertEqual({row.submission_id:row.cve_analysis_status for row in lab.dashboard(self.assessment.assessment_id)},states)
         finally:
             lab.shutdown()

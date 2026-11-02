@@ -597,7 +597,8 @@ def _cve_audit_details(
     return {
         "submissionId": submission_id,
         "status": str(metadata.get("status", "NOT_EVALUATED")),
-        "coveragePercent": float(metadata.get("coveragePercent", 0.0) or 0.0),
+        "coveragePercent": metadata.get("coveragePercent", 0.0),
+        "assessmentReasonCode": metadata.get("assessmentReasonCode", ""),
         "eligibleProducts": int(
             metadata.get("eligibleProducts", metadata.get("cveEligibleProducts", 0))
             or 0

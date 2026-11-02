@@ -788,8 +788,8 @@ class CveEngineTests(unittest.TestCase):
             self.assertFalse(summary.coverage_complete)
             self.assertFalse(summary.scan_complete)
 
-    def test_empty_successful_inventory_has_complete_coverage(self) -> None:
-        """An empty inventory can be fully covered when the scan ran successfully."""
+    def test_empty_successful_inventory_has_no_assessment_coverage(self) -> None:
+        """A completed scan over an empty scope is not a completed assessment."""
 
         class Client:
             def get_cves(self, params):
@@ -801,8 +801,8 @@ class CveEngineTests(unittest.TestCase):
 
         summary = CveService(client=Client(), resolver=Resolver()).scan_inventory(SoftwareInventory())
 
-        self.assertEqual(summary.coverage_percent, 100.0)
-        self.assertTrue(summary.coverage_complete)
+        self.assertEqual(summary.coverage_percent, 0.0)
+        self.assertFalse(summary.coverage_complete)
         self.assertTrue(summary.scan_complete)
 
     def test_product_scan_error_marks_coverage_incomplete(self) -> None:
@@ -938,7 +938,10 @@ class CveEngineTests(unittest.TestCase):
         )
         context = type("Context", (), {"cve_summary": clean})()
         clean_finding = rule.check({}, context)[0]
-        self.assertEqual(clean_finding.status.value, "PASS")
+        self.assertEqual(clean_finding.status.value, "NOT_EVALUATED")
+        assessed = replace(clean, scanned_products=1, unique_products=1, eligible_products=1, evaluated_products=1)
+        assessed_context = AnalysisContext(raw_data={}, software_inventory=SoftwareInventory(products=[_software()], product_count=1), cve_summary=assessed)
+        self.assertEqual(rule.check({}, assessed_context)[0].status.value, "PASS")
 
         incomplete = replace(
             clean,

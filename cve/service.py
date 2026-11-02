@@ -409,7 +409,7 @@ def _summary(
         for item in assessments
         if item.applicability == ApplicabilityStatus.NOT_EVALUATED
     )
-    coverage_percent = 100.0
+    coverage_percent = 0.0
     if eligible_products:
         coverage_percent = round((evaluated_products / eligible_products) * 100, 1)
     return CveScanSummary(
@@ -418,7 +418,7 @@ def _summary(
         eligible_products=eligible_products,
         evaluated_products=evaluated_products,
         coverage_percent=coverage_percent,
-        coverage_complete=evaluated_products == eligible_products,
+        coverage_complete=eligible_products > 0 and evaluated_products == eligible_products and not errors and not not_evaluated,
         products_with_cpe=products_with_cpe,
         products_without_cpe=products_without_cpe,
         ambiguous_cpe_matches=ambiguous_cpe_matches,

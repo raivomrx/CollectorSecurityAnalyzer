@@ -15,6 +15,8 @@ create a new assessment to obtain the updated Collector package.
 [CSA Lab Build workflow](https://github.com/raivomrx/CollectorSecurityAnalyzer/actions/workflows/csa-lab-build.yml).
 The [independent audit correction](docs/sprint-5.6.2-audit-correction-a.md) enforces
 profile privacy and corrects CVE completeness, prerequisite and integrity assertions.
+The [final REP-1 boundary correction](docs/sprint-5.6.2-rep1-boundary.md) also rejects
+empty or unfinished CVE assessments as COMPLETE and prevents ungrounded clean PASS results.
 **Release HOLD: architecture acceptance is required before public release or
 production-client deployment.** The separate [COL-1 trust-anchor proposal](docs/COL-1-trust-anchor-design.md)
 requires approval before implementation.

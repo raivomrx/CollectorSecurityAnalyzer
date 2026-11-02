@@ -68,6 +68,7 @@ def _endpoint(
         "cveSummary": {
             "status": status,
             "softwareCollectionStatus": "SUCCESS",
+            "scanCompleted": True,
             "cveEligibleProducts": eligible,
             "successfullyEvaluatedProducts": evaluated,
             "notEvaluatedProducts": max(0, eligible - evaluated),

@@ -66,6 +66,7 @@ class UnifiedReportGenerator:
         self.environment.filters["json_pretty"] = lambda value: json.dumps(
             value, ensure_ascii=False, indent=2, sort_keys=True
         )
+        self.environment.filters["cve_percent"] = lambda value: "Not established" if value is None else f"{value:.1f}%"
 
     def build_model(
         self,
@@ -387,7 +388,7 @@ class UnifiedReportGenerator:
                 "optionalActiveValidation": "NOT PERFORMED",
                 "cveCoverage": (
                     f"{cve['coveragePercent']}%"
-                    if cve["status"] in {"COMPLETE", "PARTIAL"}
+                    if cve["status"] in {"COMPLETE", "PARTIAL"} and cve["coveragePercent"] is not None
                     else "NOT PERFORMED"
                     if cve["status"] == "NOT_PERFORMED"
                     else cve["status"]
@@ -792,11 +793,9 @@ def _aggregate_cve(
 ) -> dict[str, Any]:
     """Aggregate CVEs with confirmed applicability dominating possible matches."""
 
-    summaries = [item.get("cveSummary", {}) for item in endpoints]
-    status = aggregate_statuses(
-        normalize_metadata(item.get("cveSummary", {}), workflow_status=item.get("cveAnalysisStatus"))["status"]
-        for item in endpoints
-    )
+    summaries = [normalize_metadata(item.get("cveSummary", {}), workflow_status=item.get("cveAnalysisStatus"))
+                 for item in endpoints]
+    status = aggregate_statuses(item["status"] for item in summaries)
 
     def total(key: str) -> int:
         return sum(int(item.get(key, 0) or 0) for item in summaries)
@@ -818,13 +817,18 @@ def _aggregate_cve(
     else:
         eligible = total("cveEligibleProducts")
         evaluated = total("successfullyEvaluatedProducts")
+    if eligible == 0 or evaluated == 0:
+        if status in {"COMPLETE", "PARTIAL"}:
+            status = "NOT_EVALUATED"
+    elif status == "COMPLETE" and evaluated != eligible:
+        status = "PARTIAL"
     coverage = (
         round(evaluated * 100.0 / eligible, 1)
         if eligible
-        else 100.0
-        if status == "COMPLETE"
         else 0.0
     )
+    if coverage == 100.0 and status != "COMPLETE":
+        coverage = None
     relationships = _cve_relationships(endpoints)
     confirmed_ids: set[str] = set()
     possible_ids: set[str] = set()
@@ -870,10 +874,10 @@ def _aggregate_cve(
     summary_only_possible_ids -= confirmed_ids
     unique_ids = confirmed_ids | possible_ids
     not_evaluated = max(0, eligible - evaluated)
-    coverage_complete = status == "COMPLETE" and not_evaluated == 0
+    coverage_complete = status == "COMPLETE" and eligible > 0 and not_evaluated == 0
     primary_display = (
         str(len(unique_ids))
-        if unique_ids or (status in {"COMPLETE", "PARTIAL"} and (evaluated > 0 or eligible == 0))
+        if unique_ids or (status in {"COMPLETE", "PARTIAL"} and evaluated > 0)
         else "NOT EVALUATED"
     )
     return {
@@ -914,7 +918,8 @@ def _aggregate_cve(
         "coveragePercent": coverage,
         "softwareVulnerabilityEvaluation": _software_vulnerability_evaluation(eligible, evaluated, coverage),
         "coverageComplete": coverage_complete,
-        "coverageStatement": "No eligible software products were present in the successfully collected inventory." if status == "COMPLETE" and eligible == 0 else _cve_coverage_statement(
+        "assessmentScope": "EMPTY" if eligible == 0 else "ELIGIBLE_PRODUCTS",
+        "coverageStatement": "No eligible software products were assessed; vulnerability assessment was not established." if eligible == 0 else _cve_coverage_statement(
             status, coverage, len(unique_ids)
         ),
         "relationships": relationships,
@@ -1316,7 +1321,7 @@ def _reconciled_endpoint_cve_evidence(
     }
 
 
-def _software_vulnerability_evaluation(eligible: int, evaluated: int, percent: float) -> dict[str, Any]:
+def _software_vulnerability_evaluation(eligible: int, evaluated: int, percent: float | None) -> dict[str, Any]:
     """Name the existing instance ratio without changing CVE engine semantics."""
 
     remaining = max(0, eligible - evaluated)
@@ -1334,6 +1339,10 @@ def _software_vulnerability_evaluation(eligible: int, evaluated: int, percent: f
             "percentage of all CVEs discovered."
         ),
         "limitation": (
+            "No eligible software products were assessed; assessment coverage was not established."
+            if eligible == 0 else
+            "Product counts do not establish a complete assessment: scanning, collection or eligible evaluation remains incomplete."
+            if percent is None else
             f"{remaining} CVE-eligible software instances were not fully evaluated. "
             "This limits the completeness of software vulnerability assessment and "
             "does not mean that those products are vulnerable."
@@ -1342,14 +1351,14 @@ def _software_vulnerability_evaluation(eligible: int, evaluated: int, percent: f
     }
 
 
-def _cve_coverage_statement(status: str, coverage: float, count: int) -> str:
+def _cve_coverage_statement(status: str, coverage: float | None, count: int) -> str:
     """Explain clean, incomplete and unevaluated CVE states distinctly."""
 
     if status == "COMPLETE" and coverage == 100.0 and count == 0:
         return "No known vulnerabilities found in evaluated software versions."
     if status not in {"COMPLETE", "PARTIAL"} or coverage == 0.0:
         return "Vulnerability status was not evaluated."
-    if coverage < 100.0 or status != "COMPLETE":
+    if coverage is None or coverage < 100.0 or status != "COMPLETE":
         return (
             "Software vulnerability assessment is incomplete. Confirmed CVEs remain "
             "valid findings even where software analysis is only partially complete."
@@ -2525,11 +2534,11 @@ def _software_intelligence_coverage(
         ),
         "eligibleCveCoveragePercent": (
             round((evaluated / eligible) * 100, 1)
-            if eligible else 100.0 if discovered == 0 else 0.0
+            if eligible else 0.0
         ),
         "coveragePercent": (
             round((evaluated / discovered) * 100, 1)
-            if discovered else 100.0
+            if discovered else 0.0
         ),
     }
 
@@ -2619,11 +2628,11 @@ def _aggregate_software_intelligence(
     )
     aggregate["eligibleCveCoveragePercent"] = (
         round((aggregate["cveEvaluated"] / eligible) * 100, 1)
-        if eligible else 100.0 if discovered == 0 else 0.0
+        if eligible else 0.0
     )
     aggregate["coveragePercent"] = (
         round((aggregate["cveEvaluated"] / discovered) * 100, 1)
-        if discovered else 100.0
+        if discovered else 0.0
     )
     return aggregate
 

@@ -1192,6 +1192,7 @@ class UnifiedReportTests(Sprint5TestCase):
                 {
                     "status": "COMPLETE",
                     "timestamp": "2026-07-30T10:00:00Z",
+                    "scanCompleted": True,
                     "installedSoftwareRecords": 4,
                     "normalizedProducts": 3,
                     "cveEligibleProducts": 2,

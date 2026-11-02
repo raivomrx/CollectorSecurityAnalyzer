@@ -9,6 +9,7 @@ from analysis_context import AnalysisContext
 from cve.enrichment_models import EnrichedCveAssessment, EnrichedCveScanSummary, ExploitationStatus
 from cve.models import ApplicabilityStatus, CveAssessment
 from cve.prioritization import PriorityLevel
+from cve.status import scan_metadata
 from risk import Finding, Severity, Status
 from rules.base import BaseRule
 from rules.categories import RuleCategory
@@ -54,6 +55,7 @@ class KnownVulnerabilitiesRule(BaseRule):
             ]
 
         summary = context.cve_summary
+        completion = scan_metadata(summary, getattr(getattr(context, "software_inventory", None), "collection_status", "NOT_EVALUATED"))
         enrichment = getattr(context, "cve_enrichment", None)
         affected = [
             item for item in summary.assessments
@@ -87,8 +89,7 @@ class KnownVulnerabilitiesRule(BaseRule):
             severity = Severity.MEDIUM
             score = 10
         elif (
-            not summary.scan_complete
-            or not summary.coverage_complete
+            completion["status"] != "COMPLETE"
             or not_evaluated
         ):
             status = Status.NOT_EVALUATED
@@ -104,7 +105,13 @@ class KnownVulnerabilitiesRule(BaseRule):
                 rule_id=self.id,
                 severity=severity,
                 status=status,
-                evidence=_evidence(summary, affected, possible, enrichment),
+                evidence={**_evidence(summary, affected, possible, enrichment),
+                          "assessment_status": completion["status"],
+                          "assessment_scope": completion["assessmentScope"],
+                          "assessment_reason_code": completion["assessmentReasonCode"],
+                          "reason": completion["assessmentReason"],
+                          "coverage_percent": completion["coveragePercent"],
+                          "coverage_complete": completion["coverageComplete"]},
                 score=score,
             )
         ]
