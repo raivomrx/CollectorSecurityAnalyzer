@@ -25,7 +25,9 @@ class BitLockerStateTests(unittest.TestCase):
     def setting(self, state, protection, percentage, status="SUCCESS"):
         return {"settingId": "BITLOCKER_OS_PROTECTION", "effectiveValue": protection,
                 "collectionStatus": status, "metadata": {"volumeType": "OperatingSystem",
-                "encryptionState": state, "encryptionPercentage": percentage, "provider": "MANAGE_BDE"}}
+                "encryptionState": state, "encryptionPercentage": percentage, "provider": "Get-BitLockerVolume",
+                "mountPoint": "C:", "authority": "AUTHORITATIVE",
+                "protectionStatus": "On" if protection else "Off"}}
 
     def test_decrypted_evidence_reaches_fail_and_executive_count(self):
         result = resolve_bitlocker(self.setting("FULLY_DECRYPTED", False, 0))
@@ -41,7 +43,7 @@ class BitLockerStateTests(unittest.TestCase):
             self.assertIsNone(result["protectionEnabled"])
 
     def test_transitions_conflict_and_error_are_not_pass_or_disabled(self):
-        for state in ("ENCRYPTION_IN_PROGRESS", "DECRYPTION_IN_PROGRESS", "SUSPENDED", "LOCKED", "SOURCE_CONFLICT"):
+        for state in ("ENCRYPTION_IN_PROGRESS", "DECRYPTION_IN_PROGRESS", "ENCRYPTION_PAUSED", "LOCKED", "SOURCE_CONFLICT"):
             result = resolve_bitlocker(self.setting(state, False, 50, "PARTIAL"))
             self.assertEqual(result["state"], state)
             self.assertEqual(result["status"], "PARTIAL")

@@ -107,7 +107,7 @@ def _admin_handler_factory(application: LabAdminServer):
     service = application.service
 
     class AdminHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Lab-Admin/5.6.2"
+        server_version = "CSA-Lab-Admin/5.6.3"
         protocol_version = "HTTP/1.1"
 
         def do_GET(self) -> None:
@@ -268,7 +268,10 @@ def _admin_handler_factory(application: LabAdminServer):
                     self._json(HTTPStatus.NOT_FOUND, {"error": "NOT_FOUND"})
                     return
                 assessment_id, action = self._assessment_route(path)
-                if action == "start":
+                if action == "bitlocker-verification":
+                    self.close_connection = True
+                    self._json(HTTPStatus.FORBIDDEN, {"error": "BITLOCKER_VERIFICATION_COL1_REQUIRED"})
+                elif action == "start":
                     state = service.start_collection(assessment_id)
                     self._json(
                         HTTPStatus.OK, {"assessment": model_to_dict(state)}

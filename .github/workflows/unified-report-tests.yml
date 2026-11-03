@@ -29,7 +29,7 @@ jobs:
       - name: Verify 5.6.1 vulnerability and administrator reporting
         run: python -W error::ResourceWarning -m unittest tests.test_sprint561_reporting tests.test_effective_admin_membership -v
       - name: Verify independent audit correction and profile privacy
-        run: python -W error::ResourceWarning -m unittest tests.test_audit_correction_a tests.test_audit_privacy tests.test_cve_status_boundaries -v
+        run: python -W error::ResourceWarning -m unittest tests.test_audit_correction_a tests.test_audit_privacy tests.test_cve_status_boundaries tests.test_bitlocker_boundaries -v
       - name: Generate and independently verify synthetic audit correction report
         run: python scripts/Generate-AuditCorrectionReport.py --output test-artifacts/CSA-Audit-Correction-A.html
       - name: Generate synthetic 5.6.1 live-review artifact

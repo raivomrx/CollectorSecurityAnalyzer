@@ -1,20 +1,18 @@
-BeforeAll {
+﻿BeforeAll {
     Import-Module (Join-Path $PSScriptRoot '../../collector/windows/modules/BitLocker.psm1') -Force
 }
 
 Describe 'Sprint 5.6 authoritative BitLocker state' {
-    It 'uses explicit fully decrypted status after primary access denial even when the second command fails' {
+    It 'uses structured conversion after primary access denial' {
         $denied = { throw [UnauthorizedAccessException]::new('denied') }
-        $bde = { ConvertFrom-CSAManageBdeOutput -Lines @('Conversion Status: Fully Decrypted','Percentage Encrypted: 0.0%','Protection Status: Protection Off','Encryption Method: None','Lock Status: Unlocked') -ProtectionExitCode -1 }
-        $result = Get-CSABitLockerEvidence -VolumeProvider $denied -WmiProvider $denied -ManageBdeProvider $bde -ShellProvider { ConvertFrom-CSAShellBitLockerValue -RawValue 0 }
-        $setting = @($result.Settings | Where-Object settingId -eq BITLOCKER_OS_PROTECTION)[0]
+        $wmi = { [pscustomobject]@{ MountPoint=$env:SystemDrive; VolumeType='OperatingSystem'; EncryptionState='FULLY_DECRYPTED'; ProtectionStatus='Off'; EncryptionPercentage=0 } }
+        $result = Get-CSABitLockerEvidence -VolumeProvider $denied -WmiProvider $wmi -ShellProvider { ConvertFrom-CSAShellBitLockerValue -RawValue 0 }
+        $setting = $result.Settings | Where-Object settingId -eq BITLOCKER_OS_PROTECTION
         $setting.effectiveValue | Should -BeFalse
-        $setting.collectionStatus | Should -Be SUCCESS
+        $setting.metadata.authority | Should -Be AUTHORITATIVE
         $setting.metadata.encryptionState | Should -Be FULLY_DECRYPTED
         $setting.metadata.encryptionPercentage | Should -Be 0
-        $setting.metadata.provider | Should -Be MANAGE_BDE
-        $setting.metadata.fallbacksAttempted.Count | Should -Be 4
-        $setting.metadata.rawEvidence.localeFormat | Should -Be en
+        $setting.metadata.fallbacksAttempted[0].status | Should -Be ACCESS_DENIED
     }
     It 'parses explicit German status without assuming an English locale' {
         # Construct Unicode independently of this script's file encoding so a
@@ -42,12 +40,23 @@ Describe 'Sprint 5.6 authoritative BitLocker state' {
         $null -eq $conflict.ProtectionEnabled | Should -BeTrue
     }
     It 'continues after success and exposes disagreement between reliable providers' {
-        $result = Get-CSABitLockerEvidence -VolumeProvider { ConvertFrom-CSAShellBitLockerValue -RawValue 1 } -ShellProvider { ConvertFrom-CSAShellBitLockerValue -RawValue 2 }
+        $result = Get-CSABitLockerEvidence -VolumeProvider { [pscustomobject]@{ MountPoint=$env:SystemDrive; VolumeType='OperatingSystem'; VolumeStatus='FullyEncrypted'; ProtectionStatus='On'; EncryptionPercentage=100 } } -WmiProvider { [pscustomobject]@{ MountPoint=$env:SystemDrive; VolumeType='OperatingSystem'; EncryptionState='FULLY_DECRYPTED'; ProtectionStatus='Off'; EncryptionPercentage=0 } }
         $setting = @($result.Settings | Where-Object settingId -eq BITLOCKER_OS_PROTECTION)[0]
         $setting.metadata.encryptionState | Should -Be SOURCE_CONFLICT
         $setting.collectionStatus | Should -Be PARTIAL
         $null -eq $setting.effectiveValue | Should -BeTrue
         @($setting.metadata.fallbacksAttempted | Where-Object selectedAsAuthoritative).Count | Should -Be 0
+    }
+    It 'exposes conflicting structured conversion states with unknown protection' {
+        $result = Get-CSABitLockerEvidence -VolumeProvider {
+            [pscustomobject]@{ MountPoint=$env:SystemDrive; VolumeType='OperatingSystem'; VolumeStatus='EncryptionSuspended'; ProtectionStatus='Unknown'; EncryptionPercentage=42 }
+        } -WmiProvider {
+            [pscustomobject]@{ MountPoint=$env:SystemDrive; VolumeType='OperatingSystem'; EncryptionState='DECRYPTION_IN_PROGRESS'; ProtectionStatus='Unknown'; EncryptionPercentage=42 }
+        }
+        $setting = $result.Settings | Where-Object settingId -eq BITLOCKER_OS_PROTECTION
+        $setting.metadata.encryptionState | Should -Be SOURCE_CONFLICT
+        $setting.metadata.encryptionPercentage | Should -BeNullOrEmpty
+        $setting.effectiveValue | Should -BeNullOrEmpty
     }
     It 'preserves encryption and decryption in progress separately' {
         foreach ($state in @('Encryption','Decryption')) {
@@ -55,16 +64,26 @@ Describe 'Sprint 5.6 authoritative BitLocker state' {
             $row.EncryptionState | Should -Be ($state.ToUpperInvariant() + '_IN_PROGRESS')
         }
     }
-    It 'does not discard a conflicting explicit transitional observation' {
-        $result = Get-CSABitLockerEvidence -VolumeProvider { ConvertFrom-CSAShellBitLockerValue -RawValue 2 } -ShellProvider { ConvertFrom-CSAShellBitLockerValue -RawValue 3 }
-        $setting = @($result.Settings | Where-Object settingId -eq BITLOCKER_OS_PROTECTION)[0]
-        $setting.metadata.encryptionState | Should -Be SOURCE_CONFLICT
-        $setting.collectionStatus | Should -Be PARTIAL
-        $setting.metadata.fallbacksAttempted[1].executionStatus | Should -Be SUCCESS
-        $setting.metadata.fallbacksAttempted[1].status | Should -Be PARTIAL
+    It 'keeps native progress and pause states even at a rounded 100 percent' {
+        foreach ($case in @(
+            @{Native='EncryptionInProgress'; Expected='ENCRYPTION_IN_PROGRESS'},
+            @{Native='DecryptionInProgress'; Expected='DECRYPTION_IN_PROGRESS'},
+            @{Native='EncryptionSuspended'; Expected='ENCRYPTION_PAUSED'},
+            @{Native='DecryptionSuspended'; Expected='DECRYPTION_PAUSED'},
+            @{Native='WipeInProgress'; Expected='WIPE_IN_PROGRESS_OR_PAUSED'},
+            @{Native='Unexpected'; Expected='UNKNOWN'}
+        )) {
+            $result = Get-CSABitLockerEvidence -VolumeProvider {
+                [pscustomobject]@{ MountPoint=$env:SystemDrive; VolumeType='OperatingSystem'; VolumeStatus=$case.Native; ProtectionStatus='On'; EncryptionPercentage=100 }
+            }
+            ($result.Settings | Where-Object settingId -eq BITLOCKER_OS_PROTECTION).metadata.encryptionState | Should -Be $case.Expected
+        }
     }
-    It 'retains suspended and locked states' {
-        (ConvertFrom-CSAManageBdeOutput -Lines @('Conversion Status: Fully Encrypted','Percentage Encrypted: 100%','Protection Status: Protection Off') -ProtectionExitCode 1).EncryptionState | Should -Be SUSPENDED
-        (ConvertFrom-CSAShellBitLockerValue -RawValue 6).EncryptionState | Should -Be LOCKED
+    It 'rejects a provider OS volume on a different mount point' {
+        $other = if ($env:SystemDrive -eq 'Z:') { 'Y:' } else { 'Z:' }
+        $result = Get-CSABitLockerEvidence -VolumeProvider {
+            [pscustomobject]@{ MountPoint=$other; VolumeType='OperatingSystem'; VolumeStatus='FullyEncrypted'; ProtectionStatus='On'; EncryptionPercentage=100 }
+        }
+        $result.Settings[0].effectiveValue | Should -BeNullOrEmpty
     }
 }

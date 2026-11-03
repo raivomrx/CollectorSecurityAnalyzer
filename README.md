@@ -11,12 +11,14 @@
 The current installer is **CSA Lab 5.6.0** and is unsigned. After updating,
 create a new assessment to obtain the updated Collector package.
 
-**5.6.2 is a review candidate**, available from the
+**5.6.3 is a review candidate**, available from the
 [CSA Lab Build workflow](https://github.com/raivomrx/CollectorSecurityAnalyzer/actions/workflows/csa-lab-build.yml).
 The [independent audit correction](docs/sprint-5.6.2-audit-correction-a.md) enforces
 profile privacy and corrects CVE completeness, prerequisite and integrity assertions.
 The [final REP-1 boundary correction](docs/sprint-5.6.2-rep1-boundary.md) also rejects
 empty or unfinished CVE assessments as COMPLETE and prevents ungrounded clean PASS results.
+The [BitLocker evidence correction](docs/sprint-5.6.3-bitlocker.md) separates Shell
+indications from confirmed OS-volume conversion and includes LAB/HOME checklists.
 **Release HOLD: architecture acceptance is required before public release or
 production-client deployment.** The separate [COL-1 trust-anchor proposal](docs/COL-1-trust-anchor-design.md)
 requires approval before implementation.

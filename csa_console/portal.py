@@ -256,7 +256,7 @@ class PortalBinding:
   {launcher_option}
   {script_option}
   <p>All three methods use the same Collector engine, session, integrity checks and privacy controls.</p>
-  <p class="meta">Collector version: 5.6.2<br>Package expires: {safe_expiry}</p>
+  <p class="meta">Collector version: 5.6.3<br>Package expires: {safe_expiry}</p>
 </main>
 </body>
 </html>"""

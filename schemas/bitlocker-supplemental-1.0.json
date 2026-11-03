@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Proposed authenticated BitLocker supplemental observation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "assessmentId", "sessionId", "submissionId", "deviceId", "nonce", "observedAt", "volume"],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "assessmentId": {"type": "string", "pattern": "^CSA-[A-Za-z0-9-]+$", "maxLength": 96},
+    "sessionId": {"type": "string", "pattern": "^SES-[A-Za-z0-9-]+$", "maxLength": 96},
+    "submissionId": {"type": "string", "pattern": "^SUB-[A-Za-z0-9-]+$", "maxLength": 96},
+    "deviceId": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "nonce": {"type": "string", "pattern": "^[A-Za-z0-9_-]{22,128}$"},
+    "observedAt": {"type": "string", "format": "date-time"},
+    "volume": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "volumeType", "mountPoint", "conversionStatus", "protectionStatus", "encryptionPercentage", "encryptionMethod"],
+      "properties": {
+        "provider": {"enum": ["Get-BitLockerVolume", "WIN32_ENCRYPTABLE_VOLUME"]},
+        "volumeType": {"const": "OperatingSystem"},
+        "mountPoint": {"type": "string", "pattern": "^[A-Za-z]:$"},
+        "conversionStatus": {"enum": ["FullyEncrypted", "FullyDecrypted", "EncryptionInProgress", "DecryptionInProgress", "EncryptionSuspended", "DecryptionSuspended", "WipeInProgress", "WipeSuspended", "Unknown"]},
+        "protectionStatus": {"enum": ["On", "Off", "Unknown"]},
+        "encryptionPercentage": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
+        "encryptionMethod": {"enum": ["None", "Aes128", "Aes256", "Aes128Diffuser", "Aes256Diffuser", "XtsAes128", "XtsAes256", "HardwareEncryption", "Unknown", null]}
+      }
+    }
+  }
+}

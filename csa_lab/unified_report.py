@@ -285,7 +285,7 @@ class UnifiedReportGenerator:
         framework_rows = _framework_rows(fleet_findings)
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.6.2",
+            "reportVersion": "CSA-5.6.3",
             "generatedAt": generated_at,
             "dataClassification": "Confidential - Security Assessment Data",
             "containsPersonalData": True,
@@ -1753,11 +1753,20 @@ def _executive_endpoint_metrics(
             endpoint.get("bitLocker", {}).get("status") == "FAIL" for endpoint in endpoints
         ),
         "bitLockerNotEvaluatedEndpoints": sum(
-            endpoint.get("bitLocker", {}).get("status", "NOT_EVALUATED") not in {"PASS", "FAIL", "ERROR"}
+            endpoint.get("bitLocker", {}).get("status", "NOT_EVALUATED") == "NOT_EVALUATED"
             for endpoint in endpoints
         ),
         "bitLockerErrorEndpoints": sum(
             endpoint.get("bitLocker", {}).get("status") == "ERROR" for endpoint in endpoints
+        ),
+        "bitLockerAttentionEndpoints": sum(
+            endpoint.get("bitLocker", {}).get("status") == "PARTIAL"
+            and endpoint.get("bitLocker", {}).get("state") != "SOURCE_CONFLICT"
+            for endpoint in endpoints
+        ),
+        "bitLockerConflictEndpoints": sum(
+            endpoint.get("bitLocker", {}).get("state") == "SOURCE_CONFLICT"
+            for endpoint in endpoints
         ),
         "dailyUserLocalAdminEndpoints": daily_user_local_admin,
     }
@@ -2165,12 +2174,13 @@ def _bitlocker_detail(evidence: dict[str, Any]) -> dict[str, Any]:
         if not mount or mount in seen:
             continue
         seen.add(mount)
+        volume = resolve_bitlocker(item)
         volumes.append({
             "mountPoint": mount,
             "volumeType": item_metadata.get("volumeType", "UNKNOWN"),
-            "protectionEnabled": item_metadata.get("protectionEnabled"),
-            "encryptionState": item_metadata.get("encryptionState", "UNKNOWN"),
-            "encryptionPercentage": item_metadata.get("encryptionPercentage"),
+            "protectionEnabled": volume["protectionEnabled"],
+            "encryptionState": volume["encryptionState"],
+            "encryptionPercentage": volume["encryptionPercentage"],
             "provider": item_metadata.get("provider", item.get("provider", "UNKNOWN")),
         })
     return {
@@ -2179,9 +2189,7 @@ def _bitlocker_detail(evidence: dict[str, Any]) -> dict[str, Any]:
         "provider": metadata.get("provider", setting.get("provider", "Unknown") if setting else "Unknown"),
         "confidence": setting.get("confidence", 0) if setting else 0,
         "configured": metadata.get("configured"),
-        "encryptionState": metadata.get("encryptionState", "UNKNOWN"),
-        "encryptionPercentage": metadata.get("encryptionPercentage"),
-        "fallbacksAttempted": metadata.get("fallbacksAttempted", []),
+        "fallbacksAttempted": conclusion["providerAttempts"],
         "volumes": volumes,
     }
 
@@ -2851,7 +2859,13 @@ def _priority_actions(
         candidates.append((80, "unsupported", _action("Upgrade or remove unsupported software", "Vendor support has ended for installed software.", unsupported, "High", "Medium", ["LIFECYCLE"], "Verify the replacement release is supported by the vendor.")))
     for finding in findings:
         if finding["ruleId"] == "BIT-001" and finding["severity"] in {"CRITICAL", "HIGH"}:
-            candidates.append((70, "bitlocker", _action("Enable BitLocker protection", finding["title"], finding["endpointReferences"], "High", "Medium", ["BIT-001"], "Confirm protection is on and encryption is complete.")))
+            for state, action in (
+                ("DISABLED_FULLY_DECRYPTED", "Enable BitLocker protection"),
+                ("PROTECTION_OFF_ENCRYPTED", "Investigate suspension and resume BitLocker protection"),
+            ):
+                affected = [item["displayName"] for item in endpoints if item.get("bitLocker", {}).get("state") == state]
+                if affected:
+                    candidates.append((70, "bitlocker-" + state, _action(action, finding["title"], affected, "High", "Medium", ["BIT-001"], "Confirm protection is on and encryption is complete.")))
         if finding["ruleId"].startswith("DEF-") and finding["severity"] in {"CRITICAL", "HIGH", "MEDIUM"}:
             candidates.append((60, "defender", _action("Harden Microsoft Defender configuration", finding["title"], finding["endpointReferences"], "Medium", "Low", [finding["ruleId"]], "Rerun collection and confirm the related Defender controls pass.")))
     deduped: dict[str, tuple[int, dict[str, Any]]] = {}

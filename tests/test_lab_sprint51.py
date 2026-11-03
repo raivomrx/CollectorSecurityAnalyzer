@@ -850,6 +850,14 @@ class LabServiceTests(unittest.TestCase):
             timeout=5,
         )
         self.assertEqual(rejected.status_code, 403)
+        self.assertIn("Verify BitLocker status", page.text)
+        endpoint = admin.url + "api/v1/assessments/CSA-SYNTHETIC/bitlocker-verification"
+        payload = {"sessionId": "SES-WRONG", "nonce": "synthetic-replayed-nonce",
+                   "volume": {"recoveryPassword": "SYNTHETIC-FORBIDDEN-FIELD"}}
+        for _ in range(2):
+            gated = requests.post(endpoint, headers={"X-CSA-Lab-CSRF": admin.csrf_token}, json=payload, timeout=5)
+            self.assertEqual(gated.status_code, 403)
+            self.assertEqual(gated.json(), {"error": "BITLOCKER_VERIFICATION_COL1_REQUIRED"})
         close_server()
 
 

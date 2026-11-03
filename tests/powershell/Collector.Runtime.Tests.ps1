@@ -1,4 +1,4 @@
-BeforeAll {
+﻿BeforeAll {
     $collectorRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\collector\windows")).Path
     $moduleRoot = Join-Path $collectorRoot "modules"
     $manifest = Get-Content -Raw -LiteralPath (Join-Path $collectorRoot "evidence-manifest.json") | ConvertFrom-Json
@@ -343,13 +343,13 @@ Describe "CSA Windows Collector runtime evidence contracts" {
             ($null -eq $setting.metadata.protectionEnabled) | Should -BeTrue
         }
 
-        It "preserves disabled Shell fallback evidence after access denial" {
+        It "preserves Shell protection-off indication after access denial" {
             $primary = { throw (New-Object System.UnauthorizedAccessException "denied") }
             $shell = { @(ConvertFrom-CSAShellBitLockerValue -RawValue 2) }
             $result = Get-CSABitLockerEvidence -VolumeProvider $primary -BitLockerSupported $true -ShellProvider $shell
             $setting = @($result.Settings | Where-Object settingId -eq "BITLOCKER_OS_PROTECTION")[0]
-            $setting.collectionStatus | Should -Be "SUCCESS"
-            $setting.effectiveValue | Should -BeFalse
+            $setting.collectionStatus | Should -Be "PARTIAL"
+            $setting.effectiveValue | Should -BeNullOrEmpty
             $setting.metadata.rawEvidence.value | Should -Be 2
             $setting.metadata.fallbacksAttempted[0].status | Should -Be "ACCESS_DENIED"
         }
@@ -425,10 +425,10 @@ Describe "CSA Windows Collector runtime evidence contracts" {
         }
 
         It "maps the Shell BitLocker property conservatively" {
-            (ConvertFrom-CSAShellBitLockerValue -RawValue 1).ProtectionEnabled | Should -BeTrue
-            (ConvertFrom-CSAShellBitLockerValue -RawValue 2).ProtectionEnabled | Should -BeFalse
+            (ConvertFrom-CSAShellBitLockerValue -RawValue 1).RawEvidence.shellIndicatedProtection | Should -Be ON
+            (ConvertFrom-CSAShellBitLockerValue -RawValue 2).RawEvidence.shellIndicatedProtection | Should -Be OFF
             (ConvertFrom-CSAShellBitLockerValue -RawValue 3).CollectionStatus | Should -Be "PARTIAL"
-            (ConvertFrom-CSAShellBitLockerValue -RawValue 5).EncryptionState | Should -Be "SUSPENDED"
+            (ConvertFrom-CSAShellBitLockerValue -RawValue 5).EncryptionState | Should -Be "UNKNOWN"
             $unknown = ConvertFrom-CSAShellBitLockerValue -RawValue 99
             $unknown.CollectionStatus | Should -Be "PARTIAL"
             $null -eq $unknown.ProtectionEnabled | Should -BeTrue
@@ -447,7 +447,7 @@ Describe "CSA Windows Collector runtime evidence contracts" {
             })[0]
             $setting.provider | Should -Be "SHELL_VOLUME_BITLOCKER_PROPERTY"
             $setting.confidence | Should -Be 75
-            $setting.effectiveValue | Should -BeTrue
+            $setting.effectiveValue | Should -BeNullOrEmpty
         }
 
         It "parses localized manage-bde percentage without localized labels" {

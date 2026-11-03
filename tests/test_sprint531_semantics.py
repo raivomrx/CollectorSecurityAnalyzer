@@ -28,12 +28,14 @@ def bitlocker_setting(value: object, status: str = "SUCCESS") -> dict:
         "configuredValue": value, "effectiveValue": value,
         "source": "RUNTIME_STATE", "collectionStatus": status,
         "confidence": 75, "collectedAt": "2026-09-14T08:00:00Z",
-        "provider": "SHELL_VOLUME_BITLOCKER_PROPERTY",
+        "provider": "Get-BitLockerVolume",
         "metadata": {
             "volumeType": "OperatingSystem", "mountPoint": "C:",
+            "authority": "AUTHORITATIVE",
+            "protectionStatus": "On" if value is True else "Off" if value is False else "Unknown",
+            "encryptionPercentage": 100 if value is True else 0 if value is False else None,
             "protectionEnabled": value,
             "encryptionState": "FULLY_ENCRYPTED" if value is True else "FULLY_DECRYPTED" if value is False else "UNKNOWN",
-            "rawEvidence": {"property": "System.Volume.BitLockerProtection", "value": 1 if value is True else 2 if value is False else None},
         },
     }
 
@@ -88,7 +90,7 @@ class BitLockerSemanticTests(unittest.TestCase):
     def test_typed_evidence_and_control_share_all_state_decisions(self):
         cases = [
             (True, "SUCCESS", "ENABLED", Status.PASS),
-            (False, "SUCCESS", "NOT_ENABLED", Status.FAIL),
+            (False, "SUCCESS", "DISABLED_FULLY_DECRYPTED", Status.FAIL),
             (None, "SUCCESS", "NOT_EVALUATED", Status.NOT_EVALUATED),
             (False, "ACCESS_DENIED", "NOT_EVALUATED", Status.NOT_EVALUATED),
             (False, "PARTIAL", "NOT_EVALUATED", Status.NOT_EVALUATED),
@@ -107,7 +109,7 @@ class BitLockerSemanticTests(unittest.TestCase):
                 self.assertEqual(conclusion["state"], state)
                 self.assertEqual(finding.status, status)
                 self.assertEqual(detail["status"], status.value)
-                self.assertEqual(detail["displayLabel"], state.replace("_", " "))
+                self.assertEqual(detail["displayLabel"], conclusion["displayLabel"])
                 self.assertEqual(finding.score, 20 if status == Status.FAIL else 0)
                 self.assertEqual(setting, original)
 

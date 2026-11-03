@@ -68,7 +68,7 @@ class LauncherCase(unittest.TestCase):
             source = self.root/'synthetic-engine'
             shutil.copytree(ROOT/'collector/windows', source)
             fixture = Sprint5TestCase().evidence()
-            fixture['collectorVersion'] = '5.6.2'
+            fixture['collectorVersion'] = '5.6.3'
             fixture['collectorBuildDigest'] = ''
             fixture['collectorBuildCommit'] = ''
             encoded = base64.b64encode(json.dumps(fixture).encode()).decode()

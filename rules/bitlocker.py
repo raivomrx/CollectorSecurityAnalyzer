@@ -61,8 +61,16 @@ class BitLockerRule(BaseRule):
                     "settingId": setting.setting_id,
                     "collectionStatus": setting.collection_status.value,
                     "effectiveValue": setting.effective_value,
+                    "provider": setting.provider,
+                    "collectedAt": setting.collected_at.isoformat() if setting.collected_at else None,
                     "metadata": setting.metadata,
                 })
+                detail["encryption_percentage"] = conclusion["encryptionPercentage"]
+                detail["encryption_state"] = conclusion["encryptionState"]
+                detail["authority"] = conclusion["authority"]
+                detail["fallbacks_attempted"] = conclusion["providerAttempts"]
+                detail["observed_at"] = conclusion["observedAt"]
+                detail["reason_code"] = conclusion["reasonCode"]
                 detail["bitlocker_state"] = conclusion["state"]
                 detail["reason"] = conclusion["reason"]
                 status = Status(conclusion["status"])
@@ -76,32 +84,7 @@ class BitLockerRule(BaseRule):
                         score=20 if status == Status.FAIL else 0,
                     )
                 ]
-            if context and context.evidence_registry:
-                return self.not_evaluated(["BITLOCKER_OS_PROTECTION"])
-            enabled = data.get("Bitlocker-C")
-            if not isinstance(enabled, bool):
-                return self.not_evaluated(["BITLOCKER_OS_PROTECTION"])
-            if enabled:
-                return [
-                    Finding(
-                        rule_id=self.id,
-                        severity=Severity.LOW,
-                        status=Status.PASS,
-                        evidence={"Bitlocker-C": enabled},
-                        score=0,
-                    )
-                ]
-
-            return [
-                Finding(
-                    rule_id=self.id,
-                    severity=Severity.HIGH,
-                    status=Status.FAIL,
-                    evidence={"Bitlocker-C": enabled},
-                    affected_asset="system_drive",
-                    score=20,
-                )
-            ]
+            return self.not_evaluated(["BITLOCKER_OS_PROTECTION"])
         except Exception as error:
             LOGGER.exception("BitLockerRule failed")
             return self.error(str(error))

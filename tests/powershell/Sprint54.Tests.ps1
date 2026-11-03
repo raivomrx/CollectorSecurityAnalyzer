@@ -1,4 +1,4 @@
-BeforeAll {
+﻿BeforeAll {
     $moduleRoot = Join-Path $PSScriptRoot '..\..\collector\windows\modules'
     Import-Module (Join-Path $moduleRoot 'BitLocker.psm1') -Force
     Import-Module (Join-Path $moduleRoot 'Accounts.psm1') -Force
@@ -6,55 +6,49 @@ BeforeAll {
 }
 
 Describe 'Sprint 5.4 BitLocker provider truth' {
-    It 'distinguishes protected, disabled, transitional and suspended Shell states' {
-        foreach ($case in @(
-            @{Raw=1; Protection=$true; State='FULLY_ENCRYPTED'; Status='SUCCESS'},
-            @{Raw=2; Protection=$false; State='FULLY_DECRYPTED'; Status='SUCCESS'},
-            @{Raw=3; Protection=$false; State='ENCRYPTION_IN_PROGRESS'; Status='PARTIAL'},
-            @{Raw=5; Protection=$false; State='SUSPENDED'; Status='SUCCESS'},
-            @{Raw=99; Protection=$null; State='UNKNOWN'; Status='PARTIAL'}
-        )) {
-            $value = ConvertFrom-CSAShellBitLockerValue -RawValue $case.Raw
-            $value.ProtectionEnabled | Should -Be $case.Protection
-            $value.EncryptionState | Should -Be $case.State
-            $value.CollectionStatus | Should -Be $case.Status
+    It 'records Shell values without inferring conversion or percentage' {
+        foreach ($raw in @(0,1,2,3,4,5,6,7,8,$null,99)) {
+            $row = ConvertFrom-CSAShellBitLockerValue -RawValue $raw
+            $row.RawEvidence.value | Should -Be $raw
+            $expected = if ($raw -eq 1) { 'ON' } elseif ($raw -eq 2) { 'OFF' } else { 'UNKNOWN' }
+            $row.RawEvidence.shellIndicatedProtection | Should -Be $expected
+            $row.EncryptionState | Should -Be UNKNOWN
+            $row.EncryptionPercentage | Should -BeNullOrEmpty
+            $row.EncryptionMethod | Should -BeNullOrEmpty
+            $row.ProtectionEnabled | Should -BeNullOrEmpty
         }
-    }
-    It 'accepts null or empty Shell values without turning them into false' {
-        $null -eq (ConvertFrom-CSAShellBitLockerValue -RawValue $null) | Should -BeTrue
-        $null -eq (ConvertFrom-CSAShellBitLockerValue -RawValue '') | Should -BeTrue
     }
     It 'retains the full failed chain and unknown OS state' {
         $denied = { throw [UnauthorizedAccessException]::new('denied') }
         $result = Get-CSABitLockerEvidence -VolumeProvider $denied -WmiProvider $denied -ManageBdeProvider { throw 'unavailable' } -ShellProvider { ConvertFrom-CSAShellBitLockerValue -RawValue $null } -RegistryProvider { $null }
         $os = @($result.Settings | Where-Object settingId -eq 'BITLOCKER_OS_PROTECTION')[0]
-        $null -eq $os.effectiveValue | Should -BeTrue
+        $os.effectiveValue | Should -BeNullOrEmpty
         $os.metadata.fallbacksAttempted.Count | Should -Be 5
-        $os.metadata.fallbacksAttempted[3].status | Should -Be 'NOT_AVAILABLE'
+        $os.metadata.fallbacksAttempted[3].status | Should -Be 'PARTIAL'
         @($os.metadata.fallbacksAttempted | Where-Object selectedAsAuthoritative).Count | Should -Be 0
     }
-    It 'uses Shell after earlier access denial and marks only that provider authoritative' {
+    It 'uses Shell after earlier access denial and retains the protection indication' {
         $denied = { throw [UnauthorizedAccessException]::new('denied') }
         $result = Get-CSABitLockerEvidence -VolumeProvider $denied -WmiProvider $denied -ManageBdeProvider { @() } -ShellProvider { ConvertFrom-CSAShellBitLockerValue -RawValue 2 }
         $os = @($result.Settings | Where-Object settingId -eq 'BITLOCKER_OS_PROTECTION')[0]
-        $os.effectiveValue | Should -BeFalse
+        $os.effectiveValue | Should -BeNullOrEmpty
         $attempts = @($os.metadata.fallbacksAttempted)
-        $attempts.Count | Should -Be 4
+        $attempts.Count | Should -Be 5
         $attempts[3].rawState.value | Should -Be 2
-        $attempts[3].selectedAsAuthoritative | Should -BeTrue
+        $attempts[3].selectedAsAuthoritative | Should -BeFalse
         $attempts[0].errorCategory | Should -Be 'ACCESS_DENIED'
     }
     It 'continues after an unknown Shell-equivalent primary state' {
         $result = Get-CSABitLockerEvidence -VolumeProvider { ConvertFrom-CSAShellBitLockerValue -RawValue 99 } -ShellProvider { ConvertFrom-CSAShellBitLockerValue -RawValue 1 }
         $os = @($result.Settings | Where-Object settingId -eq 'BITLOCKER_OS_PROTECTION')[0]
-        $os.effectiveValue | Should -BeTrue
+        $os.effectiveValue | Should -BeNullOrEmpty
         $os.metadata.fallbacksAttempted[0].status | Should -Be 'PARTIAL'
     }
     It 'preserves a Shell exception as an auditable error' {
         $result = Get-CSABitLockerEvidence -VolumeProvider { @() } -ShellProvider { throw 'COM failure' } -RegistryProvider { $null }
         $os = @($result.Settings | Where-Object settingId -eq 'BITLOCKER_OS_PROTECTION')[0]
         $os.metadata.fallbacksAttempted[1].status | Should -Be 'FAILED'
-        $null -eq $os.effectiveValue | Should -BeTrue
+        $os.effectiveValue | Should -BeNullOrEmpty
     }
 }
 
