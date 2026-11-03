@@ -6,6 +6,18 @@ on:
   workflow_dispatch:
 
 jobs:
+  linux-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify BitLocker, privacy and audit boundaries
+        run: python -W error::ResourceWarning -m unittest tests.test_bitlocker_boundaries tests.test_sprint531_semantics tests.test_audit_privacy tests.test_audit_correction_a -v
   report:
     runs-on: windows-latest
     steps:

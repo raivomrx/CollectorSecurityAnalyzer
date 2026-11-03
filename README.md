@@ -11,8 +11,10 @@
 The current installer is **CSA Lab 5.6.0** and is unsigned. After updating,
 create a new assessment to obtain the updated Collector package.
 
-**5.6.3 is a review candidate**, available from the
+**5.6.4 is a review candidate**, available from the
 [CSA Lab Build workflow](https://github.com/raivomrx/CollectorSecurityAnalyzer/actions/workflows/csa-lab-build.yml).
+The [5.6.4 acceptance guide](docs/sprint-5.6.4-live-stability.md) covers the
+HOME privacy crash fix, BitLocker Shell labels and PowerShell Quick Start.
 The [independent audit correction](docs/sprint-5.6.2-audit-correction-a.md) enforces
 profile privacy and corrects CVE completeness, prerequisite and integrity assertions.
 The [final REP-1 boundary correction](docs/sprint-5.6.2-rep1-boundary.md) also rejects
@@ -54,8 +56,15 @@ does not require administrator rights, request UAC, install an agent, modify the
 firewall or registry, or run Active Validation.
 
 The Lab Collector page also offers **PowerShell Quick Start (.ps1)**: save
-`Start-CSACollector.ps1` and run `.\Start-CSACollector.ps1` from a standard-user
-Windows PowerShell window. It downloads and verifies the existing session
+`Start-CSACollector.ps1`, open a standard-user Windows PowerShell window in its
+download folder and run the process-scoped Lab command below. Group Policy and
+application control still apply.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-CSACollector.ps1
+```
+
+The launcher downloads and verifies the existing session
 package automatically. **PowerShell Offline Package (.zip)** remains the
 manual/offline fallback. All three transports use the same Collector engine
 and security controls. Existing execution restrictions apply; an unsigned

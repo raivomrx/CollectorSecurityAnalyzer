@@ -425,8 +425,8 @@ Describe "CSA Windows Collector runtime evidence contracts" {
         }
 
         It "maps the Shell BitLocker property conservatively" {
-            (ConvertFrom-CSAShellBitLockerValue -RawValue 1).RawEvidence.shellIndicatedProtection | Should -Be ON
-            (ConvertFrom-CSAShellBitLockerValue -RawValue 2).RawEvidence.shellIndicatedProtection | Should -Be OFF
+            (ConvertFrom-CSAShellBitLockerValue -RawValue 1).RawEvidence.shellProtectionIndication | Should -Be ON
+            (ConvertFrom-CSAShellBitLockerValue -RawValue 2).RawEvidence.shellProtectionIndication | Should -Be OFF
             (ConvertFrom-CSAShellBitLockerValue -RawValue 3).CollectionStatus | Should -Be "PARTIAL"
             (ConvertFrom-CSAShellBitLockerValue -RawValue 5).EncryptionState | Should -Be "UNKNOWN"
             $unknown = ConvertFrom-CSAShellBitLockerValue -RawValue 99
@@ -450,11 +450,13 @@ Describe "CSA Windows Collector runtime evidence contracts" {
             $setting.effectiveValue | Should -BeNullOrEmpty
         }
 
-        It "parses localized manage-bde percentage without localized labels" {
+        It "does not infer complete conversion from a localized percentage alone" {
             $result = @(ConvertFrom-CSAManageBdeOutput `
                 -Lines @("Verschlüsselt (Prozent): 100%") `
                 -ProtectionExitCode 0)[0]
-            $result.ProtectionEnabled | Should -BeTrue
+            $result.ProtectionEnabled | Should -BeNullOrEmpty
+            $result.EncryptionState | Should -Be UNKNOWN
+            $result.VerifiedStatus | Should -BeFalse
             $result.EncryptionPercentage | Should -Be 100
         }
     }

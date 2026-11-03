@@ -33,7 +33,7 @@ $CollectionProfilePath = if ([string]::IsNullOrWhiteSpace($CollectionProfilePath
 } else {
     $CollectionProfilePath
 }
-$collectorVersion = "5.6.3"
+$collectorVersion = "5.6.4"
 $started = (Get-Date).ToUniversalTime()
 $moduleRoot = Join-Path $PSScriptRoot "modules"
 $manifestPath = Join-Path $PSScriptRoot "evidence-manifest.json"
@@ -396,7 +396,11 @@ if (-not [string]::IsNullOrWhiteSpace($outputDirectory)) {
     [System.IO.Directory]::CreateDirectory($outputDirectory) | Out-Null
 }
 $tmpPath = "$resolvedOutput.tmp"
-$document = Invoke-CSACollectionPrivacy -Document $document -Policy $privacyPolicy -Context $PrivacyContext
+try {
+    $document = Invoke-CSACollectionPrivacy -Document $document -Policy $privacyPolicy -Context $PrivacyContext
+} catch {
+    throw 'COLLECTOR_PRIVACY_TRANSFORM_FAILED: Evidence was withheld. Contact the assessor.'
+}
 $json = $document | ConvertTo-Json -Depth 24
 $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($tmpPath, $json, $utf8WithoutBom)

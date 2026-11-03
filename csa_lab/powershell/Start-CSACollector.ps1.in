@@ -1,7 +1,7 @@
 #requires -Version 5.1
 param([switch]$NoSubmit, [string]$ExportPath)
 
-# Session-bound download. Run normally: .\Start-CSACollector.ps1
+# Session-bound download. See the Join page for the approved launch command.
 # Organization execution restrictions remain in force. Delete this downloaded
 # launcher after use; its download-only credential expires with the session.
 Set-StrictMode -Version 2.0
@@ -35,6 +35,8 @@ function Test-CSABootstrapSignature {
     # Hold a shared read handle across Windows SIP verification. An exclusive
     # scanner lock is retried before signature verification, never accepted.
     Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
+    $policy = Get-ExecutionPolicy
+    if ($policy -eq 'Restricted') { throw 'CSA-BOOT-POLICY' }
     $guard = Invoke-CSABootstrapFileRetry { [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read) }
     try {
         $signature = Get-AuthenticodeSignature -LiteralPath $Path -ErrorAction Stop
@@ -43,6 +45,7 @@ function Test-CSABootstrapSignature {
     finally { $guard.Dispose() }
     if ([string]$signature.Status -eq 'NotSigned' -and -not $RequiredSigner) {
         if ($signatureClaimed) { throw 'CSA-BOOT-SIGNATURE' }
+        if ($policy -eq 'AllSigned') { throw 'CSA-BOOT-POLICY' }
         return
     }
     if ([string]$signature.Status -ne 'Valid' -or
@@ -129,10 +132,13 @@ function Receive-CSABootstrapPackage {
             if ($cause.Status -in @([Net.WebExceptionStatus]::TrustFailure, [Net.WebExceptionStatus]::SecureChannelFailure)) { throw 'CSA-BOOT-TLS' }
             if ($null -ne $cause.Response) {
                 try { $status = [int]$cause.Response.StatusCode } finally { $cause.Response.Dispose() }
-                if ($status -in @(403,410,429)) { throw 'CSA-BOOT-UNAVAILABLE' }
+                if ($status -in @(401,403,410,429)) { throw 'CSA-BOOT-UNAVAILABLE' }
+                throw 'CSA-BOOT-DOWNLOAD'
             }
+            if ($cause.Status -in @('NameResolutionFailure','ConnectFailure','ReceiveFailure','SendFailure','ConnectionClosed','KeepAliveFailure','Timeout')) { throw 'CSA-BOOT-NETWORK' }
         }
-        throw 'CSA-BOOT-NETWORK'
+        if ($cause -is [IO.IOException] -or $cause -is [Net.Sockets.SocketException]) { throw 'CSA-BOOT-NETWORK' }
+        throw 'CSA-BOOT-DOWNLOAD'
     } finally {
         if ($null -ne $response) { $response.Dispose() }
         if ($null -ne $request) { $request.Abort() }
@@ -176,6 +182,7 @@ function Resolve-CSABootstrapPath {
 
 function Expand-CSABootstrapPackage {
     param([byte[]]$Bytes, $Binding, [string]$Root)
+    $timer = [Diagnostics.Stopwatch]::StartNew()
     if ((Get-CSABootstrapDigest $Bytes) -ne $Binding.packageDigest) { throw 'CSA-BOOT-DIGEST' }
     Add-Type -AssemblyName System.IO.Compression
     $memory = New-Object IO.MemoryStream(,$Bytes)
@@ -216,6 +223,8 @@ function Expand-CSABootstrapPackage {
             $declared[$file.path] = $file
         }
         if ($inventory.Count -ne $declared.Count + 1) { throw 'CSA-BOOT-MANIFEST' }
+        Write-Host "CSA phase verify archive and manifest: $($timer.ElapsedMilliseconds) ms"
+        $timer.Restart()
         # Validate every path and manifest entry before creating any package file.
         foreach ($entry in $archive.Entries) {
             $path = Resolve-CSABootstrapPath $Root $entry.FullName
@@ -251,6 +260,7 @@ function Expand-CSABootstrapPackage {
                 Test-CSABootstrapSignature (Resolve-CSABootstrapPath $Root $file.path) $Binding.scriptSignerThumbprint
             }
         }
+        Write-Host "CSA phase extract and verify entries: $($timer.ElapsedMilliseconds) ms"
     } finally { $archive.Dispose(); $memory.Dispose() }
 }
 
@@ -268,7 +278,10 @@ function Invoke-CSABootstrapCollector {
         $env:TEMP = $work
         $env:TMP = $work
         try { & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" @arguments }
+        catch [Management.Automation.PSSecurityException] { throw 'CSA-BOOT-POLICY' }
         catch { throw 'CSA-BOOT-COLLECTOR' }
+        if ($LASTEXITCODE -eq 12) { throw 'COLLECTOR_PRIVACY_TRANSFORM_FAILED' }
+        if ($LASTEXITCODE -eq 13) { throw 'CSA-BOOT-POLICY' }
         if ($LASTEXITCODE -ne 0) { throw 'CSA-BOOT-COLLECTOR' }
     } finally { $env:TEMP = $previousTemp; $env:TMP = $previousTmp }
 }
@@ -291,12 +304,21 @@ function Invoke-CSABootstrap {
     $bytes = $null
     $code = 0
     try {
+        if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') { throw 'CSA-BOOT-POLICY' }
         Test-CSABootstrapSignature $LauncherPath
         Test-CSABootstrapBinding $Binding
         Test-CSABootstrapPrivilege
         if ($NoSubmit -and [string]::IsNullOrWhiteSpace($ExportPath)) { throw 'CSA-BOOT-EXPORT' }
         Write-Host 'Downloading the session-bound Collector package...'
-        $bytes = Receive-CSABootstrapPackage $Binding
+        $timer = [Diagnostics.Stopwatch]::StartNew()
+        try { $bytes = Receive-CSABootstrapPackage $Binding }
+        catch {
+            if ($_.Exception.Message -ne 'CSA-BOOT-NETWORK') { throw }
+            Test-CSABootstrapBinding $Binding
+            Write-Host 'The download was interrupted. Retrying once before collection.'
+            $bytes = Receive-CSABootstrapPackage $Binding
+        }
+        Write-Host "CSA phase download: $($timer.ElapsedMilliseconds) ms"
         Test-CSABootstrapBinding $Binding
         Write-Host 'Checking package integrity...'
         $root = New-CSABootstrapDirectory
@@ -320,7 +342,9 @@ function Invoke-CSABootstrap {
             'CSA-BOOT-PATH' = 'The package contains an unsafe or duplicate path. Execution stopped.'
             'CSA-BOOT-BINDING' = 'The package does not match this assessment and session. Execution stopped.'
             'CSA-BOOT-ELEVATED' = 'Open a standard-user PowerShell window. Elevated or SYSTEM execution is refused.'
-            'CSA-BOOT-COLLECTOR' = 'Collector did not complete submission. Review its diagnostic. Retry while the session is open, or use the offline ZIP instructions.'
+            'CSA-BOOT-COLLECTOR' = 'Collector did not complete submission. Review the diagnostic or contact the assessor.'
+            'CSA-BOOT-POLICY' = 'Windows policy blocked this workflow. Use an organization-approved signed Collector or contact the assessor for an offline handoff.'
+            'COLLECTOR_PRIVACY_TRANSFORM_FAILED' = 'Evidence was withheld after a privacy processing error. Contact the assessor.'
             'CSA-BOOT-CLEANUP' = 'Temporary data cleanup could not be confirmed. Contact the assessor.'
             'CSA-BOOT-EXPORT' = 'An explicit offline export path is required with -NoSubmit.'
         }

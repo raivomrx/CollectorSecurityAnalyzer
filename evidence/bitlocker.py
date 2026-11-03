@@ -8,6 +8,55 @@ from __future__ import annotations
 
 from typing import Any
 
+SHELL_PROVIDER = "SHELL_VOLUME_BITLOCKER_PROPERTY"
+SHELL_LABELS = {
+    0: ("OFF", "FIELD_HEURISTIC", "OFF — Shell field heuristic; verify"),
+    1: ("ON", "SHELL_ENUM", "ON — Shell indication"),
+    2: ("OFF", "SHELL_ENUM", "OFF — Shell indication"),
+    3: ("TRANSITIONING", "SHELL_ENUM", "Encrypting — Shell indication"),
+    4: ("TRANSITIONING", "SHELL_ENUM", "Decrypting — Shell indication"),
+    5: ("SUSPENDED", "SHELL_ENUM", "Suspended — Shell indication"),
+    6: ("LOCKED", "SHELL_ENUM", "Locked — Shell indication"),
+}
+
+
+def _is_os_volume(metadata: dict[str, Any]) -> bool:
+    mount = metadata.get("mountPoint")
+    return (
+        metadata.get("volumeType") == "OperatingSystem"
+        and isinstance(mount, str)
+        and len(mount) == 2
+        and mount[0] in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+        and mount[1] == ":"
+    )
+
+
+def _shell_observation(metadata: dict[str, Any], provider: str, attempts: list[dict[str, Any]]) -> dict[str, Any]:
+    raw = metadata.get("rawEvidence") if provider == SHELL_PROVIDER else None
+    attempt = next((row for row in attempts if row.get("provider") == SHELL_PROVIDER and row.get("volume") == metadata.get("mountPoint")), {})
+    if provider != SHELL_PROVIDER:
+        raw = attempt.get("rawState")
+    raw = raw if isinstance(raw, dict) else {}
+    value = metadata.get("shellRawValue", raw.get("value")) if provider == SHELL_PROVIDER else raw.get("value")
+    read = (metadata.get("shellReadStatus") if provider == SHELL_PROVIDER else None) or raw.get("shellReadStatus")
+    if attempt.get("status") in ("ERROR", "FAILED", "ACCESS_DENIED"):
+        read = "ERROR"
+    if read not in ("SUCCESS", "UNAVAILABLE", "ERROR"):
+        # Historical evidence can retain its original 1/2 indication. The
+        # field convention and transition labels require a recorded valid read.
+        read = "SUCCESS" if type(value) is int and value in (1, 2) and provider == SHELL_PROVIDER else "UNAVAILABLE"
+    interpreted = read == "SUCCESS" and type(value) is int and _is_os_volume(metadata)
+    indication, method, label = SHELL_LABELS.get(value, ("UNKNOWN", None, "Unknown")) if interpreted else ("UNKNOWN", None, "Unknown")
+    return {
+        "shellRawValue": value if type(value) is int else None,
+        "shellReadStatus": read,
+        "shellProtectionIndication": indication,
+        "shellInterpretationMethod": method,
+        "shellEvidenceSource": SHELL_PROVIDER if provider == SHELL_PROVIDER or attempt else None,
+        "shellDisplayLabel": label,
+        "shellObservedAt": metadata.get("observedAt") if provider == SHELL_PROVIDER else attempt.get("observedAt"),
+    }
+
 
 def resolve_bitlocker(setting: dict[str, Any] | None) -> dict[str, Any]:
     """Return additive semantic state, control status and client wording."""
@@ -22,18 +71,17 @@ def resolve_bitlocker(setting: dict[str, Any] | None) -> dict[str, Any]:
     provider = metadata.get("provider", setting.get("provider", "Unknown"))
     authoritative = (
         metadata.get("authority") == "AUTHORITATIVE"
-        and provider in ("Get-BitLockerVolume", "WIN32_ENCRYPTABLE_VOLUME")
-        and metadata.get("volumeType") == "OperatingSystem"
-        and isinstance(metadata.get("mountPoint"), str)
-        and len(metadata["mountPoint"]) == 2
-        and metadata["mountPoint"][0] in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-        and metadata["mountPoint"][1] == ":"
+        and provider in ("Get-BitLockerVolume", "WIN32_ENCRYPTABLE_VOLUME", "MANAGE_BDE")
+        and _is_os_volume(metadata)
     )
-    shell = provider == "SHELL_VOLUME_BITLOCKER_PROPERTY"
-    raw = metadata.get("rawEvidence")
-    shell_raw = metadata.get("shellRawValue", raw.get("value") if isinstance(raw, dict) else None) if shell else None
-    indication = {1: "ON", 2: "OFF"}.get(shell_raw, "UNKNOWN") if type(shell_raw) is int else "UNKNOWN"
+    shell = provider == SHELL_PROVIDER
+    recorded_attempts = metadata.get("fallbacksAttempted")
+    attempts = [dict(row) for row in recorded_attempts if isinstance(row, dict)] if isinstance(recorded_attempts, list) else []
+    observation = _shell_observation(metadata, provider, attempts)
+    indication = observation["shellProtectionIndication"]
     recorded_conversion = str(metadata.get("encryptionState", "UNKNOWN")).upper()
+    if recorded_conversion in ("USED_SPACE_ONLY_ENCRYPTED", "USED SPACE ONLY ENCRYPTED", "USEDSPACEONLYENCRYPTED"):
+        recorded_conversion = "FULLY_ENCRYPTED"
     conversion = recorded_conversion if authoritative or recorded_conversion == "SOURCE_CONFLICT" and not shell else "UNKNOWN"
     if authoritative and conversion != "SOURCE_CONFLICT" and str(metadata.get("lockStatus", "")).upper() == "LOCKED":
         conversion = "LOCKED"
@@ -50,10 +98,6 @@ def resolve_bitlocker(setting: dict[str, Any] | None) -> dict[str, Any]:
     }:
         state, status, label = conversion, "PARTIAL", conversion.replace("_", " ")
         reason = "System-volume state: " + label.lower() + "; verify active protection after completion."
-    elif shell and indication != "UNKNOWN" and collection_status in {"SUCCESS", "PARTIAL"}:
-        state, status = f"PROTECTION_{indication}_INDICATED", "PARTIAL"
-        label = state.replace("_", " ")
-        reason = "Windows Shell indicates protection " + indication.lower() + ". OS volume conversion was not measured."
     elif collection_status == "FAILED":
         state, status, label = "ERROR", "ERROR", "ERROR"
         reason = "BitLocker evidence collection failed."
@@ -83,15 +127,39 @@ def resolve_bitlocker(setting: dict[str, Any] | None) -> dict[str, Any]:
         elif value is True and conversion == "FULLY_DECRYPTED":
             state, status, label = "SOURCE_CONFLICT", "PARTIAL", "SOURCE CONFLICT"
             reason = "Protection and conversion evidence are internally inconsistent."
-    attempts = []
-    recorded_attempts = metadata.get("fallbacksAttempted")
-    for attempt in recorded_attempts if isinstance(recorded_attempts, list) else []:
-        if not isinstance(attempt, dict):
-            continue
-        observation = dict(attempt)
-        if observation.get("authority") != "AUTHORITATIVE":
-            observation.update(encryptionPercentage=None, encryptionMethod=None, parsedState="UNKNOWN", protectionEnabled=None, selectedAsAuthoritative=False)
-        attempts.append(observation)
+    if state == "NOT_EVALUATED" and indication != "UNKNOWN" and collection_status in ("SUCCESS", "PARTIAL"):
+        state = f"PROTECTION_{indication}_INDICATED" if indication in ("ON", "OFF") else f"SHELL_{indication}"
+        status, label = "PARTIAL", observation["shellDisplayLabel"]
+        reason = "Source: Windows Shell; confirmation recommended. Combined conversion and protection are unconfirmed."
+        if observation["shellInterpretationMethod"] == "FIELD_HEURISTIC":
+            reason += " Confirm with an approved elevated read-only status check."
+        elif indication == "SUSPENDED":
+            reason += " Confirm suspension before resuming protection under the approved policy."
+        elif indication == "TRANSITIONING":
+            reason += " Check conversion progress and verify protection when it completes."
+        elif indication == "LOCKED":
+            reason += " Verify status with the authorized operator."
+    verified_protection = {"ON": "ON", "1": "ON", "OFF": "OFF", "0": "OFF"}.get(protection)
+    if state != "SOURCE_CONFLICT" and authoritative and collection_status in ("SUCCESS", "PARTIAL"):
+        if verified_protection and indication in ("ON", "OFF") and indication != verified_protection or indication == "SUSPENDED" and verified_protection == "ON":
+            disagreement = f"protection {verified_protection}"
+        elif indication == "TRANSITIONING" and conversion in ("FULLY_ENCRYPTED", "FULLY_DECRYPTED"):
+            disagreement = f"conversion {conversion}"
+        elif indication == "LOCKED" and str(metadata.get("lockStatus", "")).upper() == "UNLOCKED":
+            disagreement = "an unlocked volume"
+        else:
+            disagreement = None
+        if disagreement:
+            state, status, label = "SOURCE_CONFLICT", "PARTIAL", "SOURCE CONFLICT"
+            reason = f"Windows Shell indicates {indication}; {provider} reports {disagreement}. Review both observations."
+    if state == "NOT_EVALUATED" and observation["shellReadStatus"] == "ERROR":
+        reason = "The Windows Shell property could not be read. Verify BitLocker using an approved read-only check."
+    for attempt in attempts:
+        if attempt.get("authority") != "AUTHORITATIVE":
+            attempt.update(encryptionPercentage=None, encryptionMethod=None, parsedState="UNKNOWN", protectionEnabled=None, selectedAsAuthoritative=False)
+    reason_code = state if state != "NOT_EVALUATED" else collection_status if collection_status not in {"SUCCESS", "PARTIAL"} else "INSUFFICIENT_VOLUME_EVIDENCE"
+    if state == "NOT_EVALUATED" and observation["shellEvidenceSource"]:
+        reason_code = "SHELL_READ_" + observation["shellReadStatus"] if observation["shellReadStatus"] != "SUCCESS" else "SHELL_VALUE_UNRECOGNIZED"
     return {
         "state": state,
         "status": status,
@@ -101,15 +169,21 @@ def resolve_bitlocker(setting: dict[str, Any] | None) -> dict[str, Any]:
         "reason": reason,
         "provider": provider,
         "authority": "AUTHORITATIVE" if authoritative else "INDICATION" if shell else "UNVERIFIED",
-        "reasonCode": state if state != "NOT_EVALUATED" else collection_status if collection_status not in {"SUCCESS", "PARTIAL"} else "INSUFFICIENT_VOLUME_EVIDENCE",
+        "reasonCode": reason_code,
+        "assessmentReasonCode": reason_code,
+        "assessmentStatus": status,
         "observedAt": metadata.get("observedAt", setting.get("collectedAt")),
-        "shellRawValue": shell_raw,
-        "shellIndicatedProtection": indication if shell else None,
+        **observation,
+        "shellIndicatedProtection": indication,
+        "evidenceSource": provider,
+        "evidenceSources": list(dict.fromkeys(source for source in (provider, *(row.get("provider") for row in attempts)) if isinstance(source, str))),
         "providerAttempts": attempts,
         "mountPoint": metadata.get("mountPoint"),
         "encryptionState": conversion,
         "encryptionPercentage": percentage,
         "protectionStatus": protection,
+        "authoritativeProtectionStatus": verified_protection if authoritative else None,
+        "authoritativeVolumeStatus": conversion if authoritative and conversion not in ("UNKNOWN", "SOURCE_CONFLICT") else None,
         "encryptionMethod": metadata.get("encryptionMethod") if authoritative else None,
         "lockStatus": metadata.get("lockStatus") if authoritative else None,
     }

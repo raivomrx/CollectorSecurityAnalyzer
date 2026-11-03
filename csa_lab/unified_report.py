@@ -285,7 +285,7 @@ class UnifiedReportGenerator:
         framework_rows = _framework_rows(fleet_findings)
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.6.3",
+            "reportVersion": "CSA-5.6.4",
             "generatedAt": generated_at,
             "dataClassification": "Confidential - Security Assessment Data",
             "containsPersonalData": True,
@@ -1749,6 +1749,9 @@ def _executive_endpoint_metrics(
     return {
         "assessedEndpoints": len(endpoints),
         "bitLockerEnabledEndpoints": bitlocker_enabled,
+        "bitLockerShellOnEndpoints": sum(endpoint.get("bitLocker", {}).get("shellProtectionIndication") == "ON" for endpoint in endpoints),
+        "bitLockerShellOffEndpoints": sum(endpoint.get("bitLocker", {}).get("shellProtectionIndication") == "OFF" for endpoint in endpoints),
+        "bitLockerShellHeuristicEndpoints": sum(endpoint.get("bitLocker", {}).get("shellInterpretationMethod") == "FIELD_HEURISTIC" for endpoint in endpoints),
         "bitLockerNotEnabledEndpoints": sum(
             endpoint.get("bitLocker", {}).get("status") == "FAIL" for endpoint in endpoints
         ),

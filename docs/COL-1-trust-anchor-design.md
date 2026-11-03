@@ -104,3 +104,62 @@ the launcher or a session package.
 Until those decisions are accepted and implemented, report recorded session
 allowlist membership separately from independent publisher authenticity. Audit A
 does that; it does not resolve COL-1 by renaming a digest check.
+
+## 5.6.4 decision proposal for architecture review
+
+**Preferred path.** Build one immutable EXE and one signed PowerShell entry
+point per release. Publish their final signed bytes through a trusted publisher
+channel or enterprise-managed software deployment. Deliver the session as a
+separate data file with a Lab-signed envelope. Bind the exact engine manifest,
+Lab identity and TLS pin, destination, session and assessment IDs, profile,
+expiry, mode and recipient to the signature. The launcher accepts only the
+supported envelope schema and verifies it before unpacking or importing code.
+Keep download and submission credentials short-lived and out of provenance logs.
+
+| Option | Risk and implementation effort |
+| --- | --- |
+| Keep mutating or signing each session EXE | High operational risk. Requires online access to signing for routine sessions or relies on ambiguous Authenticode coverage of the appended overlay. Every session produces different bytes and hashes. Low migration effort, high ongoing cost. |
+| Immutable signed launcher and separate signed session envelope | Medium migration effort. Stable artifacts can be distributed ahead of time, verified independently and evaluated by reputation systems. Requires a Lab identity provisioning and rotation lifecycle. |
+| Enterprise-managed deployment and Lab trust provisioning | Low first-contact substitution risk for managed fleets. Higher operational effort per organization. Use the same immutable launcher and session format so HOME and disconnected workflows remain possible. |
+
+1. **Provision trust before first use.** Obtain the publisher through the
+   enterprise trust store or a verified release channel. Provision the Lab key
+   or its signed delegation through enterprise configuration or an authenticated
+   out-of-band assessor channel. For a self-signed portal, compare the full Lab
+   fingerprint or import the trust record via that independent channel. A portal
+   download or the contents of its own warning page cannot bootstrap that trust.
+2. **Build and sign the final release bytes.** Use hardware-backed keys or a
+   restricted signing service with short-lived CI identity, protected approvals,
+   separate test and release policies, and audit logs. Retain the source commit,
+   dependency lock and build recipe, unsigned reproducibility comparison,
+   signed SHA-256, certificate chain, trusted timestamp and provenance record.
+   Verify the final bytes and trust chain on clean Windows systems. Label unsigned
+   test artifacts and keep them outside the release channel.
+3. **Authenticate before executing.** Check publisher, then independent Lab
+   identity and signed session scope, then package digest and publisher manifest.
+   Validate TLS pinning and destination before credentials are transmitted. Start
+   collection at standard privileges and require the session-bound nonce and
+   authenticated receipt. For disconnected use verify against the preprovisioned
+   identities and defined revocation freshness limit, then use encrypted offline
+   submission with server-side verification on import.
+4. **Prove the migration.** Test final Authenticode validity before and after
+   appending a synthetic session to a test-signed EXE, plus replacement of the
+   portal, envelope, trust records and package. The existing per-session layout
+   changes the final file hash. Its signed coverage and acceptance depend on
+   the final PE layout and Windows verification, so the proposal removes the
+   overlay from the signed distribution format. Exercise SmartScreen, Smart App
+   Control and enterprise endpoint protection with unchanged policy. Signing can
+   reduce warnings. Endpoint enforcement and reputation can still block execution.
+5. **Review before activation.** Require architecture approval, malicious-input
+   tests and Windows LAB/HOME acceptance before retiring the unsigned transport or
+   enabling the explicit-consent elevated BitLocker helper. Keep public release
+   HOLD pending COL-1 and the other audit blockers.
+
+SmartScreen evaluates publisher and file reputation. Smart App Control can
+block malicious or potentially unwanted apps and uses signature validity when
+its cloud assessment is uncertain. Enterprise antivirus can still scan the
+package as it is written and evaluate runtime behavior, including for signed
+code. Preserve narrow file-lock retries and normal endpoint enforcement.
+[SmartScreen reputation](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation)
+· [Smart App Control](https://support.microsoft.com/en-us/windows/security/threat-malware-protection/smart-app-control-frequently-asked-questions)
+· [Defender behavior monitoring](https://learn.microsoft.com/en-us/defender-endpoint/behavior-monitor)

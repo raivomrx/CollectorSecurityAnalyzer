@@ -49,7 +49,6 @@ class BitLockerRule(BaseRule):
                     "collection_status": setting.collection_status.value,
                     "provider": setting.provider,
                     "configured_value": setting.configured_value,
-                    "effective_value": setting.effective_value,
                     "confidence": setting.confidence,
                     "mount_point": setting.metadata.get("mountPoint"),
                     "encryption_state": setting.metadata.get("encryptionState"),
@@ -66,6 +65,7 @@ class BitLockerRule(BaseRule):
                     "metadata": setting.metadata,
                 })
                 detail["encryption_percentage"] = conclusion["encryptionPercentage"]
+                detail["effective_value"] = conclusion["protectionEnabled"]
                 detail["encryption_state"] = conclusion["encryptionState"]
                 detail["authority"] = conclusion["authority"]
                 detail["fallbacks_attempted"] = conclusion["providerAttempts"]
@@ -73,6 +73,12 @@ class BitLockerRule(BaseRule):
                 detail["reason_code"] = conclusion["reasonCode"]
                 detail["bitlocker_state"] = conclusion["state"]
                 detail["reason"] = conclusion["reason"]
+                detail["shell_raw_value"] = conclusion["shellRawValue"]
+                detail["shell_read_status"] = conclusion["shellReadStatus"]
+                detail["shell_protection_indication"] = conclusion["shellProtectionIndication"]
+                detail["shell_interpretation_method"] = conclusion["shellInterpretationMethod"]
+                detail["authoritative_protection_status"] = conclusion["authoritativeProtectionStatus"]
+                detail["authoritative_volume_status"] = conclusion["authoritativeVolumeStatus"]
                 status = Status(conclusion["status"])
                 return [
                     Finding(

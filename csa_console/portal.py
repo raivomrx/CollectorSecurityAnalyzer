@@ -199,11 +199,12 @@ class PortalBinding:
         if self.launcher_bytes:
             launcher_option = """<p><a class="button" href="download-launcher">PowerShell Quick Start (.ps1) — Recommended Lab/enterprise alternative</a></p>
   <p>Save <strong>Start-CSACollector.ps1</strong>. Open a standard-user Windows PowerShell window
-     in its download folder and run:</p><pre><code>.\\Start-CSACollector.ps1</code></pre>
+     in its download folder and copy this command:</p>
+  <pre><code>powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\Start-CSACollector.ps1</code></pre>
   <p>The launcher downloads and verifies this session's existing Collector package automatically.
      No manual ZIP extraction is needed. Keep the launcher private and delete it after use.</p>
-  <p>If organization policy blocks execution, contact your IT administrator for an approved,
-     signed Collector. Do not change execution policy or disable endpoint protection.</p>"""
+  <p>Bypass applies to this process. Group Policy and Windows application control still apply.
+     If Windows blocks the script, use an IT-approved signed EXE or contact the assessor for the approved offline handoff.</p>"""
         document = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -256,7 +257,7 @@ class PortalBinding:
   {launcher_option}
   {script_option}
   <p>All three methods use the same Collector engine, session, integrity checks and privacy controls.</p>
-  <p class="meta">Collector version: 5.6.3<br>Package expires: {safe_expiry}</p>
+  <p class="meta">Collector version: 5.6.4<br>Package expires: {safe_expiry}</p>
 </main>
 </body>
 </html>"""

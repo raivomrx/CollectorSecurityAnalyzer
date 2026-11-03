@@ -69,7 +69,13 @@ Describe 'One-file launcher trust and execution boundaries' {
     }
     It 'does not alter policy, remove Mark of the Web, or add an execution-policy override to the child' {
         $source=Get-Content -LiteralPath $template -Raw
-        $source | Should -Not -Match '(?i)\b(Set-ExecutionPolicy|Unblock-File|Invoke-Expression)\b|DownloadString|ExecutionPolicy|\-Verb\s+RunAs'
+        $source | Should -Not -Match '(?i)\b(Set-ExecutionPolicy|Unblock-File|Invoke-Expression)\b|DownloadString|\s-ExecutionPolicy\b|\-Verb\s+RunAs'
+    }
+    It 'stops before download when effective policy is Restricted' {
+        Mock Get-ExecutionPolicy { 'Restricted' }
+        Mock Receive-CSABootstrapPackage { throw 'Download should not be called.' }
+        Invoke-CSABootstrap -Binding (New-SyntheticLauncherBinding) -LauncherPath 'Synthetic.ps1' | Should -Be 1
+        Should -Invoke Receive-CSABootstrapPackage -Times 0 -Exactly
     }
 }
 

@@ -7,16 +7,21 @@
 
 Describe 'Sprint 5.4 BitLocker provider truth' {
     It 'records Shell values without inferring conversion or percentage' {
-        foreach ($raw in @(0,1,2,3,4,5,6,7,8,$null,99)) {
+        $indications=@('OFF','ON','OFF','TRANSITIONING','TRANSITIONING','SUSPENDED','LOCKED')
+        foreach ($raw in @(0,1,2,3,4,5,6,7,8,$null,99,'0',[long]0,'')) {
             $row = ConvertFrom-CSAShellBitLockerValue -RawValue $raw
-            $row.RawEvidence.value | Should -Be $raw
-            $expected = if ($raw -eq 1) { 'ON' } elseif ($raw -eq 2) { 'OFF' } else { 'UNKNOWN' }
-            $row.RawEvidence.shellIndicatedProtection | Should -Be $expected
+            $isInt = $raw -is [int]
+            $row.RawEvidence.value | Should -Be $(if ($isInt) { $raw } else { $null })
+            $row.RawEvidence.shellReadStatus | Should -Be $(if ($isInt) { 'SUCCESS' } else { 'UNAVAILABLE' })
+            $expected = if ($isInt -and $raw -lt $indications.Count) { $indications[$raw] } else { 'UNKNOWN' }
+            $row.RawEvidence.shellProtectionIndication | Should -Be $expected
+            if ($isInt -and $raw -eq 0) { $row.RawEvidence.shellInterpretationMethod | Should -Be 'FIELD_HEURISTIC' }
             $row.EncryptionState | Should -Be UNKNOWN
             $row.EncryptionPercentage | Should -BeNullOrEmpty
             $row.EncryptionMethod | Should -BeNullOrEmpty
             $row.ProtectionEnabled | Should -BeNullOrEmpty
         }
+        (ConvertFrom-CSAShellBitLockerValue -RawValue $null -ReadError).RawEvidence.shellReadStatus | Should -Be 'ERROR'
     }
     It 'retains the full failed chain and unknown OS state' {
         $denied = { throw [UnauthorizedAccessException]::new('denied') }
@@ -24,7 +29,7 @@ Describe 'Sprint 5.4 BitLocker provider truth' {
         $os = @($result.Settings | Where-Object settingId -eq 'BITLOCKER_OS_PROTECTION')[0]
         $os.effectiveValue | Should -BeNullOrEmpty
         $os.metadata.fallbacksAttempted.Count | Should -Be 5
-        $os.metadata.fallbacksAttempted[3].status | Should -Be 'PARTIAL'
+        $os.metadata.fallbacksAttempted[3].status | Should -Be 'UNAVAILABLE'
         @($os.metadata.fallbacksAttempted | Where-Object selectedAsAuthoritative).Count | Should -Be 0
     }
     It 'uses Shell after earlier access denial and retains the protection indication' {

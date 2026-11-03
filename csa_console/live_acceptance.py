@@ -90,8 +90,8 @@ def run_live_acceptance(
             portal.launcher_bytes = build_powershell_launcher(archive, session, f"https://{host}:{port}", credential, output / "signing")
             entrypoint = output / "Start-CSACollector.ps1"
             entrypoint.write_bytes(portal.launcher_bytes)
-            # Exercise the delivered file under existing execution restrictions.
-            command = ["powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(entrypoint)]
+            # Exercise the approved Join command. Effective organization policy still applies.
+            command = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(entrypoint)]
         else:
             command = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                        "-File", str(package_root / "Invoke-CSACollector.ps1")]

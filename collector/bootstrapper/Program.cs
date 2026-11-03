@@ -29,9 +29,11 @@ namespace CSA.Collector
                 RejectElevatedProcess();
                 temporaryDirectory = CreateRestrictedTemporaryDirectory();
                 Console.WriteLine("Checking package integrity...");
+                Stopwatch preparation = Stopwatch.StartNew();
                 ExtractAndVerifyPackage(
                     Process.GetCurrentProcess().MainModule.FileName,
                     temporaryDirectory);
+                Console.WriteLine("CSA phase extract and verify entries: " + preparation.ElapsedMilliseconds + " ms");
                 PrintAssessmentSummary(temporaryDirectory);
                 if (args.Length == 1 && args[0] == "--verify-only")
                 {
@@ -283,6 +285,18 @@ namespace CSA.Collector
             {
                 Console.WriteLine("Starting security collection...");
                 int exitCode = RunPowerShell(root, false, null);
+                if (exitCode == 12)
+                {
+                    Console.WriteLine("Evidence was withheld after a privacy processing error. Contact the assessor.");
+                    WaitForUser();
+                    return exitCode;
+                }
+                if (exitCode == 13)
+                {
+                    Console.WriteLine("Windows policy blocked the Collector. Contact the assessor for an approved transport.");
+                    WaitForUser();
+                    return exitCode;
+                }
                 if (exitCode == 0)
                 {
                     Console.WriteLine();
@@ -314,6 +328,11 @@ namespace CSA.Collector
                         desktop,
                         "CSA-Offline-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + ".csa");
                     int offlineExit = RunPowerShell(root, true, output);
+                    if (offlineExit == 12 || offlineExit == 13)
+                    {
+                        WaitForUser();
+                        return offlineExit;
+                    }
                     if (offlineExit == 0)
                     {
                         Console.WriteLine("Encrypted offline package created:");

@@ -15,6 +15,13 @@ internal static class BootstrapHarness
             if (args[0] == "extract")
                 typeof(Program).GetMethod("ExtractAndVerifyPackage", flags).Invoke(null,
                     new object[] { args[1], args[2] });
+            else if (args[0] == "run-bound")
+            {
+                typeof(Program).GetMethod("ExtractAndVerifyPackage", flags).Invoke(null,
+                    new object[] { args[1], args[2] });
+                return (int)typeof(Program).GetMethod("RunCollectorWithRetry", flags).Invoke(null,
+                    new object[] { args[2] });
+            }
             else
             {
                 Func<string> read = () => File.ReadAllText(args[1]);

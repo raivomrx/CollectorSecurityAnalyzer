@@ -79,21 +79,33 @@ function Add-CSAPrivacyIdentifiers {
     } elseif($Value -is [array]) { foreach($item in $Value) { Add-CSAPrivacyIdentifiers $item $State $Scope } }
 }
 
+function Protect-CSAPrivacySids {
+    param([string]$Value,$State)
+    $matches=[regex]::Matches($Value,'S-1-5-21-\d+(?:-\d+)+','IgnoreCase')
+    for($i=$matches.Count-1;$i -ge 0;$i--) {
+        $match=$matches[$i]
+        $digest=Get-CSAPrivacyDigest $match.Value $State
+        $Value=$Value.Remove($match.Index,$match.Length).Insert($match.Index,$digest)
+    }
+    return $Value
+}
+
 function Protect-CSAPrivacyPath {
     param([string]$Value,$State,$Policy)
     if($Policy.includeFilePaths -eq 'NONE') { return $null }
     $result=$Value
     if($Policy.includeFilePaths -ne 'FULL' -or $Policy.hashUsername) {
-        $result=[regex]::Replace($result,'(?i)[A-Z]:\\Users\\[^\\/\s]+','C:\Users\<USER>')
+        $result=[regex]::Replace($result,'(?i)[A-Z]:\\Users\\(?:[^\\/"\r\n]+(?=[\\/"])|[^\\/\s"]+)','C:\Users\<USER>')
         $result=[regex]::Replace($result,'(?i)/Users/[^/\s]+','/Users/<USER>')
     }
-    $result=[regex]::Replace($result,'S-1-5-21-\d+(?:-\d+)+',{
-        param($match) Get-CSAPrivacyDigest $match.Value $State
-    }.GetNewClosure())
+    $result=Protect-CSAPrivacySids $result $State
     if(-not $Policy.includeHostname) {
-        $result=[regex]::Replace($result,'\\\\([^\\]+)',{
-            param($match) '\\'+(Get-CSAPrivacyDigest $match.Groups[1].Value $State 'endpoint')
-        }.GetNewClosure())
+        $matches=[regex]::Matches($result,'\\\\([^\\/\s"'']+)')
+        for($i=$matches.Count-1;$i -ge 0;$i--) {
+            $hostMatch=$matches[$i].Groups[1]
+            $digest=Get-CSAPrivacyDigest $hostMatch.Value $State 'endpoint'
+            $result=$result.Remove($hostMatch.Index,$hostMatch.Length).Insert($hostMatch.Index,$digest)
+        }
     }
     foreach($original in @($State.Identifiers.Keys | Sort-Object Length -Descending)) {
         $pattern='(?i)(?<![A-Za-z0-9_])'+[regex]::Escape([string]$original)+'(?![A-Za-z0-9_])'
@@ -137,9 +149,9 @@ function Protect-CSAPrivacyValue {
     if($Scope -match 'Network|NETWORK_|ADAPTER|network' -and $Field -match 'Mac|PhysicalAddress' -and -not $Policy.includeMacAddresses) { return $null }
     if($Scope -match 'Network|NETWORK_|ADAPTER|network' -and $Field -match 'IP(Address|v4Address|v6Address)|Gateway|DnsServer|Subnet' -and -not $Policy.includeIpAddresses) { return $null }
     if($Scope -match 'ACTIVE_NETWORK_PROFILE' -and $Field -match 'effectiveValue|configuredValue') { return Get-CSAPrivacyDigest $Value $State 'network' }
-    if($Scope -match 'Network|NETWORK_|ADAPTER|network' -and $Field -match '^(Name|InterfaceAlias|ProfileName)$' -and -not $Policy.includeHostname) { return Get-CSAPrivacyDigest $Value $State 'network' }
-    if($Field -match 'Path|Location|Executable|UninstallKey|CommandLine') { return Protect-CSAPrivacyPath $Value $State $Policy }
-    return $Value
+    if($Scope -match 'Network|NETWORK_|ADAPTER|network' -and $Field -match '^(Name|InterfaceAlias|ProfileName|SSID)$' -and -not $Policy.includeHostname) { return Get-CSAPrivacyDigest $Value $State 'network' }
+    if($Field -match 'Path|Location|Executable|UninstallKey|CommandLine|Arguments') { return Protect-CSAPrivacyPath $Value $State $Policy }
+    return Protect-CSAPrivacySids $Value $State
 }
 
 function Invoke-CSACollectionPrivacy {

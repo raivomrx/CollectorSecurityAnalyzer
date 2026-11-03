@@ -5,6 +5,9 @@ commit/push and installer artifacts do not create a final release/tag.
 
 ## Operator workflow
 
+For CSA 5.6.4 and later, use the approved process-scoped command in the
+[current Quick Start guide](sprint-5.6.4-live-stability.md#powershell-quick-start).
+
 The Lab Join portal offers:
 
 1. **CSA Collector (.exe)** — default/Home.

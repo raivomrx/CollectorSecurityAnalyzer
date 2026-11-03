@@ -30,6 +30,17 @@ Describe 'Sprint 5.6 authoritative BitLocker state' {
         $row.CollectionStatus | Should -Be PARTIAL
         $null -eq $row.ProtectionEnabled | Should -BeTrue
     }
+    It 'recognizes used-space-only completion only from explicit status text' {
+        $result = Get-CSABitLockerEvidence -VolumeProvider { @() } -ManageBdeProvider {
+            ConvertFrom-CSAManageBdeOutput -Lines @('Conversion Status: Used Space Only Encrypted','Percentage Encrypted: 100%','Protection Status: Protection On','Encryption Method: XTS-AES 128')
+        }
+        $setting = $result.Settings | Where-Object settingId -eq BITLOCKER_OS_PROTECTION
+        $setting.metadata.encryptionState | Should -Be FULLY_ENCRYPTED
+        $setting.metadata.authority | Should -Be AUTHORITATIVE
+        $setting.metadata.encryptionMethod | Should -Be 'XTS-AES 128'
+        $setting.effectiveValue | Should -BeTrue
+        ($result.Settings | Where-Object settingId -Like '*TPM_PROTECTOR_PRESENT').effectiveValue | Should -BeNullOrEmpty
+    }
     It 'rejects failed execution and contradictory protection indicators' {
         $lines = @('Conversion Status: Fully Decrypted','Percentage Encrypted: 0%','Protection Status: Protection Off')
         $failed = ConvertFrom-CSAManageBdeOutput -Lines $lines -StatusExitCode 5 -ProtectionExitCode 1

@@ -25,7 +25,7 @@ jobs:
             throw "Runner account is a Local Administrators group member; true non-admin account required."
           }
           python -m csa_console.live_acceptance --output-root test-artifacts/standard-user-live
-      - name: Run one-file launcher under existing execution policy
+      - name: Run the approved PowerShell Quick Start subject to effective policy
         shell: powershell
         run: python -m csa_console.live_acceptance --transport launcher --output-root test-artifacts/standard-user-launcher-live
       - name: Upload identifier-free live acceptance summaries

@@ -1,7 +1,7 @@
 param(
     [string]$Executable = (Join-Path $PSScriptRoot '../dist/CSA-Lab/CSA-Lab.exe'),
     [string]$OutputRoot = (Join-Path $PSScriptRoot '../test-artifacts/packaged-lab-smoke'),
-    [string]$ExpectedVersion = '5.6.3'
+    [string]$ExpectedVersion = '5.6.4'
 )
 $ErrorActionPreference = 'Stop'
 $base = [IO.Path]::GetFullPath($OutputRoot)

@@ -26,7 +26,7 @@ function ConvertTo-CSABitLockerState {
         [string]$Volume.EncryptionState
     } else {
         switch ([string]$Volume.VolumeStatus) {
-            FullyEncrypted { 'FULLY_ENCRYPTED' }
+            { $_ -in @('FullyEncrypted','UsedSpaceOnlyEncrypted','Used Space Only Encrypted') } { 'FULLY_ENCRYPTED' }
             FullyDecrypted { 'FULLY_DECRYPTED' }
             EncryptionInProgress { 'ENCRYPTION_IN_PROGRESS' }
             DecryptionInProgress { 'DECRYPTION_IN_PROGRESS' }
@@ -67,8 +67,8 @@ function ConvertTo-CSABitLockerState {
         } else {
             $false
         }
-        ProtectorTypes = @($Volume.ProtectorTypes)
-        Authority = if ($Provider -in @('Get-BitLockerVolume','WIN32_ENCRYPTABLE_VOLUME')) { 'AUTHORITATIVE' } else { 'INDICATION' }
+        ProtectorTypes = $Volume.ProtectorTypes
+        Authority = if ($Provider -in @('Get-BitLockerVolume','WIN32_ENCRYPTABLE_VOLUME') -or ($Provider -eq 'MANAGE_BDE' -and $Volume.VerifiedStatus -eq $true)) { 'AUTHORITATIVE' } else { 'INDICATION' }
         ObservedAt = [DateTime]::UtcNow.ToString('o')
         Provider = $Provider
         Confidence = $Confidence
@@ -167,6 +167,7 @@ function ConvertFrom-CSAManageBdeOutput {
         foreach ($pair in @(@('Decrypted','FULLY_DECRYPTED'), @('Encrypted','FULLY_ENCRYPTED'), @('Encrypting','ENCRYPTION_IN_PROGRESS'), @('Decrypting','DECRYPTION_IN_PROGRESS'))) {
             if ($rawConversion -eq $format[$pair[0]]) { $conversion = $pair[1] }
         }
+        if ($locale -eq 'en' -and $rawConversion -eq 'Used Space Only Encrypted') { $conversion = 'FULLY_ENCRYPTED' }
         $match = [regex]::Match($text, '(?im)^\s*' + [regex]::Escape($format.Protection) + '\s*:\s*([^\r\n]+)\s*$')
         if ($match.Success) {
             if ($match.Groups[1].Value.Trim() -eq $format.Off) { $textProtection = $false }
@@ -185,10 +186,8 @@ function ConvertFrom-CSAManageBdeOutput {
     elseif ($null -ne $textProtection -and $null -ne $protected -and $textProtection -ne $protected) { $rejection = 'PROTECTION_SOURCE_CONFLICT' }
     elseif (($conversion -eq 'FULLY_DECRYPTED' -and ($percentageValue -ne 0 -or $protected -eq $true)) -or ($conversion -eq 'FULLY_ENCRYPTED' -and $percentageValue -ne 100)) { $rejection = 'CONVERSION_SOURCE_CONFLICT' }
     elseif ($null -eq $protected) { $rejection = 'PROTECTION_UNRECOGNIZED' }
-    elseif ($protected -eq $false -and $conversion -eq 'UNKNOWN') { $rejection = 'CONVERSION_UNRECOGNIZED' }
+    elseif ($conversion -eq 'UNKNOWN' -or $null -eq $textProtection) { $rejection = 'STATUS_UNRECOGNIZED' }
     if ($null -ne $rejection) { $protected = $null }
-    if ($conversion -eq 'UNKNOWN' -and $protected -eq $true -and $percentageValue -eq 100) { $conversion = 'FULLY_ENCRYPTED' }
-    if ($conversion -eq 'FULLY_ENCRYPTED' -and $protected -eq $false) { $conversion = 'SUSPENDED' }
     if ($rejection -like '*SOURCE_CONFLICT') { $conversion = 'SOURCE_CONFLICT' }
     return @([pscustomobject]@{
         MountPoint = [string]$MountPoint
@@ -201,6 +200,7 @@ function ConvertFrom-CSAManageBdeOutput {
         EncryptionMethod = $method
         LockStatus = $lock
         AutoUnlockEnabled = $false
+        VerifiedStatus = ($null -eq $rejection -and $locale -in @('en','de'))
         CollectionStatus = if ($StatusExitCode -ne 0) { 'FAILED' } elseif ($null -eq $rejection) { "SUCCESS" } else { "PARTIAL" }
         RawEvidence = [ordered]@{ statusExitCode=$StatusExitCode; protectionExitCode = $ProtectionExitCode; percentageParsed = ($percentages.Count -eq 1); percentage=$percentageValue; conversion=$conversion; protection=$textProtection; localeFormat=$locale; parserVersion='5.6'; rejectionReason=$rejection }
     })
@@ -210,15 +210,21 @@ function ConvertFrom-CSAShellBitLockerValue {
     param(
         [Parameter(Mandatory = $true)][AllowNull()][AllowEmptyString()]$RawValue,
         [string]$MountPoint = $env:SystemDrive,
-        [string]$VolumeType = "OperatingSystem"
+        [string]$VolumeType = "OperatingSystem",
+        [switch]$ReadError
     )
 
-    $numeric = 0
-    $indication = 'UNKNOWN'
-    if ([int]::TryParse(([string]$RawValue).Trim(), [ref]$numeric)) {
-        if ($numeric -eq 1) { $indication = 'ON' }
-        if ($numeric -eq 2) { $indication = 'OFF' }
+    $readStatus = if ($ReadError) { 'ERROR' } elseif ($RawValue -is [int]) { 'SUCCESS' } else { 'UNAVAILABLE' }
+    $numeric = if ($readStatus -eq 'SUCCESS') { $RawValue } else { $null }
+    $indication = switch ($numeric) {
+        { $null -ne $_ -and $_ -in @(0,2) } { 'OFF' }
+        1 { 'ON' }
+        { $null -ne $_ -and $_ -in @(3,4) } { 'TRANSITIONING' }
+        5 { 'SUSPENDED' }
+        6 { 'LOCKED' }
+        default { 'UNKNOWN' }
     }
+    $method = if ($null -ne $numeric -and $numeric -eq 0) { 'FIELD_HEURISTIC' } elseif ($numeric -in (1..6)) { 'SHELL_ENUM' } else { $null }
     return [pscustomobject]@{
         MountPoint = $MountPoint
         VolumeType = $VolumeType
@@ -231,7 +237,7 @@ function ConvertFrom-CSAShellBitLockerValue {
         LockStatus = "UNKNOWN"
         AutoUnlockEnabled = $false
         CollectionStatus = "PARTIAL"
-        RawEvidence = [ordered]@{ property = "System.Volume.BitLockerProtection"; value = $RawValue; shellIndicatedProtection = $indication }
+        RawEvidence = [ordered]@{ property = 'System.Volume.BitLockerProtection'; value = $numeric; shellReadStatus = $readStatus; shellProtectionIndication = $indication; shellInterpretationMethod = $method }
     }
 }
 
@@ -247,11 +253,14 @@ function Get-CSABitLockerShellVolumes {
     )
     foreach ($drive in $fixedDrives) {
         $mount = ([string]$drive.Name).TrimEnd('\')
-        $folder = $shell.NameSpace($mount)
-        if ($null -eq $folder -or $null -eq $folder.Self) { continue }
-        $raw = $folder.Self.ExtendedProperty("System.Volume.BitLockerProtection")
-        $mapped = ConvertFrom-CSAShellBitLockerValue -RawValue $raw -MountPoint $mount -VolumeType $(if ($mount -eq $env:SystemDrive) { "OperatingSystem" } else { "FixedData" })
-        if ($null -ne $mapped) { $values += $mapped }
+        $type = if ($mount -eq $env:SystemDrive) { 'OperatingSystem' } else { 'FixedData' }
+        try {
+            $folder = $shell.NameSpace($mount)
+            $raw = if ($null -ne $folder -and $null -ne $folder.Self) { $folder.Self.ExtendedProperty('System.Volume.BitLockerProtection') } else { $null }
+            $values += ConvertFrom-CSAShellBitLockerValue -RawValue $raw -MountPoint $mount -VolumeType $type
+        } catch {
+            $values += ConvertFrom-CSAShellBitLockerValue -RawValue $null -MountPoint $mount -VolumeType $type -ReadError
+        }
     }
     return $values
 }
@@ -276,17 +285,23 @@ function Add-CSABitLockerVolumeSettings {
     $volumeId = ([string]$State.MountPoint).TrimEnd(':', '\').ToUpperInvariant()
     if ([string]::IsNullOrWhiteSpace($volumeId)) { $volumeId = "VOLUME" }
     $prefix = "BITLOCKER_$volumeId"
-    $protectorTypes = @(
-        $State.ProtectorTypes
-    )
+    $protectorTypes = @($State.ProtectorTypes | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+    $shellObservation = if ($State.Provider -eq 'SHELL_VOLUME_BITLOCKER_PROPERTY') {
+        $State.RawEvidence
+    } elseif ($State.VolumeType -eq 'OperatingSystem') {
+        $shellAttempt = $State.ProviderAttempts | Where-Object provider -eq 'SHELL_VOLUME_BITLOCKER_PROPERTY' | Select-Object -First 1
+        $shellAttempt.rawState
+    } else { $null }
     $metadata = @{
         volumeType = [string]$State.VolumeType
         mountPoint = [string]$State.MountPoint
         provider = [string]$State.Provider
         authority = $State.Authority
         observedAt = $State.ObservedAt
-        shellRawValue = if ($State.Provider -eq 'SHELL_VOLUME_BITLOCKER_PROPERTY') { $State.RawEvidence.value } else { $null }
-        shellIndicatedProtection = if ($State.Provider -eq 'SHELL_VOLUME_BITLOCKER_PROPERTY') { $State.RawEvidence.shellIndicatedProtection } else { $null }
+        shellRawValue = $shellObservation.value
+        shellReadStatus = $shellObservation.shellReadStatus
+        shellProtectionIndication = $shellObservation.shellProtectionIndication
+        shellInterpretationMethod = $shellObservation.shellInterpretationMethod
         collectionStatus = [string]$State.CollectionStatus
         confidence = [int]$State.Confidence
         configured = [bool]$State.Configured
@@ -305,15 +320,15 @@ function Add-CSABitLockerVolumeSettings {
         ENCRYPTION_METHOD = $State.EncryptionMethod
         LOCK_STATUS = [string]$State.LockStatus
         AUTO_UNLOCK_ENABLED = [bool]$State.AutoUnlockEnabled
-        TPM_PROTECTOR_PRESENT = (
+        TPM_PROTECTOR_PRESENT = if ($protectorTypes.Count) {
             @($protectorTypes | Where-Object { $_ -match "Tpm" }).Count -gt 0
-        )
-        PIN_PROTECTOR_PRESENT = (
+        } else { $null }
+        PIN_PROTECTOR_PRESENT = if ($protectorTypes.Count) {
             @($protectorTypes | Where-Object { $_ -match "Pin" }).Count -gt 0
-        )
-        RECOVERY_PASSWORD_PRESENT = (
+        } else { $null }
+        RECOVERY_PASSWORD_PRESENT = if ($protectorTypes.Count) {
             @($protectorTypes | Where-Object { $_ -eq "RecoveryPassword" }).Count -gt 0
-        )
+        } else { $null }
     }
     foreach ($name in $values.Keys) {
         $Settings.Add(
@@ -435,7 +450,9 @@ function Get-CSABitLockerEvidence {
             }
             $systemStates = @($states | Where-Object { $_.VolumeType -eq "OperatingSystem" })
             $authoritative = @($systemStates | Where-Object { $_.Authority -eq 'AUTHORITATIVE' -and $_.CollectionStatus -eq "SUCCESS" -and $_.ProtectionEnabled -is [bool] })
-            $attemptStatus = if ($authoritative.Count -gt 0) { "SUCCESS" } elseif (@($systemStates | Where-Object { $_.CollectionStatus -eq 'FAILED' }).Count -gt 0) { 'FAILED' } else { "PARTIAL" }
+            $attemptStatus = if ($providerName -eq 'SHELL_VOLUME_BITLOCKER_PROPERTY' -and $systemStates.Count -gt 0) {
+                $systemStates[0].RawEvidence.shellReadStatus
+            } elseif ($authoritative.Count -gt 0) { 'SUCCESS' } elseif (@($systemStates | Where-Object { $_.CollectionStatus -eq 'FAILED' }).Count -gt 0) { 'FAILED' } else { 'PARTIAL' }
             $attempts += New-CSABitLockerAttempt $providerName $attemptStatus -States $states -Confidence $providerConfidence
             if ($authoritative.Count -eq 0) {
                 $partialStates += @($states | Where-Object { $_.CollectionStatus -ne 'FAILED' })
@@ -466,8 +483,8 @@ function Get-CSABitLockerEvidence {
             $observations = @($reliableStates | Where-Object { $_.MountPoint -eq $mount })
             $selected = $observations | Sort-Object { $_.EncryptionState -eq 'UNKNOWN' } | Select-Object -First 1
             $conflicting = @($observations | Where-Object { $_.ProtectionEnabled -is [bool] -and ($_.ProtectionEnabled -ne $selected.ProtectionEnabled -or ($_.EncryptionState -ne 'UNKNOWN' -and $selected.EncryptionState -ne 'UNKNOWN' -and $_.EncryptionState -ne $selected.EncryptionState)) })
-            # Explicit transitional observations are meaningful even when they
-            # cannot establish active protection. Unknown Shell 0 is not.
+            # Structured disagreements are evaluated here. Shell provenance
+            # remains in the attempts alongside the selected observation.
             $partialConflicts = @($partialStates | Where-Object {
                 $_.MountPoint -eq $mount -and $_.Authority -eq 'AUTHORITATIVE' -and
                 ($_.EncryptionState -eq 'SOURCE_CONFLICT' -or
@@ -512,7 +529,7 @@ function Get-CSABitLockerEvidence {
         # it into authoritative protection or blocking subsequent providers.
         $osObservations = @($partialStates | Where-Object { $_.VolumeType -eq 'OperatingSystem' })
         $partial = @($osObservations |
-            Sort-Object { $_.EncryptionState -eq 'UNKNOWN' }, { $_.RawEvidence.shellIndicatedProtection -notin @('ON','OFF') } |
+            Sort-Object { $_.EncryptionState -eq 'UNKNOWN' }, { $_.RawEvidence.shellProtectionIndication -notin @('ON','OFF','TRANSITIONING','SUSPENDED','LOCKED') } |
             Select-Object -First 1)
         if ($partial.Count -gt 0) {
             $knownStates = @($osObservations | Where-Object {

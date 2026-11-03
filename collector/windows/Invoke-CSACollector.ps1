@@ -510,7 +510,9 @@ $temporaryDirectory = $null
 $cleanupConfirmed = $false
 $terminalError = $null
 try {
+    $phaseTimer = [Diagnostics.Stopwatch]::StartNew()
     $trustedManifest = Test-CSATrustedPackage
+    Write-Host "CSA phase verify staged package: $($phaseTimer.ElapsedMilliseconds) ms"
     $configPath = Resolve-CSAPackagePath "session-config.json"
     $configText = Invoke-CSAFileLockRetry { [System.IO.File]::ReadAllText($configPath) }
     $configuration = $configText | ConvertFrom-Json
@@ -540,6 +542,7 @@ try {
     $temporaryDirectory = New-CSATemporaryDirectory $submissionId
     $evidencePath = Join-Path $temporaryDirectory "collector-evidence.json"
     $privacyContext = @{ assessmentId = [string]$configuration.privacyContext.assessmentId; key = [string]$configuration.privacyContext.key }
+    $phaseTimer.Restart()
     & (Resolve-CSAPackagePath "collector\Collect-CSAWindowsEvidence.ps1") `
         -OutputPath $evidencePath `
         -PrivacyMode Standard `
@@ -555,6 +558,8 @@ try {
         throw "Collected evidence unexpectedly reports an elevated context."
     }
     Write-Host "Collection completed"
+    Write-Host "CSA phase collect: $($phaseTimer.ElapsedMilliseconds) ms"
+    $phaseTimer.Restart()
     $nonce = $null
     if (-not $NoSubmit) {
         $nonceBody = [Text.Encoding]::UTF8.GetBytes((ConvertTo-CSACanonicalJson ([ordered]@{ submissionId = $submissionId })))
@@ -595,8 +600,11 @@ try {
             throw "Server receipt binding is invalid."
         }
         Write-Host "Submission accepted"
+        Write-Host "CSA phase submit: $($phaseTimer.ElapsedMilliseconds) ms"
         Write-Host "Receipt ID: $($receipt.serverReceiptId)"
     }
+} catch [Management.Automation.PSSecurityException] {
+    $terminalError = 'COLLECTOR_POLICY_BLOCKED: Windows policy blocked the Collector. Contact the assessor for an approved transport.'
 } catch {
     $terminalError = [string]$_.Exception.Message
 } finally {
@@ -610,5 +618,7 @@ try {
 }
 if ($null -ne $terminalError) {
     [Console]::Error.WriteLine("CSA Collector failed: $terminalError")
+    if ($terminalError.StartsWith('COLLECTOR_PRIVACY_TRANSFORM_FAILED:')) { exit 12 }
+    if ($terminalError.StartsWith('COLLECTOR_POLICY_BLOCKED:')) { exit 13 }
     exit 1
 }

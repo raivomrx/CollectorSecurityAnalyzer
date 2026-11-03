@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import ctypes
 from datetime import timedelta
 from dataclasses import replace
 import hashlib
@@ -35,10 +36,12 @@ from csa_lab.collector_launcher import build_powershell_launcher, TEMPLATE
 from csa_lab.firewall import NullFirewallManager
 from csa_lab.models import AssessmentWizardRequest
 from csa_lab.service import LabApplicationService
+from csa_lab.unified_report import UnifiedReportGenerator
 from tests.test_lab_sprint51 import _free_port
 from tests.test_console_sprint5 import Sprint5TestCase
 
 ROOT = Path(__file__).resolve().parents[1]
+PRIVACY_MARKERS = ("SYNTHETIC-CALLBACK-HOST", "SYNTHETIC-CALLBACK-USER", "SYNTHETIC-CALLBACK-SSID", "S-1-5-21-111-222-333-1042")
 
 
 def decode_binding(launcher):
@@ -61,26 +64,40 @@ class LauncherCase(unittest.TestCase):
         self.service = LabApplicationService(self.root/'assessments', firewall=NullFirewallManager(), collector_bootstrap=bootstrap)
         self.addCleanup(self.service.shutdown)
 
-    def create(self, synthetic=False):
+    def create(self, synthetic=False, privacy_failure=False):
         request = AssessmentWizardRequest(name='Synthetic launcher acceptance', organization='DEMO', expected_endpoints=1,
             source_subnet='127.0.0.0/8', network_profile='Private', listener_address='127.0.0.1', listener_port=_free_port())
         if synthetic:
             source = self.root/'synthetic-engine'
             shutil.copytree(ROOT/'collector/windows', source)
             fixture = Sprint5TestCase().evidence()
-            fixture['collectorVersion'] = '5.6.3'
+            fixture['collectorVersion'] = '5.6.4'
             fixture['collectorBuildDigest'] = ''
             fixture['collectorBuildCommit'] = ''
+            host, user, ssid, sid = PRIVACY_MARKERS
+            fixture['device'].update(hostname=host, currentUser=user, currentUserSid=sid)
+            fixture['services']['services'][0]['BinaryPath'] = rf'\\{host}\demo\app.exe --sid {sid} C:\Users\{user}\demo'
+            fixture['security']['settings'].append({
+                'settingId': 'ACTIVE_NETWORK_PROFILE', 'category': 'Network', 'effectiveValue': ssid,
+                'source': 'RUNTIME_STATE', 'collectionStatus': 'SUCCESS', 'confidence': 90,
+                'provider': 'SYNTHETIC', 'sourcePath': 'Network', 'metadata': {'SSID': ssid},
+                'collectedAt': fixture['collectionCompletedAt'],
+            })
             encoded = base64.b64encode(json.dumps(fixture).encode()).decode()
-            (source/'Collect-CSAWindowsEvidence.ps1').write_text('''param($OutputPath,$PrivacyMode,$CollectionMode,$CapabilityRegistryPath,$CollectionProfilePath,$CollectorBuildDigest,$CollectorBuildCommit,$PrivacyContext,$PrivacyPolicyPath)
-$data = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('''+"'"+encoded+"'"+''')) | ConvertFrom-Json
-$data.collectorBuildDigest = $CollectorBuildDigest
-$data.collectorBuildCommit = $CollectorBuildCommit
+            collector = source/'Collect-CSAWindowsEvidence.ps1'
+            # Replace acquisition only. Run the actual privacy and atomic write boundary.
+            tail = collector.read_text(encoding='utf-8-sig').split('$resolvedOutput =', 1)[1]
+            acquisition = '''param($OutputPath,$PrivacyMode,$CollectionMode,$CapabilityRegistryPath,$CollectionProfilePath,$CollectorBuildDigest,$CollectorBuildCommit,$PrivacyContext,$PrivacyPolicyPath)
+$ErrorActionPreference = 'Stop'
+$document = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('''+"'"+encoded+"'"+''')) | ConvertFrom-Json
+$document.collectorBuildDigest = $CollectorBuildDigest
+$document.collectorBuildCommit = $CollectorBuildCommit
 Import-Module (Join-Path $PSScriptRoot 'modules/Privacy.psm1') -Force
-$policy = Get-Content -LiteralPath $PrivacyPolicyPath -Raw | ConvertFrom-Json
-$data = Invoke-CSACollectionPrivacy -Document $data -Policy $policy -Context $PrivacyContext
-[IO.File]::WriteAllText($OutputPath, ($data | ConvertTo-Json -Depth 32 -Compress), [Text.UTF8Encoding]::new($false))
-''', encoding='utf-8-sig')
+$privacyPolicy = Get-Content -LiteralPath $PrivacyPolicyPath -Raw | ConvertFrom-Json
+'''
+            if privacy_failure:
+                acquisition += "$PrivacyContext.key = 'invalid-synthetic-context'\n"
+            collector.write_text(acquisition + '$resolvedOutput =' + tail, encoding='utf-8-sig')
             (source/'modules/General.psm1').write_text('''function Get-CSAExecutionTokenContext {
     param($PrivacyMode)
     return @{ isElevated=$false; integrityLevel='MEDIUM'; executionMode='STANDARD_USER'; isLocalAdministratorMember=$false }
@@ -103,6 +120,26 @@ Export-ModuleMember -Function Get-CSAExecutionTokenContext
         self.launcher.write_bytes(response.content)
         return decode_binding(response.content)
 
+    def assert_private_submission(self, result):
+        assessment = self.state.assessment_id
+        submissions = self.service.submissions.list_submissions(assessment)
+        self.assertEqual(len(submissions), 1)
+        submission = submissions[0]['submissionId']
+        analysis = self.service.storage.read_json(assessment, 'findings', submission+'.json')
+        self.assertTrue(analysis['findings'])
+        self.assertEqual(analysis['analysisEngineVersion'], 'CSA-5.6.4')
+        evidence_path = self.service.storage.path(assessment, 'submissions', 'accepted', submission+'.evidence.json')
+        evidence = evidence_path.read_text(encoding='utf-8')
+        document = json.loads(evidence)
+        self.assertEqual(document['collectorVersion'], '5.6.4')
+        self.assertEqual(document['metadata']['privacyMode'], 'PROFILE_ENFORCED')
+        self.assertIn(document['device']['currentUserSid'], document['services']['services'][0]['BinaryPath'])
+        report = UnifiedReportGenerator(self.service.storage).generate(assessment).read_text(encoding='utf-8')
+        audit = self.service.storage.path(assessment, 'audit', 'audit.jsonl').read_text(encoding='utf-8')
+        for marker in PRIVACY_MARKERS:
+            for output in (result.stdout, result.stderr, evidence, report, audit):
+                self.assertNotIn(marker, output)
+
 
 class LauncherPortalTests(LauncherCase):
     def test_join_offers_three_transports_and_launcher_uses_header_only_download(self):
@@ -110,7 +147,8 @@ class LauncherPortalTests(LauncherCase):
         page = requests.get(self.url,verify=self.session.tls_certificate_path,timeout=5)
         for label in ['CSA Collector (.exe)', 'PowerShell Quick Start (.ps1)', 'PowerShell Offline Package (.zip)']:
             self.assertIn(label,page.text)
-        self.assertNotIn('ExecutionPolicy Bypass',page.text)
+        self.assertIn(r'powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-CSACollector.ps1', page.text)
+        self.assertIn('Group Policy and Windows application control still apply', page.text)
         binding = self.download()
         self.assertEqual(binding['assessmentId'], self.state.assessment_id)
         self.assertEqual(binding['sessionId'],self.state.session_id)
@@ -126,6 +164,12 @@ class LauncherPortalTests(LauncherCase):
                                  verify=self.session.tls_certificate_path,timeout=10)
         self.assertEqual(response.status_code,200)
         self.assertEqual(response.content,read_bound_collector_payload(self.state.collector_path))
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            privacy_module = 'collector/modules/Privacy.psm1'
+            manifest = json.loads(archive.read('trusted-manifest.json'))
+            row = next(row for row in manifest['files'] if row['path'] == privacy_module)
+            self.assertEqual(archive.read(privacy_module), (ROOT / privacy_module.replace('collector/', 'collector/windows/', 1)).read_bytes())
+            self.assertEqual(row['sha256'], 'sha256:' + hashlib.sha256(archive.read(privacy_module)).hexdigest())
         self.assertEqual(self.service.load_state(self.state.assessment_id).download_count,2)
         audit = self.service.storage.path(self.state.assessment_id,'audit','audit.jsonl').read_text()
         self.assertFalse(binding['downloadCredential'] in audit)
@@ -234,16 +278,48 @@ try {
         receive = self.run_ps('receive',binding)
         self.assertEqual(receive.returncode,0,receive.stderr)
         before = set(Path(tempfile.gettempdir()).glob('CSA-Launcher-*'))
-        result = self.run_ps('bootstrap',binding,timeout=120)
+        if ctypes.windll.shell32.IsUserAnAdmin():
+            result = self.run_ps('bootstrap', binding, timeout=120)
+        else:
+            result = subprocess.run(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(self.launcher)],
+                                    capture_output=True, text=True, timeout=120)
         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
         self.assertIn('Submission accepted',result.stdout)
         self.assertIn('Bootstrap temporary files removed: YES',result.stdout)
         self.assertFalse(binding['downloadCredential'] in result.stdout+result.stderr)
         self.assertEqual(before,set(Path(tempfile.gettempdir()).glob('CSA-Launcher-*')))
-        submissions = self.service.submissions.list_submissions(self.state.assessment_id)
-        self.assertEqual(len(submissions),1)
-        analysis = self.service.storage.read_json(self.state.assessment_id,'findings',submissions[0]['submissionId']+'.json')
-        self.assertTrue(analysis['findings'])
+        for phase in ('download', 'verify archive and manifest', 'extract and verify entries', 'collect', 'submit'):
+            self.assertRegex(result.stdout, rf'CSA phase {phase}: \d+ ms')
+        self.assert_private_submission(result)
+
+    def test_bound_exe_extraction_and_shared_engine_submit_private_evidence(self):
+        elevated = bool(ctypes.windll.shell32.IsUserAnAdmin())
+        bootstrap = self.root / 'compiled-bootstrap.exe'
+        compiler = Path(os.environ['SystemRoot']) / 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+        entrypoint = 'BootstrapHarness' if elevated else 'CSA.Collector.Program'
+        build = subprocess.run([
+            str(compiler), '/nologo', '/target:exe', f'/main:{entrypoint}', f'/out:{bootstrap}',
+            '/reference:System.IO.Compression.dll', '/reference:System.IO.Compression.FileSystem.dll',
+            '/reference:System.Web.Extensions.dll', str(ROOT / 'collector/bootstrapper/Program.cs'),
+            str(ROOT / 'tests/fixtures/collector_bootstrap_harness.cs'),
+        ], capture_output=True, text=True, timeout=30)
+        self.assertEqual(build.returncode, 0, build.stdout + build.stderr)
+        if not elevated:
+            self.service.collector_bootstrap = bootstrap
+        self.create(synthetic=True)
+        extracted = self.root / 'exe-extracted'
+        extracted.mkdir()
+        try:
+            command = [str(bootstrap), 'run-bound', self.state.collector_path, str(extracted)] if elevated else [self.state.collector_path]
+            result = subprocess.run(command,
+                                    input='\n', capture_output=True, text=True, timeout=120)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('Collection completed', result.stdout)
+            self.assertIn('Evidence accepted by CSA Lab.', result.stdout)
+            self.assertIn('Local temporary data removed: YES', result.stdout)
+            self.assert_private_submission(result)
+        finally:
+            shutil.rmtree(extracted)
 
     def test_rejected_shared_engine_exit_is_not_reported_as_success(self):
         self.create(synthetic=True)
@@ -262,6 +338,21 @@ try {
         self.assertIn('Bootstrap temporary files removed: YES',result.stdout)
         self.assertEqual(self.service.submissions.list_submissions(self.state.assessment_id),[])
         self.service.sessions.set_session_status(self.state.assessment_id,self.state.session_id,SessionStatus.OPEN)
+
+    def test_privacy_failure_stops_before_submission_without_leaking_inputs(self):
+        self.create(synthetic=True, privacy_failure=True)
+        binding = self.download()
+        before = set(Path(tempfile.gettempdir()).glob('CSA-Launcher-*'))
+        result = self.run_ps('bootstrap', binding)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('COLLECTOR_PRIVACY_TRANSFORM_FAILED', result.stderr)
+        self.assertNotIn('Collection completed', result.stdout)
+        self.assertNotIn('Submission accepted', result.stdout)
+        self.assertIn('Bootstrap temporary files removed: YES', result.stdout)
+        self.assertEqual(before, set(Path(tempfile.gettempdir()).glob('CSA-Launcher-*')))
+        self.assertEqual(self.service.submissions.list_submissions(self.state.assessment_id), [])
+        for marker in PRIVACY_MARKERS:
+            self.assertNotIn(marker, result.stdout + result.stderr)
 
     def test_wrong_pin_network_loss_and_expiry_fail_without_execution(self):
         self.create()

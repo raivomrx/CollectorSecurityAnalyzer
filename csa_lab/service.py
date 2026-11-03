@@ -102,7 +102,7 @@ class LabApplicationService:
         self._secret = self._load_or_create_join_secret()
         self._application_audit().append(
             "application_started",
-            {"version": "5.6.3", "processId": os.getpid()},
+            {"version": "5.6.4", "processId": os.getpid()},
         )
         self.detect_recovery_items()
 
@@ -1213,7 +1213,7 @@ class LabApplicationService:
         summary = {
             "schemaVersion": "5.2",
             "generatedAt": utc_text(),
-            "applicationVersion": "5.6.3",
+            "applicationVersion": "5.6.4",
             "assessmentCount": len(assessments),
             "assessments": assessments,
             "containsEvidence": False,
