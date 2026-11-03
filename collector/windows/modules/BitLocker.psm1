@@ -150,8 +150,7 @@ function ConvertFrom-CSAManageBdeOutput {
         [double]::Parse($percentages[0].Groups[1].Value.Replace(',', '.'), [Globalization.CultureInfo]::InvariantCulture)
     } else { $null }
     # Parse only bounded status values, never volume labels, protectors or keys.
-    # Unsupported locales remain unknown unless the documented numeric protection
-    # exit code and percentage independently establish protection.
+    # Unsupported locales remain unverified even when a percentage is parsed.
     $conversion = 'UNKNOWN'; $textProtection = $null; $locale = 'UNRECOGNIZED'
     $lock = 'UNKNOWN'; $method = ''
     $formats = @(
@@ -200,7 +199,7 @@ function ConvertFrom-CSAManageBdeOutput {
         EncryptionMethod = $method
         LockStatus = $lock
         AutoUnlockEnabled = $false
-        VerifiedStatus = ($null -eq $rejection -and $locale -in @('en','de'))
+        VerifiedStatus = ($locale -eq 'en' -and $StatusExitCode -eq 0 -and ($lock -eq 'Locked' -or ($lock -eq 'Unlocked' -and $null -eq $rejection)))
         CollectionStatus = if ($StatusExitCode -ne 0) { 'FAILED' } elseif ($null -eq $rejection) { "SUCCESS" } else { "PARTIAL" }
         RawEvidence = [ordered]@{ statusExitCode=$StatusExitCode; protectionExitCode = $ProtectionExitCode; percentageParsed = ($percentages.Count -eq 1); percentage=$percentageValue; conversion=$conversion; protection=$textProtection; localeFormat=$locale; parserVersion='5.6'; rejectionReason=$rejection }
     })

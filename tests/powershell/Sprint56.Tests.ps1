@@ -32,7 +32,7 @@ Describe 'Sprint 5.6 authoritative BitLocker state' {
     }
     It 'recognizes used-space-only completion only from explicit status text' {
         $result = Get-CSABitLockerEvidence -VolumeProvider { @() } -ManageBdeProvider {
-            ConvertFrom-CSAManageBdeOutput -Lines @('Conversion Status: Used Space Only Encrypted','Percentage Encrypted: 100%','Protection Status: Protection On','Encryption Method: XTS-AES 128')
+            ConvertFrom-CSAManageBdeOutput -Lines @('Conversion Status: Used Space Only Encrypted','Percentage Encrypted: 100%','Protection Status: Protection On','Encryption Method: XTS-AES 128','Lock Status: Unlocked')
         }
         $setting = $result.Settings | Where-Object settingId -eq BITLOCKER_OS_PROTECTION
         $setting.metadata.encryptionState | Should -Be FULLY_ENCRYPTED
@@ -40,6 +40,16 @@ Describe 'Sprint 5.6 authoritative BitLocker state' {
         $setting.metadata.encryptionMethod | Should -Be 'XTS-AES 128'
         $setting.effectiveValue | Should -BeTrue
         ($result.Settings | Where-Object settingId -Like '*TPM_PROTECTOR_PRESENT').effectiveValue | Should -BeNullOrEmpty
+    }
+    It 'does not grant complete protection to locked or unverified text status' {
+        $lines = @('Conversion Status: Fully Encrypted','Percentage Encrypted: 100%','Protection Status: Protection On')
+        (ConvertFrom-CSAManageBdeOutput -Lines $lines).VerifiedStatus | Should -BeFalse
+        $result = Get-CSABitLockerEvidence -VolumeProvider { @() } -ManageBdeProvider {
+            ConvertFrom-CSAManageBdeOutput -Lines ($lines + 'Lock Status: Locked')
+        }
+        $setting = $result.Settings | Where-Object settingId -eq BITLOCKER_OS_PROTECTION
+        $setting.metadata.encryptionState | Should -Be LOCKED
+        $setting.effectiveValue | Should -BeNullOrEmpty
     }
     It 'rejects failed execution and contradictory protection indicators' {
         $lines = @('Conversion Status: Fully Decrypted','Percentage Encrypted: 0%','Protection Status: Protection Off')
