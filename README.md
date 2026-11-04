@@ -11,8 +11,11 @@
 The current installer is **CSA Lab 5.6.0** and is unsigned. After updating,
 create a new assessment to obtain the updated Collector package.
 
-**5.6.4 is a review candidate**, available from the
+**5.6.5 is a review candidate**, available from the
 [CSA Lab Build workflow](https://github.com/raivomrx/CollectorSecurityAnalyzer/actions/workflows/csa-lab-build.yml).
+The Join page previews **PowerShell Copy & Paste** with `TRUST_NOT_ESTABLISHED`.
+Enablement requires the [COL-1 architecture decision](docs/ADR-565-col1-copy-paste.md).
+See the [English and Estonian operator guide](docs/sprint-5.6.5-quick-start.md).
 The [5.6.4 acceptance guide](docs/sprint-5.6.4-live-stability.md) covers the
 HOME privacy crash fix, BitLocker Shell labels and PowerShell Quick Start.
 The [independent audit correction](docs/sprint-5.6.2-audit-correction-a.md) enforces

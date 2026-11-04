@@ -1,5 +1,7 @@
 # CSA Lab kiirjuhend
 
+[PowerShell Copy & Paste eelvaade ja usaldusnõuded](sprint-5.6.5-quick-start.md#eesti-keeles)
+
 1. Ava laboriarvutis **CSA Lab**.
 2. Vajuta **New Assessment**.
 3. Sisesta nimi ja testarvutite arv.

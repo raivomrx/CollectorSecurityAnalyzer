@@ -197,7 +197,7 @@ class PortalBinding:
      use <code>-NoSubmit -ExportPath &lt;path&gt;</code> for an encrypted offline submission.</p>"""
         launcher_option = ""
         if self.launcher_bytes:
-            launcher_option = """<p><a class="button" href="download-launcher">PowerShell Quick Start (.ps1) — Recommended Lab/enterprise alternative</a></p>
+            launcher_option = """<p><a class="button" href="download-launcher">Download PowerShell Quick Start (.ps1) — Existing Lab workflow</a></p>
   <p>Save <strong>Start-CSACollector.ps1</strong>. Open a standard-user Windows PowerShell window
      in its download folder and copy this command:</p>
   <pre><code>powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\Start-CSACollector.ps1</code></pre>
@@ -227,6 +227,8 @@ class PortalBinding:
     ul {{ line-height: 1.7; }}
     a.button {{ display: inline-block; padding: 12px 18px; background: var(--accent);
       color: white; text-decoration: none; border-radius: 5px; font-weight: 650; }}
+    .quick-start {{ padding: 12px 18px; border: 1px solid var(--border); border-radius: 5px; }}
+    .quick-start h2 {{ margin-top: 0; font-size: 20px; }}
     .meta {{ margin-top: 24px; color: var(--muted); font-size: 14px; }}
   </style>
 </head>
@@ -254,10 +256,23 @@ class PortalBinding:
     <li>Wait for <strong>Submission accepted</strong>.</li>
     <li>Close the collector.</li>
   </ol>
+  <section class="quick-start" aria-labelledby="copy-quick-start-heading">
+    <h2 id="copy-quick-start-heading">PowerShell Copy &amp; Paste — one command</h2>
+    <p id="copy-quick-start-status"><strong>TRUST_NOT_ESTABLISHED</strong>
+      · Preview for architecture review. The command is unavailable until the publisher and Lab
+      identities, including the origin of the command, can be verified independently (COL-1).</p>
+    <button type="button" disabled aria-describedby="copy-quick-start-status">Copy command</button>
+    <p>The proposed workflow runs once as a standard user. It downloads and cleans up the engine automatically in
+      temporary storage, with no persistent agent. The authorized assessment and session expiry define its scope.
+      Group Policy and Windows application control apply.</p>
+    <p>For an approved assessment, use the EXE above or ask the assessor for the approved offline or enterprise handoff.</p>
+    <p lang="et">Ühe käsuga PowerShelli käivitus on eelvaates. Käsk muutub kättesaadavaks pärast
+      väljaandja, Labi ja käsu päritolu sõltumatut kontrolli. Kasuta kinnitatud EXE- või võrguühenduseta töövoogu.</p>
+  </section>
   {launcher_option}
   {script_option}
-  <p>All three methods use the same Collector engine, session, integrity checks and privacy controls.</p>
-  <p class="meta">Collector version: 5.6.4<br>Package expires: {safe_expiry}</p>
+  <p>The download options use the same Collector engine, session, integrity checks and privacy controls.</p>
+  <p class="meta">Collector version: 5.6.5<br>Package expires: {safe_expiry}</p>
 </main>
 </body>
 </html>"""

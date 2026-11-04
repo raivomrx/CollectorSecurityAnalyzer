@@ -3,6 +3,9 @@
 Status: **design proposal, architecture approval required**. No runtime trust-model
 change is included in Independent Audit Correction A. Release remains HOLD.
 
+[ADR 565](ADR-565-col1-copy-paste.md) proposes the publisher distribution and
+Lab first-contact decisions for the Copy & Paste workflow.
+
 ## Verified current behavior
 
 The unsigned EXE session package has a SHA-256 value in its appended trailer.

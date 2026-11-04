@@ -22,7 +22,7 @@ import tempfile
 import time
 import unittest
 from unittest import mock
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 import zipfile
 
 import requests
@@ -64,14 +64,14 @@ class LauncherCase(unittest.TestCase):
         self.service = LabApplicationService(self.root/'assessments', firewall=NullFirewallManager(), collector_bootstrap=bootstrap)
         self.addCleanup(self.service.shutdown)
 
-    def create(self, synthetic=False, privacy_failure=False):
-        request = AssessmentWizardRequest(name='Synthetic launcher acceptance', organization='DEMO', expected_endpoints=1,
+    def create(self, synthetic=False, privacy_failure=False, name='Synthetic launcher acceptance'):
+        request = AssessmentWizardRequest(name=name, organization='DEMO', expected_endpoints=1,
             source_subnet='127.0.0.0/8', network_profile='Private', listener_address='127.0.0.1', listener_port=_free_port())
         if synthetic:
             source = self.root/'synthetic-engine'
             shutil.copytree(ROOT/'collector/windows', source)
             fixture = Sprint5TestCase().evidence()
-            fixture['collectorVersion'] = '5.6.4'
+            fixture['collectorVersion'] = '5.6.5'
             fixture['collectorBuildDigest'] = ''
             fixture['collectorBuildCommit'] = ''
             host, user, ssid, sid = PRIVACY_MARKERS
@@ -127,11 +127,11 @@ Export-ModuleMember -Function Get-CSAExecutionTokenContext
         submission = submissions[0]['submissionId']
         analysis = self.service.storage.read_json(assessment, 'findings', submission+'.json')
         self.assertTrue(analysis['findings'])
-        self.assertEqual(analysis['analysisEngineVersion'], 'CSA-5.6.4')
+        self.assertEqual(analysis['analysisEngineVersion'], 'CSA-5.6.5')
         evidence_path = self.service.storage.path(assessment, 'submissions', 'accepted', submission+'.evidence.json')
         evidence = evidence_path.read_text(encoding='utf-8')
         document = json.loads(evidence)
-        self.assertEqual(document['collectorVersion'], '5.6.4')
+        self.assertEqual(document['collectorVersion'], '5.6.5')
         self.assertEqual(document['metadata']['privacyMode'], 'PROFILE_ENFORCED')
         self.assertIn(document['device']['currentUserSid'], document['services']['services'][0]['BinaryPath'])
         report = UnifiedReportGenerator(self.service.storage).generate(assessment).read_text(encoding='utf-8')
@@ -142,6 +142,34 @@ Export-ModuleMember -Function Get-CSAExecutionTokenContext
 
 
 class LauncherPortalTests(LauncherCase):
+    def test_copy_preview_cannot_emit_a_command_or_session_secret(self):
+        name = 'Õppeseanss <script>alert(1)</script> " $(Write-Host)'
+        self.create(name=name)
+        binding = self.download()
+        config = json.loads((Path(self.state.collector_path).parent / 'package/session-config.json').read_text())
+        page = requests.get(self.url, verify=self.session.tls_certificate_path, timeout=5, headers={
+            'Forwarded': 'proto=https;host=alternate.invalid',
+            'X-Forwarded-Host': 'alternate.invalid',
+            'X-Forwarded-Proto': 'https',
+        })
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('Õppeseanss &lt;script&gt;alert(1)&lt;/script&gt;', page.text)
+        self.assertNotIn('<script', page.text)
+        preview = page.text.split('<section class="quick-start"', 1)[1].split('</section>', 1)[0]
+        self.assertIn('PowerShell Copy &amp; Paste — one command', preview)
+        self.assertIn('TRUST_NOT_ESTABLISHED', preview)
+        self.assertIn('<button type="button" disabled aria-describedby="copy-quick-start-status">Copy command</button>', preview)
+        for active_content in ('<a ', '<code', '<pre', '<input', 'onclick', 'data-command', 'powershell.exe'):
+            self.assertNotIn(active_content, preview)
+        for secret in (binding['downloadCredential'], config['enrollmentToken'], config['privacyContext']['key'],
+                       urlsplit(self.url).path.strip('/').split('/')[-1]):
+            self.assertFalse(secret in page.text, 'Join HTML contains session secret material')
+        self.assertNotIn('alternate.invalid', page.text)
+        self.assertEqual(page.headers['Cache-Control'], 'no-store')
+        self.assertEqual(page.headers['Referrer-Policy'], 'no-referrer')
+        self.assertIn("default-src 'none'", page.headers['Content-Security-Policy'])
+        self.assertEqual(self.service.load_state(self.state.assessment_id).download_count, 1)
+
     def test_join_offers_three_transports_and_launcher_uses_header_only_download(self):
         self.create()
         page = requests.get(self.url,verify=self.session.tls_certificate_path,timeout=5)
