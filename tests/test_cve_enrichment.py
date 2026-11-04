@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -238,6 +239,7 @@ class CnaApplicabilityTests(unittest.TestCase):
 
         self.assertEqual(evaluate_cna_applicability(_software(), [_affected(status="unaffected")])[0], ApplicabilityStatus.NOT_AFFECTED)
         self.assertEqual(evaluate_cna_applicability(_software(), [_affected(vendor="Other")])[0], ApplicabilityStatus.NOT_EVALUATED)
+        self.assertEqual(evaluate_cna_applicability(_software(), [replace(_affected(), vendor=None)])[0], ApplicabilityStatus.NOT_EVALUATED)
         self.assertEqual(evaluate_cna_applicability(_software(), [_affected(product="Other")])[0], ApplicabilityStatus.NOT_EVALUATED)
         self.assertEqual(evaluate_cna_applicability(_software(architecture="x64"), [_affected(platforms=["arm64"])])[0], ApplicabilityStatus.NOT_AFFECTED)
         self.assertEqual(evaluate_cna_applicability(_software(version="unknown"), [_affected()])[0], ApplicabilityStatus.NOT_EVALUATED)
@@ -515,7 +517,7 @@ def _affected(
         package_url=None,
         version=version,
         status=status,
-        version_type="semver",
+        version_type="numeric",
         less_than=less_than,
         less_than_or_equal=less_than_or_equal,
         changes=changes or [],

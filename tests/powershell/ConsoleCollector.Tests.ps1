@@ -100,3 +100,37 @@ Describe "CSA Sprint 5.0 standard-user Collector contract" {
         $source | Should -Match 'NOT_COLLECTED_PRIVILEGE_REQUIRED'
     }
 }
+
+Describe 'CSA audit2 strict JSON decoding' {
+    BeforeAll {
+        $tokens = $null; $errors = $null
+        $ast = [Management.Automation.Language.Parser]::ParseFile($runnerPath, [ref]$tokens, [ref]$errors)
+        if ($errors.Count) { throw 'Collector runner has a syntax error.' }
+        foreach ($name in 'ConvertFrom-CSAJsonText','Read-CSAJsonUtf8') {
+            $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $false)
+            . ([scriptblock]::Create($definition.Extent.Text))
+        }
+        Import-Module (Join-Path $collectorRoot 'modules/General.psm1') -Force
+    }
+
+    It 'preserves UTF-8 content with or without BOM in both Collector readers' {
+        $expected = -join ([char[]](73,110,116,101,108,174,32,245,228,246,252,32,201,32,28450,23383))
+        $path = Join-Path $TestDrive 'unicode.json'
+        foreach ($bom in $false, $true) {
+            $encoding = [Text.UTF8Encoding]::new($bom, $true)
+            [IO.File]::WriteAllText($path, ('{"nested":{"name":"' + $expected + '"}}'), $encoding)
+            (Read-CSAJsonUtf8 $path).nested.name | Should -BeExactly $expected
+            (Read-CSACollectionJson $path).nested.name | Should -BeExactly $expected
+        }
+    }
+
+    It 'rejects invalid UTF-8 and invalid JSON before returning any object' {
+        $path = Join-Path $TestDrive 'invalid.json'
+        [IO.File]::WriteAllBytes($path, [byte[]](123,34,120,34,58,34,195,40,34,125))
+        { Read-CSAJsonUtf8 $path } | Should -Throw '*CSA-COL-INVALID-UTF8*'
+        { Read-CSACollectionJson $path } | Should -Throw '*CSA-COL-INVALID-UTF8*'
+        [IO.File]::WriteAllText($path, '{"broken":', [Text.UTF8Encoding]::new($false))
+        { Read-CSAJsonUtf8 $path } | Should -Throw '*CSA-COL-INVALID-JSON*'
+        { Read-CSACollectionJson $path } | Should -Throw '*CSA-COL-INVALID-JSON*'
+    }
+}

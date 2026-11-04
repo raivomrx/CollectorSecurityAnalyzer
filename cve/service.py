@@ -7,11 +7,13 @@ import re
 import time
 from threading import Event
 from collections.abc import Callable
+from collections import Counter
 from typing import Any
 
-from cve.applicability import evaluate_applicability
+from cve.applicability import evaluate_applicability_result
 from cve.client import NvdClient
-from cve.cpe_resolver import CpeResolver, replace_cpe23_version
+from cve.cpe_resolver import CpeResolver, parse_cpe23_components, replace_cpe23_version
+from cve.environment import OS_KEYS, read_environment
 from cve.exceptions import CveScanCancelled, NvdRequestError
 from cve.models import (
     ApplicabilityStatus,
@@ -25,6 +27,7 @@ from cve.models import (
 )
 from cve.parser import parse_cve_items
 from software.models import SoftwareInventory, SoftwareProduct
+from software.version import compare_applicability_versions, version_evidence
 
 LOGGER = logging.getLogger(__name__)
 CveProgressCallback = Callable[[dict[str, Any]], None]
@@ -127,6 +130,15 @@ class CveService:
                 current_version=software.version,
             )
             try:
+                version = version_evidence(software.vendor, software.product, software.version)
+                comparison = compare_applicability_versions(version.interpreted, version.interpreted, version.scheme)
+                version_reason = version.reason or comparison.reason
+                if version_reason:
+                    evaluation.version_evaluation_status = "PARTIAL"
+                    _mark_terminal_failure(evaluation, stage="VERSION_EVALUATION", reason="Installed version evidence does not establish a supported version",
+                                           reason_code=CveTerminalReason(version_reason), terminal_status="PARTIAL")
+                    products_without_cpe += 1
+                    continue
                 resolution_method = getattr(
                     self.resolver, "resolve_with_trace", None
                 )
@@ -161,7 +173,7 @@ class CveService:
                         reason_code=(
                             CveTerminalReason.AMBIGUOUS_IDENTITY
                             if evaluation.product_mapping_status == "AMBIGUOUS"
-                            else CveTerminalReason.NO_AUTHORITATIVE_MAPPING
+                            else CveTerminalReason(evaluation.discovery_trace.get("reasonCode") or "MISSING_AUTHORITATIVE_PRODUCT_MAPPING")
                         ),
                     )
                     products_without_cpe += 1
@@ -180,7 +192,7 @@ class CveService:
                         reason_code=CveTerminalReason.AMBIGUOUS_IDENTITY,
                     )
                     continue
-                if cpe.confidence < self.minimum_cpe_confidence:
+                if cpe.confidence < self.minimum_cpe_confidence or cpe.deprecated or cpe.match_status == CpeMatchStatus.NOT_FOUND:
                     products_without_cpe += 1
                     evaluation.product_mapping_status = "NO_RELIABLE_MAPPING"
                     evaluation.provider_reason = (
@@ -208,21 +220,17 @@ class CveService:
                     current_product=software.product,
                     current_version=software.version,
                 )
-                discovered_family = cpe.source == "NVD_CPE_API_DISCOVERY"
-                catalogued_version = bool(
-                    evaluation.discovery_trace.get("installedVersionCatalogued")
-                )
-                if discovered_family and not catalogued_version:
-                    query = {"virtualMatchString": cpe.cpe_name}
-                    evaluation.discovery_trace["providerQueryMode"] = "FAMILY_RANGE"
-                else:
-                    query_version = (
-                        software.version
-                        if re.fullmatch(r"\d+(?:\.\d+)+", software.version)
-                        else software.normalized_version
-                    )
-                    query = _cve_query(cpe.cpe_name, query_version)
+                parsed_cpe = parse_cpe23_components(cpe.cpe_name)
+                catalogued_version = bool(parsed_cpe and parsed_cpe.update == "*"
+                    and evaluation.discovery_trace.get("installedVersionCatalogued") is True
+                    and evaluation.discovery_trace.get("catalogState") != "STALE"
+                    and compare_applicability_versions(version.interpreted, parsed_cpe.version, version.scheme).order == 0)
+                if catalogued_version:
+                    query = {"cpeName": cpe.cpe_name}
                     evaluation.discovery_trace["providerQueryMode"] = "INSTALLED_VERSION"
+                else:
+                    query = {"virtualMatchString": replace_cpe23_version(cpe.cpe_name, "*") or cpe.cpe_name}
+                    evaluation.discovery_trace["providerQueryMode"] = "FAMILY_RANGE"
                 cve_items = self.client.get_cves(query)
                 evaluation.provider_query_status = "SUCCESS"
                 evaluation.provider_reason = None
@@ -242,7 +250,8 @@ class CveService:
                     assessment = _assess(software, cpe, record, raw_data)
                     assessments.append(assessment)
                     product_assessments.append(assessment)
-                _complete_evaluation(evaluation, product_assessments)
+                _complete_evaluation(evaluation, product_assessments, catalogued_version=catalogued_version,
+                                     malformed_rows=len(records) != len(cve_items))
                 applicability_seconds += time.perf_counter() - applicability_started
                 if evaluation.terminal_status == "COMPLETED":
                     evaluated_products += 1
@@ -362,21 +371,23 @@ def _assess(
 ) -> CveAssessment:
     """Create an applicability assessment."""
 
-    status, reason, confidence, matched = evaluate_applicability(
+    result = evaluate_applicability_result(
         software,
         cpe,
         record,
         raw_data,
     )
-    LOGGER.info("CVE applicability: %s = %s", record.cve_id, status.value)
+    LOGGER.info("CVE applicability: %s = %s", record.cve_id, result.status.value)
     return CveAssessment(
         software=software,
         cpe=cpe,
         cve=record,
-        applicability=status,
-        reason=reason,
-        confidence=confidence,
-        matched_criteria=matched,
+        applicability=result.status,
+        reason=result.reason,
+        confidence=result.confidence,
+        matched_criteria=result.matched_criteria,
+        reason_code=result.reason_code,
+        operating_system=read_environment(raw_data, OS_KEYS),
     )
 
 
@@ -433,26 +444,18 @@ def _summary(
     )
 
 
-def _cve_query(cpe_name: str, installed_version: str = "") -> dict[str, str]:
-    """Build the narrowest valid NVD query for an installed product."""
-
-    versioned_cpe = replace_cpe23_version(cpe_name, installed_version)
-    if versioned_cpe is not None:
-        return {"cpeName": versioned_cpe}
-    if "*" in cpe_name:
-        return {"virtualMatchString": cpe_name}
-    return {"cpeName": cpe_name}
-
-
 def _complete_evaluation(
     evaluation: CveProductEvaluation,
     assessments: list[CveAssessment],
+    *, catalogued_version: bool = False, malformed_rows: bool = False,
 ) -> None:
     """Finalize version and result stages from parsed CVE assessments."""
 
+    evaluation.applicability_reason_counts = dict(Counter(item.reason_code for item in assessments if item.reason_code))
+    incomplete = malformed_rows or (not assessments and not catalogued_version)
     evaluation.version_evaluation_status = (
         "PARTIAL"
-        if any(
+        if incomplete or any(
             item.applicability == ApplicabilityStatus.NOT_EVALUATED
             for item in assessments
         )
@@ -490,18 +493,19 @@ def _complete_evaluation(
     if evaluation.version_evaluation_status == "PARTIAL":
         unresolved = next(
             (
-                item.reason
+                item
                 for item in assessments
                 if item.applicability == ApplicabilityStatus.NOT_EVALUATED
             ),
-            "At least one CVE record could not be evaluated reliably",
+            None,
         )
         evaluation.terminal_status = "PARTIAL"
-        evaluation.terminal_reason_code = _applicability_reason_code(
-            unresolved
-        ).value
+        evaluation.terminal_reason_code = (unresolved.reason_code if unresolved else None) or (
+            "NO_CVE_ROWS" if not assessments and not malformed_rows else "APPLICABILITY_INCOMPLETE")
         evaluation.failure_stage = "VERSION_EVALUATION"
-        evaluation.failure_reason = unresolved
+        evaluation.failure_reason = unresolved.reason if unresolved else (
+            "Provider returned no CVE rows for a family without confirmed installed-version catalogue evidence"
+            if not malformed_rows else "Provider returned rows that could not be evaluated")
     else:
         evaluation.terminal_status = "COMPLETED"
         evaluation.terminal_reason_code = (
@@ -572,21 +576,6 @@ def _provider_reason_code(
     if trace.get("catalogState") == "STALE":
         return CveTerminalReason.PROVIDER_STALE
     return CveTerminalReason.PROVIDER_ERROR
-
-
-def _applicability_reason_code(reason: str) -> CveTerminalReason:
-    """Map an incomplete applicability rationale to a stable limitation code."""
-
-    normalized = reason.casefold()
-    if "edition" in normalized:
-        return CveTerminalReason.EDITION_UNKNOWN
-    if "not applicable" in normalized or "cpe version is na" in normalized:
-        return CveTerminalReason.CPE_VERSION_NA
-    if "version" in normalized and any(
-        word in normalized for word in ("compare", "parse", "format")
-    ):
-        return CveTerminalReason.VERSION_NOT_COMPARABLE
-    return CveTerminalReason.APPLICABILITY_INCOMPLETE
 
 
 def _normalization_stage_status(software: SoftwareProduct) -> str:

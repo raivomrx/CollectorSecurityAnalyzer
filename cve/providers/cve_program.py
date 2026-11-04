@@ -475,6 +475,7 @@ def _affected_range(
         if isinstance(item.get("modules"), list)
         else [],
         source=source,
+        default_status=_optional_str(item.get("defaultStatus")),
     )
 
 

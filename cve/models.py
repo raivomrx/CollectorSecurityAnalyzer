@@ -47,6 +47,15 @@ class CveTerminalReason(str, Enum):
     AMBIGUOUS_IDENTITY = "AMBIGUOUS_IDENTITY"
     VERSION_UNAVAILABLE = "VERSION_UNAVAILABLE"
     VERSION_NOT_COMPARABLE = "VERSION_NOT_COMPARABLE"
+    VERSION_INCOMPARABLE = "VERSION_INCOMPARABLE"
+    VERSION_SCHEME_UNSUPPORTED = "VERSION_SCHEME_UNSUPPORTED"
+    VERSION_SOURCE_CONFLICT = "VERSION_SOURCE_CONFLICT"
+    MISSING_AUTHORITATIVE_PRODUCT_MAPPING = "MISSING_AUTHORITATIVE_PRODUCT_MAPPING"
+    PLATFORM_UNKNOWN = "PLATFORM_UNKNOWN"
+    PLATFORM_MISMATCH_CONFIRMED = "PLATFORM_MISMATCH_CONFIRMED"
+    ARCH_UNKNOWN = "ARCH_UNKNOWN"
+    ARCH_MISMATCH_CONFIRMED = "ARCH_MISMATCH_CONFIRMED"
+    NO_CVE_ROWS = "NO_CVE_ROWS"
     EDITION_UNKNOWN = "EDITION_UNKNOWN"
     CPE_VERSION_NA = "CPE_VERSION_NA"
     APPLICABILITY_INCOMPLETE = "APPLICABILITY_INCOMPLETE"
@@ -103,6 +112,8 @@ class CveAssessment:
     reason: str
     confidence: int
     matched_criteria: list[str] = field(default_factory=list)
+    reason_code: str | None = None
+    operating_system: str | None = None
 
 
 @dataclass(slots=True)
@@ -144,6 +155,7 @@ class CveProductEvaluation:
     failure_reason: str | None = None
     retryable: bool = False
     discovery_trace: dict[str, Any] = field(default_factory=dict)
+    applicability_reason_counts: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

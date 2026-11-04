@@ -90,6 +90,7 @@ class AffectedVersionRange:
     platforms: list[str] = field(default_factory=list)
     modules: list[str] = field(default_factory=list)
     source: SourceType = SourceType.CNA
+    default_status: str | None = None
 
 
 @dataclass(slots=True)

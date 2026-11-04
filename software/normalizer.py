@@ -11,7 +11,7 @@ from typing import Any
 
 from utils import parse_date
 from software.models import NormalizationResult, SoftwareProduct
-from software.version import compare_versions, normalize_version
+from software.version import compare_applicability_versions, normalize_version, version_evidence
 
 LOGGER = logging.getLogger(__name__)
 SOFTWARE_DIR = Path(__file__).resolve().parent
@@ -151,13 +151,14 @@ def normalize_software(
         product_result,
         version,
     )
+    raw_version = "" if version is None else str(version).strip()
     software = SoftwareProduct(
         vendor=_clean_text(vendor),
         product=_clean_text(product),
-        version="" if version is None else str(version).strip(),
+        version=raw_version,
         normalized_vendor=vendor_result.value,
         normalized_product=product_result.value,
-        normalized_version=normalize_version(version),
+        normalized_version=normalize_version(version) if re.fullmatch(r"[0-9]+(?:\.[0-9]+)*", raw_version) else raw_version,
         architecture=architecture,
         install_date=parse_date(install_date),
         cpe=None,
@@ -186,6 +187,16 @@ def normalize_software(
             "finalConfidence": confidence,
         },
     )
+    observed_version = version_evidence(software.vendor, software.product, software.version)
+    software.normalization_trace["version"] = {
+        "rawDisplayVersion": observed_version.raw,
+        "interpretedVersion": observed_version.interpreted,
+        "scheme": observed_version.scheme,
+        "source": observed_version.source,
+        "reasonCode": observed_version.reason or (
+            "CPYTHON_MSI_TITLE_MATCHED" if observed_version.source == "CPYTHON_WINDOWS_MSI" else "DISPLAY_VERSION_RECORDED"
+        ),
+    }
 
     if product_result.confidence == 0:
         log_unknown_product(software, unknown_products_path)
@@ -348,7 +359,7 @@ def _canonical_display_name(value: str, version: Any) -> str:
     installed = str(version or "").strip()
     if installed and re.fullmatch(r"\d+(?:\.\d+)+", installed):
         embedded = re.search(r"\s+(\d+(?:\.\d+)+)$", cleaned)
-        if embedded and compare_versions(embedded.group(1), installed) == 0:
+        if embedded and compare_applicability_versions(embedded.group(1), installed).order == 0:
             cleaned = cleaned[:embedded.start()].strip()
     return cleaned
 

@@ -30,6 +30,16 @@ function Get-CSABootstrapDigest {
     finally { $sha.Dispose() }
 }
 
+function ConvertFrom-CSABootstrapJson {
+    param([byte[]]$Bytes, [string]$Diagnostic)
+    try {
+        $text = [Text.UTF8Encoding]::new($false, $true).GetString($Bytes).TrimStart([char]0xfeff)
+        $document = ConvertFrom-Json -InputObject $text -ErrorAction Stop
+        if ($document -isnot [pscustomobject]) { throw 'Expected a JSON object.' }
+        return $document
+    } catch { throw $Diagnostic }
+}
+
 function Test-CSABootstrapSignature {
     param([string]$Path, [string]$RequiredSigner = '')
     # Hold a shared read handle across Windows SIP verification. An exclusive
@@ -207,7 +217,7 @@ function Expand-CSABootstrapPackage {
         try { $manifestInput.CopyTo($manifestMemory); $manifestBytes = $manifestMemory.ToArray() }
         finally { $manifestInput.Dispose(); $manifestMemory.Dispose() }
         if ((Get-CSABootstrapDigest $manifestBytes) -ne $Binding.manifestDigest) { throw 'CSA-BOOT-MANIFEST' }
-        try { $manifest = [Text.Encoding]::UTF8.GetString($manifestBytes) | ConvertFrom-Json } catch { throw 'CSA-BOOT-MANIFEST' }
+        $manifest = ConvertFrom-CSABootstrapJson $manifestBytes 'CSA-BOOT-MANIFEST'
         if ($manifest -isnot [pscustomobject] -or $manifest.PSObject.Properties.Name -notcontains 'schemaVersion' -or
             $manifest.PSObject.Properties.Name -notcontains 'files' -or $manifest.schemaVersion -ne '5.0' -or $manifest.files -isnot [array]) { throw 'CSA-BOOT-MANIFEST' }
         foreach ($name in @('assessmentId','sessionId','collectionProfile','collectionProfileDigest','serverCertificateFingerprint','expiration')) {
@@ -249,7 +259,8 @@ function Expand-CSABootstrapPackage {
             } finally { $input.Dispose() }
         }
         # The trusted archive anchors configuration; verify its session binding explicitly.
-        $config = Invoke-CSABootstrapFileRetry { [IO.File]::ReadAllText((Join-Path $Root 'session-config.json')) } | ConvertFrom-Json
+        $configBytes = Invoke-CSABootstrapFileRetry { ,([IO.File]::ReadAllBytes((Join-Path $Root 'session-config.json'))) }
+        $config = ConvertFrom-CSABootstrapJson $configBytes 'CSA-BOOT-BINDING'
         foreach ($name in @('assessmentId','sessionId','collectionProfile','collectionProfileDigest','serverCertificateFingerprint')) {
             if ($config.$name -cne $Binding.$name) { throw 'CSA-BOOT-BINDING' }
         }
@@ -364,7 +375,7 @@ function Invoke-CSABootstrap {
 
 $binding = $null
 try {
-    $binding = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($embeddedBinding)) | ConvertFrom-Json
+    $binding = ConvertFrom-CSABootstrapJson ([Convert]::FromBase64String($embeddedBinding)) 'CSA-BOOT-BINDING'
     $embeddedBinding = $null
     $result = Invoke-CSABootstrap -Binding $binding -LauncherPath $PSCommandPath -NoSubmit:$NoSubmit -ExportPath $ExportPath
     exit $result

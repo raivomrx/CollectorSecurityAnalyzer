@@ -200,9 +200,10 @@ class NvdClientTests(unittest.TestCase):
     def test_invalid_response_schema(self) -> None:
         """Invalid NVD schemas should raise a request error."""
 
-        client = _client(_Session([_Response({"totalResults": 1, "vulnerabilities": {}})]))
-        with self.assertRaises(NvdRequestError):
-            client.get_cves({})
+        for payload in ({"totalResults": 1, "vulnerabilities": {}}, {"totalResults": 0},
+                        {"totalResults": 1, "vulnerabilities": []}, {"totalResults": 1, "vulnerabilities": [None]}):
+            with self.subTest(payload=payload), self.assertRaises(NvdRequestError):
+                _client(_Session([_Response(payload)])).get_cves({})
 
 
 def _client(session: "_Session") -> NvdClient:

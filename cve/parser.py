@@ -20,6 +20,8 @@ def parse_cve_items(items: list[dict[str, Any]]) -> list[CveRecord]:
 
     records: list[CveRecord] = []
     for item in items:
+        if not isinstance(item, dict):
+            continue
         cve = item.get("cve", item)
         if isinstance(cve, dict):
             records.append(parse_cve_record(cve))

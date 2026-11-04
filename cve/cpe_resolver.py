@@ -13,9 +13,10 @@ from pathlib import Path
 from typing import Any
 
 from cve.client import NvdClient
+from cve.environment import OS_KEYS, architecture_identity, os_identity, platform_matches, read_environment
 from cve.models import CpeCandidate, CpeMatchStatus
 from software.models import SoftwareProduct
-from software.version import compare_versions
+from software.version import VersionEvidence, compare_applicability_versions, version_evidence
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_MAPPING_PATH = Path(__file__).resolve().parent.parent / "software" / "cpe_mappings.json"
@@ -89,12 +90,13 @@ class CpeResolver:
         """Resolve a product and retain the candidate decision for audit."""
 
         operating_system = _collector_os(raw_data)
+        installed = version_evidence(software.vendor, software.product, software.version)
         cache_key = json.dumps([
             software.normalized_vendor, software.normalized_product, software.version,
             software.vendor, software.product, software.architecture, operating_system,
             software.normalization_trace, self.discovery_aliases, self.mappings,
-            self.minimum_confidence, self.ambiguous_score_difference, '5.6',
-        ], sort_keys=True, default=str).casefold()
+            self.minimum_confidence, self.ambiguous_score_difference, '5.6.6',
+        ], sort_keys=True, default=str)
         cached = self._resolution_cache.get(cache_key)
         if cached is not None:
             self.metrics["resolutionMemoryHits"] += 1
@@ -162,26 +164,32 @@ class CpeResolver:
         versioned_candidates = candidates
         candidates = _collapse_equivalent_candidates(
             candidates,
-            software.version,
+            installed,
         )
         trace["acceptedVersionRowCount"] = len(versioned_candidates)
         trace["canonicalFamilyCount"] = len(candidates)
         candidates.sort(key=lambda candidate: candidate.confidence, reverse=True)
         active = [candidate for candidate in candidates if not candidate.deprecated]
-        platform_match = [
-            item for item in active
-            if operating_system and _target_sw(item) == operating_system
-        ]
-        generic = [item for item in active if _target_sw(item) == "*"]
+        actual_arch = architecture_identity(software.architecture)
+        def candidate_architecture(item: CpeCandidate) -> str:
+            return parse_cpe23_components(item.cpe_name).target_hw
+
+        scoped = [item for item in active if candidate_architecture(item) == "*" or (
+            actual_arch is not None and architecture_identity(candidate_architecture(item)) == actual_arch
+        )]
+        platform_match = [item for item in scoped if _target_sw(item) != "*" and platform_matches(_target_sw(item), operating_system, exact_product=True) is True]
+        generic = [item for item in scoped if _target_sw(item) == "*"]
         eligible = platform_match or generic
         if not eligible and active:
-            reason = (
-                "CPE platform is constrained but collector OS does not confirm it"
-                if not operating_system else
-                "CPE platform differs from the collected operating system"
-            )
+            candidates_for_platform = scoped or active
+            if not scoped:
+                code = "ARCH_UNKNOWN" if actual_arch is None or any(architecture_identity(candidate_architecture(item)) is None for item in active) else "ARCH_MISMATCH_CONFIRMED"
+                reason = "CPE architecture could not be matched to the installed product"
+            else:
+                code = "PLATFORM_UNKNOWN" if any(platform_matches(_target_sw(item), operating_system, exact_product=True) is None for item in candidates_for_platform) else "PLATFORM_MISMATCH_CONFIRMED"
+                reason = "CPE platform could not be matched to collected operating system evidence"
             trace.update(terminalStatus="NO_RELIABLE_MAPPING", rejectionReason=reason,
-                         collectorOperatingSystem=operating_system)
+                         collectorOperatingSystem=operating_system, reasonCode=code)
             resolution = CpeResolution(None, len(active), "NO_RELIABLE_MAPPING", reason, trace)
             self._resolution_cache[cache_key] = resolution
             return resolution
@@ -222,7 +230,7 @@ class CpeResolver:
         selected = parse_cpe23_components(best.cpe_name)
         trace["installedVersionCatalogued"] = any(
             _same_cpe_family(selected, parse_cpe23_components(item.cpe_name))
-            and _catalog_version_matches(software.version, item.version)
+            and _catalog_version_matches(installed, parse_cpe23_components(item.cpe_name))
             for item in versioned_candidates
             if not item.deprecated
         )
@@ -360,7 +368,7 @@ class CpeResolver:
                 "vendorIdentity": "CONFIRMED" if confidence >= 45 else "NOT_CONFIRMED",
                 "productIdentity": "CONFIRMED" if reason is None else "NOT_CONFIRMED",
                 "installedVersionAvailable": bool(
-                    parsed and _catalog_version_matches(software.version, parsed.version)
+                    _catalog_version_matches(version_evidence(software.vendor, software.product, software.version), parsed)
                 ),
                 "rejectionReason": reason,
             }
@@ -575,7 +583,7 @@ def _score_candidate(software: SoftwareProduct, vendor: str, product: str, title
 
 def _collapse_equivalent_candidates(
     candidates: list[CpeCandidate],
-    installed_version: str,
+    installed_version: VersionEvidence,
 ) -> list[CpeCandidate]:
     """Collapse catalog rows after canonical product-family grouping.
 
@@ -600,7 +608,7 @@ def _collapse_equivalent_candidates(
         exact = [
             item
             for item in available
-            if _catalog_version_matches(installed_version, item.version)
+            if _catalog_version_matches(installed_version, parse_cpe23_components(item.cpe_name))
         ]
         available.sort(key=_family_candidate_sort_key)
         exact.sort(key=_family_candidate_sort_key)
@@ -705,31 +713,19 @@ def _same_cpe_family(left: ParsedCpe23 | None, right: ParsedCpe23 | None) -> boo
     return _canonical_family_key(left) == _canonical_family_key(right)
 
 
-def _catalog_version_matches(installed: str, catalogued: str | None) -> bool:
+def _catalog_version_matches(installed: VersionEvidence, catalogued: ParsedCpe23 | None) -> bool:
     """Compare an installed version with a concrete NVD CPE version."""
 
-    if not catalogued or catalogued in {"*", "-"}:
-        return False
-    if re.fullmatch(r"\d+(?:\.\d+)+", installed) and re.fullmatch(
-        r"\d+(?:\.\d+)+", catalogued
-    ):
-        return compare_versions(installed, catalogued) == 0
-    return installed.casefold() == catalogued.casefold()
+    return bool(catalogued and catalogued.update == "*" and installed.reason is None and
+                compare_applicability_versions(installed.interpreted, catalogued.version, installed.scheme).order == 0)
 
 
 def _collector_os(raw_data: dict[str, Any] | None) -> str:
     """Use only explicit collector OS evidence for platform selection."""
 
-    if not isinstance(raw_data, dict):
-        return ""
-    operating_system = raw_data.get("operatingSystem")
-    nested = operating_system.get("name") if isinstance(operating_system, dict) else ""
-    value = str(raw_data.get("OS") or raw_data.get("OSName") or nested or "").casefold()
-    if "windows" in value:
-        return "windows"
-    if "linux" in value:
-        return "linux"
-    return ""
+    observed = read_environment(raw_data, OS_KEYS)
+    identity = os_identity(observed)
+    return observed if identity is not None and observed is not None else ""
 
 
 def _component_score(

@@ -28,6 +28,7 @@ import zipfile
 import requests
 
 from csa_console.canonical import sha256_file
+from csa_console.collector_package import COLLECTOR_VERSION
 from csa_console.enums import SessionStatus
 from csa_console.identifiers import utc_text, utc_now
 from csa_console.portal import PortalBinding
@@ -42,6 +43,9 @@ from tests.test_console_sprint5 import Sprint5TestCase
 
 ROOT = Path(__file__).resolve().parents[1]
 PRIVACY_MARKERS = ("SYNTHETIC-CALLBACK-HOST", "SYNTHETIC-CALLBACK-USER", "SYNTHETIC-CALLBACK-SSID", "S-1-5-21-111-222-333-1042")
+UTF8_NAME = "Intel® ÕÄÖÜ õäöü É 漢字"
+UTF8_PRODUCT = UTF8_NAME + " <script>audit2</script>"
+UTF8_PATH = "C:\\Program Files\\ÕäÉ漢字\\example.exe"
 
 
 def decode_binding(launcher):
@@ -56,6 +60,9 @@ class LauncherCase(unittest.TestCase):
         signing_environment = mock.patch.dict(os.environ, {'CSA_LAUNCHER_SIGNING_THUMBPRINT':''})
         signing_environment.start()
         self.addCleanup(signing_environment.stop)
+        patch_unknown = mock.patch('software.normalizer.log_unknown_product')
+        patch_unknown.start()
+        self.addCleanup(patch_unknown.stop)
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name).resolve()
@@ -64,19 +71,21 @@ class LauncherCase(unittest.TestCase):
         self.service = LabApplicationService(self.root/'assessments', firewall=NullFirewallManager(), collector_bootstrap=bootstrap)
         self.addCleanup(self.service.shutdown)
 
-    def create(self, synthetic=False, privacy_failure=False, name='Synthetic launcher acceptance'):
+    def create(self, synthetic=False, privacy_failure=False, name='Synthetic launcher acceptance', evidence_encoding=None):
         request = AssessmentWizardRequest(name=name, organization='DEMO', expected_endpoints=1,
             source_subnet='127.0.0.0/8', network_profile='Private', listener_address='127.0.0.1', listener_port=_free_port())
         if synthetic:
             source = self.root/'synthetic-engine'
             shutil.copytree(ROOT/'collector/windows', source)
             fixture = Sprint5TestCase().evidence()
-            fixture['collectorVersion'] = '5.6.5'
+            fixture['collectorVersion'] = COLLECTOR_VERSION
             fixture['collectorBuildDigest'] = ''
             fixture['collectorBuildCommit'] = ''
             host, user, ssid, sid = PRIVACY_MARKERS
             fixture['device'].update(hostname=host, currentUser=user, currentUserSid=sid)
             fixture['services']['services'][0]['BinaryPath'] = rf'\\{host}\demo\app.exe --sid {sid} C:\Users\{user}\demo'
+            fixture['software']['items'].append({'Vendor': 'Synthetic Publisher', 'Product': UTF8_PRODUCT, 'Version': '1.0', 'InstallLocation': UTF8_PATH})
+            fixture['metadata']['encodingFixture'] = {'nested': [{'name': UTF8_NAME, 'path': UTF8_PATH}]}
             fixture['security']['settings'].append({
                 'settingId': 'ACTIVE_NETWORK_PROFILE', 'category': 'Network', 'effectiveValue': ssid,
                 'source': 'RUNTIME_STATE', 'collectionStatus': 'SUCCESS', 'confidence': 90,
@@ -93,10 +102,16 @@ $document = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('''+"'"+
 $document.collectorBuildDigest = $CollectorBuildDigest
 $document.collectorBuildCommit = $CollectorBuildCommit
 Import-Module (Join-Path $PSScriptRoot 'modules/Privacy.psm1') -Force
-$privacyPolicy = Get-Content -LiteralPath $PrivacyPolicyPath -Raw | ConvertFrom-Json
+$privacyPolicy = Get-Content -LiteralPath $PrivacyPolicyPath -Raw -Encoding UTF8 | ConvertFrom-Json
 '''
             if privacy_failure:
                 acquisition += "$PrivacyContext.key = 'invalid-synthetic-context'\n"
+            if evidence_encoding == 'bom':
+                tail += '\n[IO.File]::WriteAllBytes($resolvedOutput, ([byte[]](239,187,191) + [IO.File]::ReadAllBytes($resolvedOutput)))\n'
+            elif evidence_encoding == 'invalid-utf8':
+                tail += '\n[IO.File]::WriteAllBytes($resolvedOutput, [byte[]](123,34,120,34,58,34,195,40,34,125))\n'
+            elif evidence_encoding == 'invalid-json':
+                tail += '\n[IO.File]::WriteAllText($resolvedOutput, \'{"broken":\', [Text.UTF8Encoding]::new($false))\n'
             collector.write_text(acquisition + '$resolvedOutput =' + tail, encoding='utf-8-sig')
             (source/'modules/General.psm1').write_text('''function Get-CSAExecutionTokenContext {
     param($PrivacyMode)
@@ -127,14 +142,20 @@ Export-ModuleMember -Function Get-CSAExecutionTokenContext
         submission = submissions[0]['submissionId']
         analysis = self.service.storage.read_json(assessment, 'findings', submission+'.json')
         self.assertTrue(analysis['findings'])
-        self.assertEqual(analysis['analysisEngineVersion'], 'CSA-5.6.5')
+        self.assertEqual(analysis['analysisEngineVersion'], f'CSA-{COLLECTOR_VERSION}')
         evidence_path = self.service.storage.path(assessment, 'submissions', 'accepted', submission+'.evidence.json')
         evidence = evidence_path.read_text(encoding='utf-8')
         document = json.loads(evidence)
-        self.assertEqual(document['collectorVersion'], '5.6.5')
+        self.assertEqual(document['collectorVersion'], COLLECTOR_VERSION)
         self.assertEqual(document['metadata']['privacyMode'], 'PROFILE_ENFORCED')
         self.assertIn(document['device']['currentUserSid'], document['services']['services'][0]['BinaryPath'])
         report = UnifiedReportGenerator(self.service.storage).generate(assessment).read_text(encoding='utf-8')
+        self.assertIn(UTF8_NAME.encode('utf-8'), evidence_path.read_bytes())
+        self.assertTrue(any(row['Product'] == UTF8_PRODUCT for row in document['software']['items']))
+        self.assertEqual(document['metadata']['encodingFixture']['nested'], [{'name': UTF8_NAME, 'path': UTF8_PATH}])
+        self.assertTrue(any(row['displayName'] == UTF8_PRODUCT for row in analysis['cveSummary']['softwareResults']))
+        self.assertIn(UTF8_NAME + ' &lt;script&gt;audit2&lt;/script&gt;', report)
+        self.assertNotIn('<script>audit2</script>', report)
         audit = self.service.storage.path(assessment, 'audit', 'audit.jsonl').read_text(encoding='utf-8')
         for marker in PRIVACY_MARKERS:
             for output in (result.stdout, result.stderr, evidence, report, audit):
@@ -334,7 +355,7 @@ try {
         self.assertEqual(build.returncode, 0, build.stdout + build.stderr)
         if not elevated:
             self.service.collector_bootstrap = bootstrap
-        self.create(synthetic=True)
+        self.create(synthetic=True, evidence_encoding='bom')
         extracted = self.root / 'exe-extracted'
         extracted.mkdir()
         try:
@@ -381,6 +402,24 @@ try {
         self.assertEqual(self.service.submissions.list_submissions(self.state.assessment_id), [])
         for marker in PRIVACY_MARKERS:
             self.assertNotIn(marker, result.stdout + result.stderr)
+
+    def test_invalid_evidence_encoding_stops_before_submission(self):
+        self.create(synthetic=True, evidence_encoding='invalid-utf8')
+        result = self.run_ps('bootstrap', self.download())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('CSA-COL-INVALID-UTF8', result.stderr)
+        self.assertNotIn('Collection completed', result.stdout)
+        self.assertIn('Bootstrap temporary files removed: YES', result.stdout)
+        self.assertEqual(self.service.submissions.list_submissions(self.state.assessment_id), [])
+
+    def test_invalid_evidence_json_stops_before_submission(self):
+        self.create(synthetic=True, evidence_encoding='invalid-json')
+        result = self.run_ps('bootstrap', self.download())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('CSA-COL-INVALID-JSON', result.stderr)
+        self.assertNotIn('Collection completed', result.stdout)
+        self.assertIn('Bootstrap temporary files removed: YES', result.stdout)
+        self.assertEqual(self.service.submissions.list_submissions(self.state.assessment_id), [])
 
     def test_wrong_pin_network_loss_and_expiry_fail_without_execution(self):
         self.create()

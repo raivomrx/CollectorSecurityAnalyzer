@@ -201,8 +201,9 @@ class Sprint541Tests(unittest.TestCase):
 
         self.assertEqual(
             summary.product_evaluations[0].terminal_status,
-            "COMPLETED",
+            "PARTIAL",
         )
+        self.assertEqual(summary.product_evaluations[0].terminal_reason_code, "NO_CVE_ROWS")
         query = client.cve_queries[0]["virtualMatchString"]
         self.assertIn(r":c\+\+_builder:*:", query)
         self.assertNotIn(":c++_builder:*:", query)
@@ -225,7 +226,8 @@ class Sprint541Tests(unittest.TestCase):
         summary = CveService(client=client, resolver=CpeResolver(client=client)).scan_inventory(
             inventory, raw_data={"OS": "Microsoft Windows 11"}
         )
-        self.assertEqual(summary.evaluated_products, 1)
+        self.assertEqual(summary.evaluated_products, 0)
+        self.assertEqual(summary.product_evaluations[0].terminal_reason_code, "NO_CVE_ROWS")
         self.assertEqual(summary.product_evaluations[0].discovery_trace["providerQueryMode"],
                          "FAMILY_RANGE")
         self.assertNotIn("cpeName", client.cve_queries[0])
@@ -280,7 +282,7 @@ class Sprint541Tests(unittest.TestCase):
             def get_cpes(self, params):
                 query = params["keywordSearch"]
                 self.queries.append(query)
-                return [_cpe("acme", query.casefold().replace(" ", "_"))]
+                return [_cpe("acme", query.casefold().replace(" ", "_"), "1.0")]
 
         inventory = build_inventory(
             [{"Publisher": "Acme", "DisplayName": f"Product {index}",
@@ -322,7 +324,7 @@ class Sprint541Tests(unittest.TestCase):
         resolver = CpeResolver(client=client)
         missing = resolver.resolve_with_trace(product, {})
         self.assertEqual(missing.status, "NO_RELIABLE_MAPPING")
-        self.assertIn("collector OS", missing.reason)
+        self.assertEqual(missing.trace["reasonCode"], "PLATFORM_UNKNOWN")
         windows = resolver.resolve_with_trace(product, {"OS": "Microsoft Windows 11"})
         self.assertEqual(windows.status, "SUCCESS")
         self.assertIn(":windows:*:*", windows.candidate.cpe_name)

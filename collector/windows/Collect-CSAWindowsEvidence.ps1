@@ -33,7 +33,7 @@ $CollectionProfilePath = if ([string]::IsNullOrWhiteSpace($CollectionProfilePath
 } else {
     $CollectionProfilePath
 }
-$collectorVersion = "5.6.5"
+$collectorVersion = "5.6.6"
 $started = (Get-Date).ToUniversalTime()
 $moduleRoot = Join-Path $PSScriptRoot "modules"
 $manifestPath = Join-Path $PSScriptRoot "evidence-manifest.json"
@@ -43,7 +43,7 @@ $manifest = @{}
 if (-not (Test-Path -LiteralPath $manifestPath)) {
     throw "Evidence manifest was not found: $manifestPath"
 }
-$manifestDocument = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+$manifestDocument = Read-CSACollectionJson $manifestPath
 Test-CSAEvidenceManifest -Manifest $manifestDocument -ModuleRoot $moduleRoot | Out-Null
 if (-not (Test-Path -LiteralPath $CapabilityRegistryPath)) {
     throw "Collection capability registry was not found: $CapabilityRegistryPath"
@@ -51,12 +51,12 @@ if (-not (Test-Path -LiteralPath $CapabilityRegistryPath)) {
 if (-not (Test-Path -LiteralPath $CollectionProfilePath)) {
     throw "Collection profile was not found: $CollectionProfilePath"
 }
-$capabilityRegistry = Get-Content -Raw -LiteralPath $CapabilityRegistryPath | ConvertFrom-Json
-$collectionProfile = Get-Content -Raw -LiteralPath $CollectionProfilePath | ConvertFrom-Json
+$capabilityRegistry = Read-CSACollectionJson $CapabilityRegistryPath
+$collectionProfile = Read-CSACollectionJson $CollectionProfilePath
 if ([string]::IsNullOrWhiteSpace($PrivacyPolicyPath)) {
     $PrivacyPolicyPath = Join-Path (Split-Path -Parent $CollectionProfilePath) ([string]$collectionProfile.privacyPolicy)
 }
-$privacyPolicy = Get-Content -LiteralPath $PrivacyPolicyPath -Raw | ConvertFrom-Json
+$privacyPolicy = Read-CSACollectionJson $PrivacyPolicyPath
 # Providers gather into memory; the selected profile is enforced once, including
 # metadata copies, before the first evidence write. No raw staging file is used.
 $requestedPrivacyMode = $PrivacyMode

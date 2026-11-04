@@ -518,6 +518,7 @@ def _software_results(
                     "cvssScore": item.cve.cvss_score,
                     "matchStatus": item.applicability.value,
                     "matchRationale": item.reason,
+                    "applicabilityReasonCode": getattr(item, "reason_code", None),
                     "affectedVersionRange": ", ".join(
                         item.matched_criteria
                     ),
@@ -830,6 +831,7 @@ def _product_evaluation_dict(evaluation: Any) -> dict[str, Any]:
         "confirmedCves": evaluation.confirmed_cves,
         "possibleCves": evaluation.possible_cves,
         "notAffectedCves": evaluation.not_affected_cves,
+        "applicabilityReasonCounts": getattr(evaluation, "applicability_reason_counts", {}),
         "terminalStatus": evaluation.terminal_status,
         "terminalReasonCode": evaluation.terminal_reason_code,
         "failureStage": evaluation.failure_stage,

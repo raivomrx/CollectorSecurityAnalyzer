@@ -217,11 +217,9 @@ namespace CSA.Collector
         {
             if (entry.Length > 1024 * 1024)
                 throw new InvalidDataException("Trusted package manifest is too large.");
-            JavaScriptSerializer serializer = new JavaScriptSerializer();
             Dictionary<string, object> manifest;
             using (Stream input = entry.Open())
-            using (StreamReader reader = new StreamReader(input, Encoding.UTF8))
-                manifest = serializer.Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
+                manifest = ReadJsonObject(input);
             object filesValue;
             object schema;
             if (manifest == null || !manifest.TryGetValue("schemaVersion", out schema) ||
@@ -268,15 +266,36 @@ namespace CSA.Collector
 
         private static void PrintAssessmentSummary(string root)
         {
-            JavaScriptSerializer serializer = new JavaScriptSerializer();
-            Dictionary<string, object> configuration = serializer.Deserialize<
-                Dictionary<string, object>>(RetryFileOperation(() => File.ReadAllText(
-                    Path.Combine(root, "session-config.json"), Encoding.UTF8)));
+            Dictionary<string, object> configuration = RetryFileOperation(() =>
+            {
+                using (Stream input = File.OpenRead(Path.Combine(root, "session-config.json")))
+                    return ReadJsonObject(input);
+            });
             Console.WriteLine("Assessment: " + Convert.ToString(
                 configuration["assessmentName"]));
             Console.WriteLine("Server: " + SafeServer(
                 Convert.ToString(configuration["serverUrl"])));
             Console.WriteLine();
+        }
+
+        private static Dictionary<string, object> ReadJsonObject(Stream input)
+        {
+            string text;
+            using (StreamReader reader = new StreamReader(input, new UTF8Encoding(false, true), false))
+            {
+                try { text = reader.ReadToEnd(); }
+                catch (DecoderFallbackException) { throw new InvalidDataException("CSA-COL-INVALID-UTF8: Package JSON is not valid UTF-8."); }
+            }
+            if (text.Length > 0 && text[0] == '\uFEFF')
+                text = text.Substring(1);
+            try
+            {
+                var document = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(text);
+                if (document != null) return document;
+            }
+            catch (ArgumentException) { }
+            catch (InvalidOperationException) { }
+            throw new InvalidDataException("CSA-COL-INVALID-JSON: Package JSON could not be parsed.");
         }
 
         private static int RunCollectorWithRetry(string root)

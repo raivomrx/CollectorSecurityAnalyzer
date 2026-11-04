@@ -657,4 +657,16 @@ function Get-CSAExecutionTokenContext {
     } finally { $identity.Dispose() }
 }
 
-Export-ModuleMember -Function New-CSASetting, New-CSACollectionError, New-CSAModuleResult, Test-CSASettingMatchesManifestEntry, Resolve-CSAModuleEvidence, Test-CSAEvidenceManifest, Get-CSARegistryValue, Resolve-CSAExceptionStatus, Protect-CSAIdentifier, Protect-CSAPath, Get-CSAInstalledSoftware, Get-CSAGeneralEvidence, Invoke-CSANativeTokenSnapshot, Get-CSAExecutionTokenContext
+function Read-CSACollectionJson {
+    param([string]$Path)
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    try { $text = [Text.UTF8Encoding]::new($false, $true).GetString($bytes).TrimStart([char]0xfeff) }
+    catch [Text.DecoderFallbackException] { throw 'CSA-COL-INVALID-UTF8: Collection JSON is not valid UTF-8.' }
+    try {
+        $document = ConvertFrom-Json -InputObject $text -ErrorAction Stop
+        if ($document -isnot [pscustomobject]) { throw 'Expected a JSON object.' }
+        return $document
+    } catch { throw 'CSA-COL-INVALID-JSON: Collection JSON could not be parsed.' }
+}
+
+Export-ModuleMember -Function New-CSASetting, New-CSACollectionError, New-CSAModuleResult, Test-CSASettingMatchesManifestEntry, Resolve-CSAModuleEvidence, Test-CSAEvidenceManifest, Get-CSARegistryValue, Resolve-CSAExceptionStatus, Protect-CSAIdentifier, Protect-CSAPath, Get-CSAInstalledSoftware, Get-CSAGeneralEvidence, Invoke-CSANativeTokenSnapshot, Get-CSAExecutionTokenContext, Read-CSACollectionJson

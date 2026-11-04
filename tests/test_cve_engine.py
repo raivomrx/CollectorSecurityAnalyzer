@@ -451,8 +451,10 @@ class CveEngineTests(unittest.TestCase):
     def test_applicability_all_environment_conditions_match(self) -> None:
         """Matching environment components should allow version evaluation to continue."""
 
+        software = _software()
+        software.architecture = "AMD64"
         status, _, _, _ = evaluate_applicability(
-            _software(),
+            software,
             _cpe(),
             _cve_record(configurations=[_configuration_for_criteria("cpe:2.3:a:google:chrome:144.0.7559.60:stable:pro:en_us:desktop:windows_11:x64:*")]),
             {
@@ -591,8 +593,11 @@ class CveEngineTests(unittest.TestCase):
                 return [{"cve": _nvd_cve_payload()}]
 
         class Resolver:
-            def resolve(self, software):
-                return _cpe()
+            def resolve_with_trace(self, software):
+                from cve.cpe_resolver import CpeResolution
+                cpe = _cpe()
+                cpe.cpe_name = "cpe:2.3:a:google:chrome:144.0.7559.60:*:*:*:*:*:*:*"
+                return CpeResolution(cpe, 1, "SUCCESS", trace={"installedVersionCatalogued": True})
 
         inventory = SoftwareInventory(products=[_software(), _software()], product_count=2)
         summary = CveService(client=Client(), resolver=Resolver()).scan_inventory(inventory)
@@ -639,8 +644,11 @@ class CveEngineTests(unittest.TestCase):
                 return []
 
         class Resolver:
-            def resolve(self, software):
-                return _cpe()
+            def resolve_with_trace(self, software):
+                from cve.cpe_resolver import CpeResolution
+                cpe = _cpe()
+                cpe.cpe_name = "cpe:2.3:a:google:chrome:144.0.7559.60:*:*:*:*:*:*:*"
+                return CpeResolution(cpe, 1, "SUCCESS", trace={"installedVersionCatalogued": True})
 
         summary = CveService(
             client=Client(), resolver=Resolver()

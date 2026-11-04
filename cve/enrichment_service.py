@@ -222,7 +222,7 @@ class VulnerabilityEnrichmentService:
             for affected in enrichment.affected
             if affected.source == SourceType.CNA
         ]
-        cna_status, cna_reason, _ = evaluate_cna_applicability(assessment.software, cna_affected)
+        cna_status, cna_reason, _ = evaluate_cna_applicability(assessment.software, cna_affected, assessment.operating_system)
         if cna_status == ApplicabilityStatus.AFFECTED:
             LOGGER.info("CNA applicability confirmed: AFFECTED")
 

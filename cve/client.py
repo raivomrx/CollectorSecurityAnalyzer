@@ -94,13 +94,20 @@ class NvdClient:
             page_params["startIndex"] = start_index
             page_params["resultsPerPage"] = results_per_page
             page = self._get_json(endpoint, page_params)
-            page_items = page.get(result_key, [])
+            page_items = page.get(result_key, [] if result_key != "vulnerabilities" else None)
             if not isinstance(page_items, list):
                 raise NvdRequestError(f"Invalid NVD response schema for {endpoint}")
+            if result_key == "vulnerabilities" and (
+                type(page.get("totalResults")) is not int or page["totalResults"] < 0
+                or any(not isinstance(item, dict) for item in page_items)
+            ):
+                raise NvdRequestError("Invalid NVD CVE response inventory", endpoint_label="CVES")
             collected.extend(item for item in page_items if isinstance(item, dict))
             total_results = int(page.get("totalResults", len(collected)))
             start_index += results_per_page
             if start_index >= total_results:
+                if result_key == "vulnerabilities" and len(collected) != total_results:
+                    raise NvdRequestError("Incomplete NVD CVE response inventory", endpoint_label="CVES")
                 return collected
 
     def _get_json(self, endpoint: str, params: dict[str, Any]) -> dict[str, Any]:

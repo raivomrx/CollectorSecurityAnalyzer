@@ -13,7 +13,10 @@ Import-Module (
     Join-Path $PSScriptRoot "FirewallArguments.psm1"
 ) -Force
 
-$request = Get-Content -Raw -LiteralPath $RequestPath | ConvertFrom-Json
+try {
+    $text = [Text.UTF8Encoding]::new($false, $true).GetString([IO.File]::ReadAllBytes($RequestPath)).TrimStart([char]0xfeff)
+    $request = ConvertFrom-Json -InputObject $text -ErrorAction Stop
+} catch { throw 'CSA-FIREWALL-INVALID-JSON: Request must be a valid UTF-8 JSON object.' }
 $allowed = @("advfirewall", "firewall")
 $arguments = @($request.arguments | ForEach-Object { [string]$_ })
 

@@ -6,7 +6,33 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 $packageRoot = [System.IO.Path]::GetFullPath($PSScriptRoot)
-$utf8 = New-Object System.Text.UTF8Encoding($false)
+$utf8 = [Text.UTF8Encoding]::new($false, $true)
+
+function ConvertFrom-CSAJsonText {
+    param([string]$Text)
+    if ($Text.Length -gt 0 -and $Text[0] -eq [char]0xfeff) { $Text = $Text.Substring(1) }
+    try {
+        $document = ConvertFrom-Json -InputObject $Text -ErrorAction Stop
+        if ($document -isnot [pscustomobject]) { throw 'Expected a JSON object.' }
+        return $document
+    } catch { throw 'CSA-COL-INVALID-JSON: Collector JSON could not be parsed.' }
+}
+
+function Read-CSAJsonUtf8 {
+    param([string]$Path)
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    try { $jsonText = [Text.UTF8Encoding]::new($false, $true).GetString($bytes) }
+    catch [Text.DecoderFallbackException] { throw 'CSA-COL-INVALID-UTF8: Collector JSON is not valid UTF-8.' }
+    ConvertFrom-CSAJsonText $jsonText
+}
+
+function Read-CSAResponseUtf8 {
+    param([IO.Stream]$Stream)
+    $reader = [IO.StreamReader]::new($Stream, [Text.UTF8Encoding]::new($false, $true), $false)
+    try { return $reader.ReadToEnd() }
+    catch [Text.DecoderFallbackException] { throw 'CSA-COL-INVALID-UTF8: Lab response is not valid UTF-8.' }
+    finally { $reader.Dispose() }
+}
 
 function Get-CSASha256Bytes {
     param([Parameter(Mandatory = $true)][byte[]]$Bytes)
@@ -112,8 +138,7 @@ function Test-CSATrustedPackage {
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
         throw "Trusted package manifest is missing."
     }
-    $manifestText = Invoke-CSAFileLockRetry { [System.IO.File]::ReadAllText($manifestPath) }
-    $manifest = $manifestText | ConvertFrom-Json
+    $manifest = Invoke-CSAFileLockRetry { Read-CSAJsonUtf8 $manifestPath }
     if ([string]$manifest.schemaVersion -ne '5.0' -or $null -eq $manifest.files -or $manifest.files -isnot [array]) {
         throw "Trusted package manifest is invalid."
     }
@@ -252,12 +277,11 @@ function New-CSAEvidencePackage {
     param(
         $Configuration,
         $TrustedManifest,
-        [string]$EvidencePath,
+        $Evidence,
         [string]$StagingDirectory,
         [string]$SubmissionId,
         [string]$Nonce
     )
-    $evidence = Get-Content -Raw -LiteralPath $EvidencePath | ConvertFrom-Json
     Test-CSASensitiveData $evidence
     Test-CSASensitiveData @($evidence.capabilityResults)
     $collectionLog = [ordered]@{
@@ -387,8 +411,7 @@ function Invoke-CSAPinnedRequest {
         try { $stream.Write($Body, 0, $Body.Length) } finally { $stream.Dispose() }
         $response = $request.GetResponse()
         try {
-            $reader = New-Object System.IO.StreamReader($response.GetResponseStream(), [Text.Encoding]::UTF8)
-            try { return $reader.ReadToEnd() } finally { $reader.Dispose() }
+            return Read-CSAResponseUtf8 ($response.GetResponseStream())
         } finally {
             $response.Dispose()
         }
@@ -403,14 +426,9 @@ function Invoke-CSAPinnedRequest {
         }
         if ($null -ne $webResponse) {
             try {
-                $errorReader = New-Object System.IO.StreamReader($webResponse.GetResponseStream(), [Text.Encoding]::UTF8)
-                try {
-                    $errorText = $errorReader.ReadToEnd()
-                    $errorObject = $errorText | ConvertFrom-Json
-                    throw "CONSOLE_REJECTED $([string]$errorObject.error): $([string]$errorObject.message)"
-                } finally {
-                    $errorReader.Dispose()
-                }
+                $errorText = Read-CSAResponseUtf8 ($webResponse.GetResponseStream())
+                $errorObject = ConvertFrom-CSAJsonText $errorText
+                throw "CONSOLE_REJECTED $([string]$errorObject.error): $([string]$errorObject.message)"
             } finally {
                 $webResponse.Dispose()
             }
@@ -480,7 +498,7 @@ function Protect-CSAOfflinePackage {
     $rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider(3072)
     try {
         $rsa.PersistKeyInCsp = $false
-        $rsa.FromXmlString((Get-Content -Raw -LiteralPath $publicKeyPath))
+        $rsa.FromXmlString([IO.File]::ReadAllText($publicKeyPath, $utf8))
         $wrappedKey = $rsa.Encrypt($keyMaterial, $true)
     } finally {
         $rsa.Dispose()
@@ -514,8 +532,7 @@ try {
     $trustedManifest = Test-CSATrustedPackage
     Write-Host "CSA phase verify staged package: $($phaseTimer.ElapsedMilliseconds) ms"
     $configPath = Resolve-CSAPackagePath "session-config.json"
-    $configText = Invoke-CSAFileLockRetry { [System.IO.File]::ReadAllText($configPath) }
-    $configuration = $configText | ConvertFrom-Json
+    $configuration = Invoke-CSAFileLockRetry { Read-CSAJsonUtf8 $configPath }
     if ([string]$configuration.collectorMode -ne "STANDARD_USER_COLLECTION") {
         throw "Collector package mode is not STANDARD_USER_COLLECTION."
     }
@@ -553,7 +570,7 @@ try {
         -CollectorBuildCommit ([string]$trustedManifest.collectorBuildCommit) `
         -PrivacyContext $privacyContext `
         -PrivacyPolicyPath (Resolve-CSAPackagePath ([string]$configuration.privacyPolicy))
-    $evidence = Get-Content -Raw -LiteralPath $evidencePath | ConvertFrom-Json
+    $evidence = Invoke-CSAFileLockRetry { Read-CSAJsonUtf8 $evidencePath }
     if ([bool]$evidence.privilegeContext.isElevated) {
         throw "Collected evidence unexpectedly reports an elevated context."
     }
@@ -570,12 +587,12 @@ try {
             -Body $nonceBody `
             -Headers @{ Authorization = "CSA-Enrollment $($configuration.enrollmentToken)" } `
             -Fingerprint ([string]$configuration.serverCertificateFingerprint)
-        $nonce = [string](($nonceResponse | ConvertFrom-Json).nonce)
+        $nonce = [string]((ConvertFrom-CSAJsonText $nonceResponse).nonce)
     } else {
         $nonce = "offline:" + [guid]::NewGuid().ToString("N")
     }
     if ([string]::IsNullOrWhiteSpace($nonce)) { throw "Submission nonce was not issued." }
-    $package = New-CSAEvidencePackage $configuration $trustedManifest $evidencePath $temporaryDirectory $submissionId $nonce
+    $package = New-CSAEvidencePackage $configuration $trustedManifest $evidence $temporaryDirectory $submissionId $nonce
     if ($NoSubmit) {
         if ([string]::IsNullOrWhiteSpace($ExportPath)) { throw "Offline export path is required with -NoSubmit." }
         Protect-CSAOfflinePackage $configuration $package $ExportPath
@@ -591,7 +608,7 @@ try {
                 "X-CSA-Nonce" = $nonce
             } `
             -Fingerprint ([string]$configuration.serverCertificateFingerprint)
-        $receipt = $receiptText | ConvertFrom-Json
+        $receipt = ConvertFrom-CSAJsonText $receiptText
         if (
             [string]$receipt.submissionId -ne $submissionId -or
             [string]$receipt.packageDigest -ne [string]$package.digest -or

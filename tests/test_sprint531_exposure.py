@@ -64,7 +64,7 @@ def analyzed_product(
         pipeline.product_mapping_status = "SUCCESS"
         pipeline.provider_query_status = "SUCCESS"
         # The production service derives version, result and terminal stages.
-        _complete_evaluation(pipeline, assessments)
+        _complete_evaluation(pipeline, assessments, catalogued_version=True)
         assert pipeline.terminal_status == terminal
     elif terminal == "FAILED":
         pipeline.product_mapping_status = "SUCCESS"

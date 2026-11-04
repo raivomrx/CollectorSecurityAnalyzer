@@ -2,139 +2,163 @@
 
 from __future__ import annotations
 
+import re
+
 from cve.enrichment_models import AffectedVersionRange
+from cve.environment import architecture_identity, platform_matches
 from cve.models import ApplicabilityStatus
 from software.models import SoftwareProduct
-from software.version import compare_versions, parse_version
+from software.version import compare_applicability_versions, version_evidence
 
 
 def evaluate_cna_applicability(
-    software: SoftwareProduct,
-    affected: list[AffectedVersionRange],
+    software: SoftwareProduct, affected: list[AffectedVersionRange], operating_system: str | None = None,
 ) -> tuple[ApplicabilityStatus, str, int]:
-    """Evaluate CNA affected-version data for one installed product."""
-
     if not affected:
-        return (
-            ApplicabilityStatus.NOT_EVALUATED,
-            "CNA affected-version data is unavailable",
-            0,
-        )
+        return ApplicabilityStatus.NOT_EVALUATED, "MISSING_AUTHORITATIVE_PRODUCT_MAPPING: CNA affected-version data is unavailable", 0
     matching = [item for item in affected if _product_matches(software, item)]
     if not matching:
-        return (
-            ApplicabilityStatus.NOT_EVALUATED,
-            "CNA affected-version data does not cover the installed product",
-            20,
-        )
-    if not parse_version(software.version).parts:
-        return ApplicabilityStatus.NOT_EVALUATED, "Installed version could not be compared with CNA data", 30
-
-    saw_uncertain = False
+        return _unknown("MISSING_AUTHORITATIVE_PRODUCT_MAPPING", "CNA data does not cover the installed product")
+    evidence = version_evidence(software.vendor, software.product, software.version)
+    if evidence.reason or evidence.interpreted is None:
+        return _unknown(evidence.reason or "VERSION_INCOMPARABLE", "Installed version could not be established")
+    installed = evidence.interpreted
+    scoped = []
+    exclusions = []
     for item in matching:
-        platform_result = _platform_matches(software, item)
-        if platform_result == ApplicabilityStatus.NOT_AFFECTED:
+        applies, reason = _platform_matches(software, operating_system, item.platforms)
+        if applies is None:
+            return _unknown(reason, "CNA platform constraint cannot be confirmed")
+        if applies:
+            scoped.append(item)
+        else:
+            exclusions.append(reason)
+    if not scoped:
+        return ApplicabilityStatus.NOT_AFFECTED, f"{exclusions[0]}: CNA platform is disjoint from collected evidence", 90
+
+    statuses = set()
+    for item in scoped:
+        if item.modules:
+            return _unknown("APPLICABILITY_INCOMPLETE", "CNA module constraint cannot be confirmed")
+        scheme = item.version_type.casefold() if item.version_type else evidence.scheme
+        if scheme == "pep440" and evidence.scheme == "cpython":
+            scheme = "cpython"
+        result = compare_applicability_versions(installed, installed, scheme)
+        if result.reason:
+            return _unknown(result.reason, "Installed version cannot be evaluated in the CNA version scheme")
+        if item.version is None and item.status is None and item.default_status is not None:
             continue
-        if platform_result == ApplicabilityStatus.NOT_EVALUATED:
-            saw_uncertain = True
-            continue
-
-        status, uncertain_changes = _effective_status(software.version, item)
-        if uncertain_changes:
-            saw_uncertain = True
-            continue
-        if status == "unaffected":
-            return ApplicabilityStatus.NOT_AFFECTED, "CNA marks installed version unaffected", 90
-        if status == "affected" and _version_matches(software.version, item):
-            return ApplicabilityStatus.AFFECTED, "CNA affected versions include installed version", 90
-        if status not in {"affected", "unaffected", "unknown"}:
-            saw_uncertain = True
-
-    if saw_uncertain:
-        return ApplicabilityStatus.NOT_EVALUATED, "CNA affected data has unconfirmed constraints", 35
-    return ApplicabilityStatus.NOT_AFFECTED, "CNA affected versions do not include installed version", 85
-
-
-def _product_matches(software: SoftwareProduct, item: AffectedVersionRange) -> bool:
-    """Return whether CNA vendor/product fields match normalized software."""
-
-    vendor_ok = item.vendor is None or _key(item.vendor) == _key(software.normalized_vendor)
-    product_candidates = [item.product, item.package_name, _product_from_purl(item.package_url)]
-    product_ok = any(candidate and _key(candidate) == _key(software.normalized_product) for candidate in product_candidates)
-    return vendor_ok and product_ok
+        matches, reason = _version_matches(installed, item, scheme)
+        if matches is None:
+            return _unknown(reason, "CNA version range cannot be compared reliably")
+        if matches:
+            status, reason = _effective_status(installed, item, scheme)
+            if status is None:
+                return _unknown(reason, "CNA version changes cannot be compared reliably")
+            statuses.add(status)
+    if not statuses:
+        statuses = {(item.default_status or "unknown").casefold() for item in scoped}
+    if statuses == {"affected"}:
+        return ApplicabilityStatus.AFFECTED, "CNA explicitly includes the installed version", 90
+    if statuses == {"unaffected"}:
+        return ApplicabilityStatus.NOT_AFFECTED, "CNA explicitly marks the installed version unaffected", 90
+    return _unknown("APPLICABILITY_INCOMPLETE", "CNA status is missing, unknown or conflicting for the installed version")
 
 
 def _platform_matches(
-    software: SoftwareProduct,
-    item: AffectedVersionRange,
-) -> ApplicabilityStatus:
-    """Evaluate CNA platform constraints from software architecture only."""
+    software: SoftwareProduct, observed_os: str | None, platforms: list[str],
+) -> tuple[bool | None, str]:
+    if not platforms:
+        return True, ""
+    unknown = None
+    mismatch = "PLATFORM_MISMATCH_CONFIRMED"
+    for platform in platforms:
+        # A combined label is a conjunction. Keep the architecture separate
+        # from the OS name so a Windows host cannot establish an ARM64 match.
+        combined = re.fullmatch(r"(.+?)[\s(/_-]+(x64|x86_64|amd64|x86|i[36]86|arm64|aarch64|arm32|armv7)\)?", platform, re.I)
+        required_arch = architecture_identity(combined[2] if combined else platform)
+        os_match = platform_matches(combined[1], observed_os, exact_product=True) if combined else True
+        if required_arch:
+            actual_arch = architecture_identity(software.architecture)
+            if os_match is False:
+                mismatch = "PLATFORM_MISMATCH_CONFIRMED"
+                continue
+            if os_match is True and required_arch == actual_arch:
+                return True, ""
+            if actual_arch is None:
+                unknown = "ARCH_UNKNOWN"
+            elif os_match is None and required_arch == actual_arch:
+                unknown = "PLATFORM_UNKNOWN"
+            mismatch = "ARCH_MISMATCH_CONFIRMED"
+        else:
+            result = platform_matches(platform, observed_os, exact_product=True)
+            if result is True:
+                return True, ""
+            if result is None:
+                unknown = "PLATFORM_UNKNOWN"
+            mismatch = "PLATFORM_MISMATCH_CONFIRMED"
+    return (None, unknown) if unknown else (False, mismatch)
 
-    if not item.platforms:
-        return ApplicabilityStatus.AFFECTED
-    if not software.architecture:
-        return ApplicabilityStatus.NOT_EVALUATED
-    observed = _key(software.architecture)
-    return (
-        ApplicabilityStatus.AFFECTED
-        if any(_key(platform) in observed or observed in _key(platform) for platform in item.platforms)
-        else ApplicabilityStatus.NOT_AFFECTED
+
+def _version_matches(installed: str, item: AffectedVersionRange, scheme: str) -> tuple[bool | None, str]:
+    if item.less_than is not None and item.less_than_or_equal is not None:
+        return None, "APPLICABILITY_INCOMPLETE"
+    bound = item.less_than if item.less_than is not None else item.less_than_or_equal
+    if item.version is None or (item.version == "*" and bound is None):
+        return None, "APPLICABILITY_INCOMPLETE"
+    start = compare_applicability_versions(installed, item.version, scheme) if item.version != "*" else None
+    if start is not None and start.order is None:
+        return None, start.reason or "VERSION_INCOMPARABLE"
+    if bound is None:
+        return start is not None and start.order == 0, ""
+    if bound == "*":
+        return start is None or start.order >= 0, ""
+    end = compare_applicability_versions(installed, bound, scheme)
+    if end.order is None:
+        return None, end.reason or "VERSION_INCOMPARABLE"
+    if start is not None:
+        bounds = compare_applicability_versions(item.version, bound, scheme)
+        if bounds.order is None or bounds.order > 0 or (bounds.order == 0 and item.less_than is not None):
+            return None, bounds.reason or "APPLICABILITY_INCOMPLETE"
+    return (start is None or start.order >= 0) and (end.order < 0 or end.order == 0 and item.less_than is None), ""
+
+
+def _effective_status(installed: str, item: AffectedVersionRange, scheme: str) -> tuple[str | None, str]:
+    status = (item.status or "unknown").casefold()
+    latest = None
+    for change in item.changes:
+        at = change.get("at")
+        changed_status = str(change.get("status", "")).casefold()
+        if not at or changed_status not in {"affected", "unaffected", "unknown"}:
+            return None, "APPLICABILITY_INCOMPLETE"
+        comparison = compare_applicability_versions(installed, at, scheme)
+        if comparison.order is None:
+            return None, comparison.reason or "VERSION_INCOMPARABLE"
+        if comparison.order >= 0:
+            if latest is not None:
+                ordering = compare_applicability_versions(at, latest, scheme)
+                if ordering.order is None:
+                    return None, ordering.reason or "VERSION_INCOMPARABLE"
+                if ordering.order == 0 and status != changed_status:
+                    return None, "APPLICABILITY_INCOMPLETE"
+                if ordering.order < 0:
+                    continue
+            latest, status = at, changed_status
+    return status, ""
+
+
+def _product_matches(software: SoftwareProduct, item: AffectedVersionRange) -> bool:
+    vendor_ok = bool(item.vendor) and _key(item.vendor) == _key(software.normalized_vendor)
+    package = item.package_url.rstrip("/").split("/")[-1] if item.package_url else None
+    return vendor_ok and any(
+        candidate and _key(candidate) == _key(software.normalized_product)
+        for candidate in (item.product, item.package_name, package)
     )
 
 
-def _version_matches(installed: str, item: AffectedVersionRange) -> bool:
-    """Return whether installed version matches one CNA range."""
-
-    if item.less_than:
-        return compare_versions(installed, item.less_than) < 0 and _start_matches(installed, item)
-    if item.less_than_or_equal:
-        return compare_versions(installed, item.less_than_or_equal) <= 0 and _start_matches(installed, item)
-    if item.version in {None, "*"}:
-        return True
-    return compare_versions(installed, item.version) == 0
-
-
-def _start_matches(installed: str, item: AffectedVersionRange) -> bool:
-    """Return whether installed version is at or above the CNA start version."""
-
-    if item.version in {None, "*"}:
-        return True
-    return compare_versions(installed, item.version) >= 0
-
-
-def _effective_status(installed: str, item: AffectedVersionRange) -> tuple[str, bool]:
-    """Return CNA status after applying version changes."""
-
-    status = (item.status or "unknown").casefold()
-    sortable_changes: list[tuple[str, dict[str, str]]] = []
-    for change in item.changes:
-        at = change.get("at")
-        if not at or not change.get("status"):
-            continue
-        try:
-            parse_version(at)
-        except Exception:
-            return status, True
-        if not parse_version(at).parts:
-            return status, True
-        sortable_changes.append((at, change))
-
-    sortable_changes.sort(key=lambda item_pair: parse_version(item_pair[0]))
-    for at, change in sortable_changes:
-        if compare_versions(installed, at) >= 0:
-            status = str(change["status"]).casefold()
-    return status, False
-
-
-def _product_from_purl(package_url: str | None) -> str | None:
-    """Extract a best-effort product name from a package URL."""
-
-    if not package_url:
-        return None
-    return package_url.rstrip("/").split("/")[-1]
-
-
 def _key(value: str) -> str:
-    """Return a loose comparison key."""
-
     return value.replace("_", " ").replace("-", " ").casefold().strip()
+
+
+def _unknown(code: str, reason: str) -> tuple[ApplicabilityStatus, str, int]:
+    return ApplicabilityStatus.NOT_EVALUATED, f"{code}: {reason}", 30

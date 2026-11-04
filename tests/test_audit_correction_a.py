@@ -33,7 +33,12 @@ class DeterministicProvider:
     def get_cpes(self, params):
         return []
     def get_cves(self, params):
-        return []
+        query = params.get('cpeName') or params.get('virtualMatchString', '')
+        if ':google:chrome:' not in query:
+            return []
+        return [{'cve': {'id': 'CVE-2099-99999', 'configurations': [{'nodes': [{'cpeMatch': [{
+            'criteria': 'cpe:2.3:a:google:chrome:120.0.0.1:*:*:*:*:*:*:*', 'vulnerable': True,
+        }]}]}]}}]
 
 
 def cve_context(unknown=False, collection='SUCCESS'):
