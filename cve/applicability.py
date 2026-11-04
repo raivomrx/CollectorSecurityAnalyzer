@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import re
 from typing import Any
 
 from cve.cpe_resolver import ParsedCpe23, parse_cpe23_components
@@ -20,6 +21,7 @@ ENVIRONMENT_COMPONENTS = {
 OS_VERSION_KEYS = ("OSVersion", "OperatingSystemVersion", "operatingSystem.version")
 START = ("versionStartIncluding", "versionStartExcluding")
 END = ("versionEndIncluding", "versionEndExcluding")
+TEAMS_CLASSIC_VERSION = re.compile(r"1\.[0-9]{1,3}\.0{1,2}\.[0-9]{1,8}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,7 +57,7 @@ def evaluate_applicability_result(
     if str(cve.vuln_status).casefold() == "rejected" or cve.cve_id == "UNKNOWN":
         return _unknown("APPLICABILITY_INCOMPLETE", "NVD record has no active CVE identity")
     result = _combine("OR", [
-        _evaluate_node(software, cpe, identity, config, environment_data)
+        _evaluate_node(software, cpe, identity, cve, config, environment_data)
         for config in cve.configurations
     ])
     if result.status == ApplicabilityStatus.AFFECTED and not result.has_vulnerable_match:
@@ -65,7 +67,7 @@ def evaluate_applicability_result(
 
 def _evaluate_node(
     software: SoftwareProduct, cpe: CpeCandidate, identity: ParsedCpe23,
-    node: Any, environment: dict[str, Any] | None,
+    cve: CveRecord, node: Any, environment: dict[str, Any] | None,
 ) -> EvaluationResult:
     if not isinstance(node, dict) or node.get("negate", False) is not False:
         return _unknown("APPLICABILITY_INCOMPLETE", "Invalid or negated NVD applicability node")
@@ -79,15 +81,15 @@ def _evaluate_node(
             return _unknown("APPLICABILITY_INCOMPLETE", "Malformed NVD applicability criteria")
         for value in values:
             if key == "cpeMatch":
-                results.append(_evaluate_match(software, cpe, identity, value, environment))
+                results.append(_evaluate_match(software, cpe, identity, cve, value, environment))
             else:
-                results.append(_evaluate_node(software, cpe, identity, value, environment))
+                results.append(_evaluate_node(software, cpe, identity, cve, value, environment))
     return _combine(operator, results)
 
 
 def _evaluate_match(
     software: SoftwareProduct, cpe: CpeCandidate, identity: ParsedCpe23,
-    match: Any, environment: dict[str, Any] | None,
+    cve: CveRecord, match: Any, environment: dict[str, Any] | None,
 ) -> EvaluationResult:
     if not isinstance(match, dict) or type(match.get("vulnerable")) is not bool:
         return _unknown("APPLICABILITY_INCOMPLETE", "Invalid NVD vulnerability criterion")
@@ -119,15 +121,63 @@ def _evaluate_match(
     if parsed.part == "o" and not vulnerable and exact == "-" and not any(key in match for key in (*START, *END)):
         # This platform prerequisite names an OS family without a version axis.
         exact = "*"
+    desktop_start = _teams_windows_desktop_start(software, cve, parsed, match, environment)
+    if desktop_start:
+        match = {**match, "versionStartIncluding": desktop_start}
+        parsed = replace(parsed, target_sw="windows")
     version = _evaluate_version(installed, scheme, exact, match, criteria, vulnerable)
+    if desktop_start and version.status == ApplicabilityStatus.AFFECTED:
+        version = replace(
+            version,
+            reason=f"Installed version matches Microsoft's affected Windows desktop range "
+                   f"from {desktop_start} to before {match['versionEndExcluding']}, corroborating the NVD criterion",
+        )
     environment_result = _evaluate_environment(parsed, software, identity, environment, criteria)
     return _combine("AND", [version, environment_result]) if environment_result else version
+
+
+def _teams_windows_desktop_start(
+    software: SoftwareProduct, cve: CveRecord, parsed: ParsedCpe23,
+    match: dict[str, Any], environment: dict[str, Any] | None,
+) -> str | None:
+    """Scope the platformless classic Teams range using Microsoft's named range."""
+    upper = match.get("versionEndExcluding")
+    if (
+        (parsed.part, parsed.vendor, parsed.product, parsed.target_sw, parsed.version) != ("a", "microsoft", "teams", "-", "*")
+        or not match["vulnerable"] or any(key in match for key in (*START, END[0]))
+        or software.vendor.casefold() not in {"microsoft", "microsoft corporation"}
+        or software.product.casefold() != "microsoft teams"
+        or not TEAMS_CLASSIC_VERSION.fullmatch(software.version)
+        or not isinstance(upper, str) or not TEAMS_CLASSIC_VERSION.fullmatch(upper)
+        or platform_matches("windows", read_environment(environment, OS_KEYS)) is not True
+        or cve.source_identifier != "secure@microsoft.com"
+    ):
+        return None
+    desktop = [
+        product
+        for source in cve.affected
+        if isinstance(source, dict) and source.get("source") == cve.source_identifier
+        and isinstance(source.get("affectedData"), list)
+        for product in source["affectedData"]
+        if isinstance(product, dict) and product.get("vendor") == "Microsoft"
+        and product.get("product") == "Microsoft Teams for Desktop"
+    ]
+    if len(desktop) != 1 or any(key in desktop[0] for key in ("platforms", "modules", "defaultStatus")):
+        return None
+    versions = desktop[0].get("versions")
+    if not isinstance(versions, list) or len(versions) != 1 or not isinstance(versions[0], dict):
+        return None
+    version = versions[0]
+    if version != {"version": version.get("version"), "lessThan": upper, "versionType": "custom", "status": "affected"}:
+        return None
+    start = version["version"]
+    return start if compare_applicability_versions(start, upper).order == -1 else None
 
 
 def _evaluate_version(
     installed: str | None, scheme: str, exact: str, match: dict[str, Any], criteria: str, vulnerable: bool,
 ) -> EvaluationResult:
-    if exact == "-":
+    if exact == "-" or any(match.get(key) == "-" for key in (*START, *END)):
         return _unknown("CPE_VERSION_NA", "CPE version has NA semantics", [criteria])
     starts, ends = ([key for key in keys if key in match] for keys in (START, END))
     if len(starts) > 1 or len(ends) > 1:

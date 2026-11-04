@@ -38,6 +38,7 @@ def parse_cve_record(cve: dict[str, Any]) -> CveRecord:
     configurations = cve.get("configurations", [])
     if not isinstance(configurations, list):
         configurations = []
+    affected = cve.get("affected", [])
     quality = _quality(
         bool(description),
         score is not None,
@@ -62,6 +63,7 @@ def parse_cve_record(cve: dict[str, Any]) -> CveRecord:
         vendor_advisory_urls=_read_vendor_advisories(
             cve.get("references", {})
         ),
+        affected=affected if isinstance(affected, list) else [],
     )
 
 

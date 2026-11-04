@@ -27,6 +27,28 @@ from tests.test_console_sprint5 import Sprint5TestCase
 
 
 FIXTURE = json.loads(Path(__file__).with_name("fixtures").joinpath("audit2-cve-frozen.json").read_text(encoding="utf-8"))
+TEAMS_DESKTOP_CVES = ("CVE-2023-29328", "CVE-2023-29330")
+TEAMS_SOFTWARE = {"publisher": "Microsoft Corporation", "displayName": "Microsoft Teams",
+                  "displayVersion": "1.4.00.32771", "architecture": "AMD64"}
+
+
+def teams_desktop_records():
+    # Minimal public NVD configuration and Microsoft affected-data projection.
+    matches = [
+        {"vulnerable": True, "criteria": build_cpe23("a", "microsoft", "teams", target_sw=platform),
+         "versionEndExcluding": bound}
+        for platform, bound in (("android", "1.0.0.2023070204"), ("macos", "1.6.00.17554"),
+                                ("-", "1.6.00.18681"), ("iphone_os", "5.12.1"))
+    ]
+    return [{
+        "id": cve_id,
+        "sourceIdentifier": "secure@microsoft.com",
+        "affected": [{"source": "secure@microsoft.com", "affectedData": [{
+            "vendor": "Microsoft", "product": "Microsoft Teams for Desktop",
+            "versions": [{"version": "1.0.0", "lessThan": "1.6.00.18681", "versionType": "custom", "status": "affected"}],
+        }]}],
+        "configurations": [{"nodes": [{"operator": "OR", "cpeMatch": matches}]}],
+    } for cve_id in TEAMS_DESKTOP_CVES]
 
 
 class FrozenResolver:
@@ -81,6 +103,42 @@ def fixture_inventory(rows, **kwargs):
 
 
 class Audit2CveTests(TestCase):
+    def test_teams_classic_windows_range_requires_microsoft_desktop_evidence(self):
+        product = build_inventory([TEAMS_SOFTWARE]).products[0]
+        cpe = CpeCandidate(build_cpe23("a", "microsoft", "teams"), "Microsoft Teams",
+                           "microsoft", "teams", None, False, 95, CpeMatchStatus.EXACT, "NVD")
+        windows = {"OS": "Microsoft Windows 11 Pro"}
+        for record in parse_cve_items(teams_desktop_records()):
+            with self.subTest(cve=record.cve_id):
+                self.assertEqual(evaluate_applicability_result(product, cpe, record, windows).status, ApplicabilityStatus.AFFECTED)
+                for candidate, source, environment in (
+                    (product, replace(record, affected=[]), windows),
+                    (product, replace(record, source_identifier="other"), windows),
+                    (product, record, {"OS": "unknown"}),
+                    (replace(product, product="Microsoft Teams Meeting Add-in"), record, windows),
+                ):
+                    result = evaluate_applicability_result(candidate, cpe, source, environment)
+                    self.assertEqual((result.status, result.reason_code),
+                                     (ApplicabilityStatus.NOT_EVALUATED, "PLATFORM_UNKNOWN"))
+                new_teams = replace(product, version="25122.1207.3700.1444")
+                self.assertEqual(evaluate_applicability_result(new_teams, cpe, record, windows),
+                                 evaluate_applicability_result(new_teams, cpe, replace(record, affected=[]), windows))
+                desktop_only = replace(record, configurations=[{"cpeMatch": [record.configurations[0]["nodes"][0]["cpeMatch"][2]]}])
+                for version in ("1.6.00.18681", "1.6.00.18682"):
+                    result = evaluate_applicability_result(replace(product, version=version), cpe, desktop_only, windows)
+                    self.assertEqual((result.status, result.reason_code),
+                                     (ApplicabilityStatus.NOT_AFFECTED, "VERSION_OUTSIDE_RANGE"))
+
+    def test_nvd_na_version_bound_is_distinct_from_unsupported_scheme(self):
+        product = build_inventory([TEAMS_SOFTWARE]).products[0]
+        cpe_name = build_cpe23("a", "microsoft", "teams")
+        cpe = CpeCandidate(cpe_name, "Teams", "microsoft", "teams", None, False, 95, CpeMatchStatus.EXACT, "NVD")
+        for bound, reason in (("-", "CPE_VERSION_NA"), ("2020-10-29", "VERSION_SCHEME_UNSUPPORTED")):
+            match = {"vulnerable": True, "criteria": cpe_name, "versionEndExcluding": bound}
+            record = parse_cve_items([{"id": "CVE-2099-56611", "configurations": [{"cpeMatch": [match]}]}])[0]
+            result = evaluate_applicability_result(product, cpe, record)
+            self.assertEqual((result.status, result.reason_code), (ApplicabilityStatus.NOT_EVALUATED, reason))
+
     def test_verified_python_msi_and_title_agreement(self):
         vendor = "Python Software Foundation"
         for title, version, interpreted, reason in [
@@ -165,6 +223,40 @@ class Audit2CveTests(TestCase):
 
 
 class Audit2ReportTests(Sprint5TestCase):
+    def test_teams_confirmed_cves_remain_visible_in_partial_report(self):
+        service = SubmissionService(self.storage)
+        pipeline = ConsoleAnalysisPipeline(self.storage)
+        assessment = self.assessment.assessment_id
+        evidence = self.evidence()
+        evidence["operatingSystem"]["name"] = "Microsoft Windows 11 Pro"
+        evidence["software"].update(items=[TEAMS_SOFTWARE], recordsCollected=1, collectionStatus="SUCCESS")
+        submission = "SUB-TEAMS-SYNTHETIC"
+        nonce = service.request_nonce(assessment, self.session.session_id, submission, self.token, "127.0.0.1")
+        _, package, _ = service.accept(assessment_id=assessment, session_id=self.session.session_id,
+            submission_id=submission, enrollment_token=self.token, nonce=nonce, source_address="127.0.0.1",
+            archive_bytes=self.package(submission, nonce, evidence=evidence).read_bytes())
+        pipeline.analyze(package)
+        client = FrozenNvd()
+        cpe_name = build_cpe23("a", "microsoft", "teams")
+        unsupported = {"id": "CVE-2099-56611", "configurations": [{"cpeMatch": [
+            {"vulnerable": True, "criteria": cpe_name, "versionEndExcluding": "2020-10-29"}]}]}
+        client.get_cves = lambda _params: [*teams_desktop_records(), unsupported]
+        cpe = CpeCandidate(cpe_name, "Microsoft Teams", "microsoft", "teams", None, False, 95, CpeMatchStatus.EXACT, "NVD")
+        cve_service = CveService(client=client, resolver=SimpleNamespace(resolve=lambda _product: cpe))
+        with mock.patch("analyzer.NvdClient", FrozenNvd), mock.patch("analyzer.NvdCache", side_effect=lambda: NvdCache(self.storage.root / "teams.sqlite3")), \
+                mock.patch("analyzer.CveService", return_value=cve_service), mock.patch("analyzer._run_cve_enrichment"):
+            result = pipeline.retry_analysis(assessment, submission, run_cve=True)
+        self.assertEqual(result.cve_summary["status"], "PARTIAL")
+        self.assertEqual(result.cve_summary["providerStatus"], "SUCCESS")
+        self.assertEqual(result.cve_summary["confirmedCveIds"], list(TEAMS_DESKTOP_CVES))
+        team = result.cve_summary["softwareResults"][0]
+        self.assertEqual(team["cveEvaluationStatus"], "CONFIRMED")
+        self.assertEqual(team["cvePipeline"]["terminalReasonCode"], "VERSION_SCHEME_UNSUPPORTED")
+        html = UnifiedReportGenerator(self.storage).generate(assessment).read_text(encoding="utf-8")
+        for cve_id in TEAMS_DESKTOP_CVES:
+            self.assertIn(f"https://nvd.nist.gov/vuln/detail/{cve_id}", html)
+        self.assertIn("Microsoft&#39;s affected Windows desktop range", html)
+
     def test_frozen_nvd_cna_evidence_to_unified_report(self):
         service = SubmissionService(self.storage)
         pipeline = ConsoleAnalysisPipeline(self.storage)

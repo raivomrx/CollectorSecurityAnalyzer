@@ -99,6 +99,7 @@ class CveRecord:
     vuln_status: str | None
     data_quality: CveDataQuality
     vendor_advisory_urls: list[str] = field(default_factory=list)
+    affected: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)

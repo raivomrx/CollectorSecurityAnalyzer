@@ -11,10 +11,12 @@
 The current installer is **CSA Lab 5.6.0** and is unsigned. After updating,
 create a new assessment to obtain the updated Collector package.
 
-**5.6.6 is a review candidate**, available from the
+**5.6.6.1 is a review candidate**, available from the
 [CSA Lab Build workflow](https://github.com/raivomrx/CollectorSecurityAnalyzer/actions/workflows/csa-lab-build.yml).
 The [Audit2 correction](docs/sprint-5.6.6-audit2.md) tightens CVE applicability
 and preserves UTF-8 in new Collector submissions.
+The [Teams follow-up](docs/sprint-5.6.6.1-teams-applicability.md) documents
+the desktop applicability correction and the remaining version limitations.
 The Join page previews **PowerShell Copy & Paste** with `TRUST_NOT_ESTABLISHED`.
 Enablement requires the [COL-1 architecture decision](docs/ADR-565-col1-copy-paste.md).
 See the [English and Estonian operator guide](docs/sprint-5.6.5-quick-start.md).
