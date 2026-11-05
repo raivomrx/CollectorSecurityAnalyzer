@@ -58,6 +58,7 @@ class SubmissionService:
         submission_id: str,
         enrollment_token: str,
         source_address: str,
+        trusted_envelope: tuple[str, str] | None = None,
     ) -> str:
         """Authenticate a collector and issue a one-use nonce."""
 
@@ -69,6 +70,13 @@ class SubmissionService:
             raise SubmissionRejected(
                 SubmissionState.REJECTED_TOKEN, str(error)
             ) from error
+        from csa_console.trusted_grants import TrustedGrantStore
+        if TrustedGrantStore(self.storage).required(session):
+            try:
+                envelope_id, proof = trusted_envelope or ("", "")
+                TrustedGrantStore(self.storage).consume(session, envelope_id, proof, submission_id, "HTTPS")
+            except ValueError as error:
+                raise SubmissionRejected(SubmissionState.REJECTED_REPLAY, "CSA-TRUST-SESSION") from error
         nonce = self.nonces.issue(session, submission_id, source_address)
         self._audit(assessment_id).append(
             "submission_requested",
@@ -117,10 +125,13 @@ class SubmissionService:
                 SubmissionState.REJECTED_TOKEN, str(error)
             ) from error
         try:
+            from csa_console.trusted_grants import TrustedGrantStore
+            if TrustedGrantStore(self.storage).required(session):
+                TrustedGrantStore(self.storage).require_authorized_submission(session, submission_id)
             self.nonces.consume(
                 session, submission_id, nonce, source_address
             )
-        except NonceError as error:
+        except (NonceError, ValueError) as error:
             self._reject(
                 assessment_id,
                 submission_id,
@@ -151,7 +162,8 @@ class SubmissionService:
         quarantine_path.chmod(0o600)
         self._audit(assessment_id).append(
             "submission_quarantined",
-            {"submissionId": submission_id, "transportDigest": received_digest},
+            {"submissionId": submission_id, "transportDigest": received_digest,
+             "stage": "IMMUTABLE_STAGING", "eventClass": "STAGING", "code": "CSA-SUB-STAGED"},
         )
         validator = EvidencePackageValidator(
             maximum_package_size=session.maximum_package_size
@@ -213,6 +225,7 @@ class SubmissionService:
                     SubmissionState.REJECTED_REPLAY,
                     "Duplicate submission ID or package digest",
                 )
+            repeat_endpoint = any(item.get("deviceId") == package.manifest["deviceId"] for item in index)
             accepted_path = self.storage.path(
                 assessment_id,
                 "submissions",
@@ -274,6 +287,8 @@ class SubmissionService:
         self._audit(assessment_id).append(
             "submission_accepted",
             {
+                "stage": "EVIDENCE_ACCEPTED", "eventClass": "ACCEPTED",
+                "repeatEndpoint": repeat_endpoint,
                 "sessionId": session_id,
                 "submissionId": submission_id,
                 "packageDigest": package.package_digest,

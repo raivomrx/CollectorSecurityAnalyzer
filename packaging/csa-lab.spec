@@ -12,6 +12,7 @@ if ROOT.name == "packaging":
 
 datas = [
     (str(ROOT / "assets" / "logo.png"), "assets"),
+    (str(ROOT / "build" / "trusted-collector"), "trusted-collector"),
     (str(Path(os.environ.get("CSA_COLLECTOR_SOURCE_DIR", ROOT / "collector" / "windows"))), "collector/windows"),
     (str(ROOT / "collector_schema"), "collector_schema"),
     (str(ROOT / "frameworks"), "frameworks"),

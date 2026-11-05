@@ -343,6 +343,14 @@ class OfflineImportService:
             )
         if package.package_digest != associated.get("packageDigest"):
             raise OfflineImportError("Offline package digest binding is invalid")
+        from csa_console.trusted_grants import TrustedGrantStore
+        if TrustedGrantStore(self.storage).required(session):
+            if not decrypted.nonce.startswith("trusted:"):
+                raise OfflineImportError("CSA-TRUST-SESSION")
+            try:
+                TrustedGrantStore(self.storage).consume(session, "", decrypted.nonce[len("trusted:"):], submission_id, "OFFLINE_ENCRYPTED")
+            except ValueError as error:
+                raise OfflineImportError("CSA-TRUST-SESSION") from error
         index_path = self.storage.path(
             assessment_id, "submissions", "index.json"
         )

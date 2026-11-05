@@ -74,7 +74,7 @@ def verify_recorded_evidence(storage, assessment_id, analyses, index):
                 signed = signed and all(receipt.get(key) == expected for key, expected in {
                     "assessmentId": assessment_id, "sessionId": manifest["sessionId"],
                     "submissionId": submission, "packageDigest": manifest["packageDigest"],
-                    "validationStatus": "ACCEPTED"}.items())
+                    "validationStatus": "ACCEPTED_OFFLINE" if entry.get("transport") == "OFFLINE_ENCRYPTED" else "ACCEPTED"}.items())
                 row["receiptVerification"] = "VERIFIED" if signed else "NOT_VERIFIED"
             normalized_path = storage.path(assessment_id, "normalized", submission + ".json")
             if normalized_path.is_file():
@@ -104,5 +104,9 @@ def verify_recorded_evidence(storage, assessment_id, analyses, index):
             row["archiveIntegrity"], row["receiptVerification"], row["normalizedEvidenceBinding"])),
         "collectorBuildTrusted": _aggregate(row["collectorBuildAllowlist"] for row in rows),
         "collectorBuildTrustScope": "Recorded session allowlist membership; independent publisher authenticity was not evaluated.",
+        "publisherAuthenticity": "NOT_EVALUATED",
+        "independentLabIdentity": "TRUST_ENROLLMENT_PENDING",
+        "tlsIdentity": "SESSION_CERTIFICATE_PIN_RECORDED",
+        "signedReceiptIntegrity": _aggregate(row["receiptVerification"] for row in rows),
         "endpointChecks": rows,
     }

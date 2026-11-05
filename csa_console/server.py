@@ -11,6 +11,7 @@ from collections import defaultdict, deque
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+import uuid
 from urllib.parse import urlparse
 
 from csa_console.network import validate_listen_address
@@ -201,10 +202,12 @@ def _handler_factory(
     limiter = _RateLimiter()
 
     class SubmissionHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Lab/5.6.7"
+        server_version = "CSA-Lab/5.6.8"
         protocol_version = "HTTP/1.1"
 
         def do_GET(self) -> None:
+            self.correlation_id = uuid.uuid4().hex
+            self.diagnostic_stage = "PORTAL_JOIN"
             source = str(self.client_address[0])
             path = urlparse(self.path).path
             try:
@@ -221,6 +224,7 @@ def _handler_factory(
                     self._json(HTTPStatus.NOT_FOUND, {"error": "NOT_FOUND"})
                     return
                 join_code = parts[0]
+                self.diagnostic_stage = "PORTAL_DOWNLOAD" if len(parts) == 2 else "PORTAL_JOIN"
                 if not portal.authorize(join_code, source):
                     self._bytes(
                         HTTPStatus.GONE,
@@ -244,6 +248,7 @@ def _handler_factory(
                     )
                     return
                 if parts[1] == "download":
+                    self.diagnostic_stage = "PORTAL_DOWNLOAD"
                     download_path = portal.collector_path
                     content_type = "application/vnd.microsoft.portable-executable"
                     filename = "CSA-Collector.exe"
@@ -267,13 +272,13 @@ def _handler_factory(
                     attachment=filename,
                 )
             except (OSError, ValueError):
-                LOGGER.exception("Collector portal request failed safely")
-                self._json(
-                    HTTPStatus.INTERNAL_SERVER_ERROR,
-                    {"error": "PORTAL_ERROR"},
-                )
+                LOGGER.warning("CSA-PORTAL-ERROR correlation=%s stage=%s", self.correlation_id, self.diagnostic_stage)
+                self._bytes(HTTPStatus.INTERNAL_SERVER_ERROR,
+                    PortalBinding.render_error_page(self.correlation_id), "text/html; charset=utf-8")
 
         def do_POST(self) -> None:
+            self.correlation_id = uuid.uuid4().hex
+            self.diagnostic_stage = "REQUEST_AUTHORIZATION"
             source = str(self.client_address[0])
             if not limiter.allow(source):
                 self._json(HTTPStatus.TOO_MANY_REQUESTS, {"error": "RATE_LIMIT"})
@@ -281,6 +286,7 @@ def _handler_factory(
             path = urlparse(self.path).path
             try:
                 if path == "/api/v1/collector-package":
+                    self.diagnostic_stage = "PACKAGE_DOWNLOAD"
                     self._read_body(0)
                     authorization = self.headers.get("Authorization", "")
                     credential = authorization[len("CSA-Launcher "):] if authorization.startswith("CSA-Launcher ") else ""
@@ -292,8 +298,10 @@ def _handler_factory(
                     portal.record_download(source)
                     self._bytes(HTTPStatus.OK, body, "application/zip")
                 elif path == "/api/v1/nonce":
+                    self.diagnostic_stage = "SUBMISSION_AUTHORIZATION"
                     self._nonce(source)
                 elif path.startswith("/api/v1/submissions/"):
+                    self.diagnostic_stage = "EVIDENCE_VALIDATION"
                     submission_id = path.rsplit("/", 1)[-1]
                     self._submission(source, submission_id)
                 else:
@@ -311,7 +319,7 @@ def _handler_factory(
                     {"error": "INVALID_REQUEST"},
                 )
             except Exception:
-                LOGGER.exception("Submission request failed safely")
+                LOGGER.warning("CSA-SUBMISSION-ERROR correlation=%s stage=%s", self.correlation_id, self.diagnostic_stage)
                 self._json(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {"error": "INTERNAL_ERROR"},
@@ -338,6 +346,7 @@ def _handler_factory(
                 submission_id,
                 token,
                 source,
+                trusted_envelope=(self.headers.get("X-CSA-Envelope", ""), self.headers.get("X-CSA-Envelope-Nonce", "")),
             )
             self._json(HTTPStatus.OK, {"nonce": nonce, "expiresIn": 120})
 
@@ -379,15 +388,14 @@ def _handler_factory(
                     reporter.generate_endpoint(assessment_id, submission_id)
                     analysis_state = "COMPLETED"
                 except Exception:
-                    LOGGER.exception(
-                        "Accepted submission analysis failed: %s", submission_id
-                    )
+                    LOGGER.warning("CSA-ANALYSIS-ERROR correlation=%s stage=POST_ACCEPTANCE", self.correlation_id)
                     submission_service.update_processing_state(
                         assessment_id, submission_id, "ERROR"
                     )
                     analysis_state = "FAILED"
             response = model_to_dict(receipt)
             response["analysisState"] = analysis_state
+            self.diagnostic_stage = "EVIDENCE_ACCEPTED"
             self._json(HTTPStatus.CREATED, response)
 
         def _token(self) -> str:
@@ -430,6 +438,9 @@ def _handler_factory(
             return body
 
         def _json(self, status: HTTPStatus, value: dict[str, Any]) -> None:
+            if status >= 400:
+                value = {**value, "correlationId": self.correlation_id, "stage": self.diagnostic_stage,
+                         "eventClass": "REJECTED", "httpStatus": int(status)}
             body = json.dumps(
                 value, ensure_ascii=False, separators=(",", ":"), sort_keys=True
             ).encode("utf-8")
@@ -442,6 +453,8 @@ def _handler_factory(
             self.send_header("Location", location)
             self.send_header("Content-Length", "0")
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-CSA-Correlation-ID", getattr(self, "correlation_id", ""))
+            self.send_header("X-CSA-Stage", getattr(self, "diagnostic_stage", "REQUEST"))
             self.send_header("Referrer-Policy", "no-referrer")
             self.end_headers()
 
@@ -458,6 +471,10 @@ def _handler_factory(
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("Pragma", "no-cache")
+            self.send_header("X-CSA-Correlation-ID", getattr(self, "correlation_id", ""))
+            self.send_header("X-CSA-Stage", getattr(self, "diagnostic_stage", "REQUEST"))
+            self.send_header("X-CSA-Event-Class", "REJECTED" if status >= 400 else
+                             "ACCEPTED" if getattr(self, "diagnostic_stage", "") == "EVIDENCE_ACCEPTED" else "DELIVERED")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("Referrer-Policy", "no-referrer")
@@ -477,10 +494,15 @@ def _handler_factory(
             self.wfile.write(body)
 
         def log_message(self, format: str, *args: Any) -> None:
+            # BaseHTTPRequestHandler also calls this for malformed requests.
+            # Its free-form error text can contain a URL or user-supplied bytes.
+            status = str(args[1]) if len(args) > 1 else ""
+            status = status if len(status) == 3 and status.isascii() and status.isdigit() else "unknown"
             LOGGER.info(
-                "HTTPS request completed source=%s status=%s",
-                self.client_address[0],
-                args[1] if len(args) > 1 else "unknown",
+                "HTTPS request completed correlation=%s stage=%s status=%s",
+                getattr(self, "correlation_id", ""),
+                getattr(self, "diagnostic_stage", "REQUEST"),
+                status,
             )
 
     return SubmissionHandler

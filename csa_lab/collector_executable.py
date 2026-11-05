@@ -26,6 +26,8 @@ def build_bound_collector(
     output = Path(output_path).resolve()
     if not bootstrap.is_file():
         raise FileNotFoundError("CSA Collector bootstrap executable is unavailable")
+    if _signed_pe(bootstrap.read_bytes()):
+        raise ValueError("CSA-TRUST-IMMUTABLE: Signed publisher executables cannot receive a session overlay")
     if not (package / "trusted-manifest.json").is_file():
         raise ValueError("Collector package trusted manifest is unavailable")
     payload = _package_zip(package)
@@ -40,6 +42,19 @@ def build_bound_collector(
         destination.write(MAGIC)
     temporary.replace(output)
     return output
+
+
+def _signed_pe(value: bytes) -> bool:
+    """Recognize a PE certificate directory without executing the artifact."""
+    if len(value) < 64 or value[:2] != b"MZ":
+        return False
+    offset = struct.unpack_from("<I", value, 60)[0]
+    if offset + 26 > len(value) or value[offset:offset + 4] != b"PE\x00\x00":
+        return False
+    optional = offset + 24
+    magic = struct.unpack_from("<H", value, optional)[0]
+    certificate = optional + (128 if magic == 0x10B else 144 if magic == 0x20B else len(value))
+    return certificate + 8 <= len(value) and any(struct.unpack_from("<II", value, certificate))
 
 
 def read_bound_collector_payload(path: str | Path) -> bytes:

@@ -11,7 +11,7 @@
 The current installer is **CSA Lab 5.6.0** and is unsigned. After updating,
 create a new assessment to obtain the updated Collector package.
 
-**5.6.7 is a review candidate**, available from the
+**5.6.8 is a development review candidate (UNSIGNED LAB ONLY)**, available from the
 [CSA Lab Build workflow](https://github.com/raivomrx/CollectorSecurityAnalyzer/actions/workflows/csa-lab-build.yml).
 The [Audit2 correction](docs/sprint-5.6.6-audit2.md) tightens CVE applicability
 and preserves UTF-8 in new Collector submissions.
@@ -19,8 +19,13 @@ The [Teams follow-up](docs/sprint-5.6.6.1-teams-applicability.md) documents
 the desktop applicability correction and the remaining version limitations.
 The [5.6.7 report clarity gate](docs/sprint-5.6.7-report-clarity.md) explains
 reported BitLocker ON, verified protection, counting units and action traceability.
-The Join page previews **PowerShell Copy & Paste** with `TRUST_NOT_ESTABLISHED`.
-Enablement requires the [COL-1 architecture decision](docs/ADR-565-col1-copy-paste.md).
+The [5.6.8 trusted distribution handoff](docs/sprint-5.6.8-trusted-distribution.md)
+adds immutable launchers, independent publisher/Lab signature verification,
+one-use signed session handoffs and a fail-closed release signing lane.
+The Join page keeps **PowerShell Copy & Paste** disabled with
+`TRUST_NOT_ESTABLISHED`. ADR 565 development is approved; the actual publisher
+identity and independent enrollment channel remain **TRUST_ENROLLMENT_PENDING**.
+The public release and customer pilot trust gates remain **HOLD**.
 See the [English and Estonian operator guide](docs/sprint-5.6.5-quick-start.md).
 The [5.6.4 acceptance guide](docs/sprint-5.6.4-live-stability.md) covers the
 HOME privacy crash fix, BitLocker Shell labels and PowerShell Quick Start.
@@ -31,8 +36,9 @@ empty or unfinished CVE assessments as COMPLETE and prevents ungrounded clean PA
 The [BitLocker evidence correction](docs/sprint-5.6.3-bitlocker.md) separates Shell
 indications from confirmed OS-volume conversion and includes LAB/HOME checklists.
 **Release HOLD: architecture acceptance is required before public release or
-production-client deployment.** The separate [COL-1 trust-anchor proposal](docs/COL-1-trust-anchor-design.md)
-requires approval before implementation.
+production-client deployment.** The [COL-1 boundary analysis](docs/COL-1-trust-anchor-design.md)
+and [approved ADR](docs/ADR-565-col1-copy-paste.md) distinguish integrity from
+independent publisher and Lab trust.
 The [one-file PowerShell bootstrap](docs/sprint-5.6.2-powershell-bootstrap.md) and
 prior [reporting corrections](docs/sprint-5.6.1-reporting.md), including the
 [ACC-011 inherited membership fix](docs/sprint-5.6.1-effective-administrator-membership.md), await live acceptance;
@@ -66,18 +72,22 @@ firewall or registry, or run Active Validation.
 
 The Lab Collector page also offers **PowerShell Quick Start (.ps1)**: save
 `Start-CSACollector.ps1`, open a standard-user Windows PowerShell window in its
-download folder and run the process-scoped Lab command below. Group Policy and
+download folder and run the Lab command below. Group Policy and
 application control still apply.
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-CSACollector.ps1
+powershell.exe -NoProfile -File .\Start-CSACollector.ps1
 ```
 
 The launcher downloads and verifies the existing session
 package automatically. **PowerShell Offline Package (.zip)** remains the
 manual/offline fallback. All three transports use the same Collector engine
 and security controls. Existing execution restrictions apply; an unsigned
-candidate may require an IT-approved signed build.
+candidate may require an IT-approved signed build. These legacy session downloads
+remain development transports with the documented first-contact COL-1 boundary.
+They do not establish publisher trust. The trusted handoff uses the separately
+installed immutable verifier and refuses missing, expired or unverified trust;
+it never falls back to these legacy downloads.
 See [one-file bootstrap and signing](docs/sprint-5.6.2-powershell-bootstrap.md).
 
 ## Security Boundaries

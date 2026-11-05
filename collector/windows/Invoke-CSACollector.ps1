@@ -578,6 +578,14 @@ try {
     Write-Host "CSA phase collect: $($phaseTimer.ElapsedMilliseconds) ms"
     $phaseTimer.Restart()
     $nonce = $null
+    $authorizationHeaders = @{ Authorization = "CSA-Enrollment $($configuration.enrollmentToken)" }
+    $trustedEnvelopeProperty = $configuration.PSObject.Properties['trustedEnvelopeId']
+    if ($null -ne $trustedEnvelopeProperty) {
+        if ([string]$configuration.trustedEnvelopeId -notmatch '\A[A-Za-z0-9_-]{16,128}\z' -or
+            [string]$configuration.trustedEnvelopeNonce -notmatch '\A[A-Za-z0-9_-]{16,128}\z') { throw 'CSA-TRUST-SESSION' }
+        $authorizationHeaders['X-CSA-Envelope'] = [string]$configuration.trustedEnvelopeId
+        $authorizationHeaders['X-CSA-Envelope-Nonce'] = [string]$configuration.trustedEnvelopeNonce
+    }
     if (-not $NoSubmit) {
         $nonceBody = [Text.Encoding]::UTF8.GetBytes((ConvertTo-CSACanonicalJson ([ordered]@{ submissionId = $submissionId })))
         $nonceResponse = Invoke-CSAPinnedRequest `
@@ -585,11 +593,12 @@ try {
             -Method "POST" `
             -ContentType "application/json" `
             -Body $nonceBody `
-            -Headers @{ Authorization = "CSA-Enrollment $($configuration.enrollmentToken)" } `
+            -Headers $authorizationHeaders `
             -Fingerprint ([string]$configuration.serverCertificateFingerprint)
         $nonce = [string]((ConvertFrom-CSAJsonText $nonceResponse).nonce)
     } else {
-        $nonce = "offline:" + [guid]::NewGuid().ToString("N")
+        $nonce = if ($null -ne $trustedEnvelopeProperty) { "trusted:" + [string]$configuration.trustedEnvelopeNonce }
+                 else { "offline:" + [guid]::NewGuid().ToString("N") }
     }
     if ([string]::IsNullOrWhiteSpace($nonce)) { throw "Submission nonce was not issued." }
     $package = New-CSAEvidencePackage $configuration $trustedManifest $evidence $temporaryDirectory $submissionId $nonce

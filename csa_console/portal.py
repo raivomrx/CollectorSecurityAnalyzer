@@ -143,7 +143,7 @@ class PortalBinding:
             "collector_portal_authorization_failed",
             {
                 "sessionId": self.session_id,
-                "sourceAddress": source_address,
+                "sourceAddressHash": "sha256:" + hashlib.sha256(source_address.encode("utf-8")).hexdigest(),
                 "failedAttemptCount": self.failed_authorization_count,
             },
         )
@@ -177,7 +177,7 @@ class PortalBinding:
             "collector_downloaded",
             {
                 "sessionId": self.session_id,
-                "sourceAddress": source_address,
+                "sourceAddressHash": "sha256:" + hashlib.sha256(source_address.encode("utf-8")).hexdigest(),
                 "downloadCount": count,
             },
         )
@@ -200,10 +200,10 @@ class PortalBinding:
             launcher_option = """<p><a class="button" href="download-launcher">Download PowerShell Quick Start (.ps1) — Existing Lab workflow</a></p>
   <p>Save <strong>Start-CSACollector.ps1</strong>. Open a standard-user Windows PowerShell window
      in its download folder and copy this command:</p>
-  <pre><code>powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\Start-CSACollector.ps1</code></pre>
+  <pre><code>powershell.exe -NoProfile -File .\\Start-CSACollector.ps1</code></pre>
   <p>The launcher downloads and verifies this session's existing Collector package automatically.
      No manual ZIP extraction is needed. Keep the launcher private and delete it after use.</p>
-  <p>Bypass applies to this process. Group Policy and Windows application control still apply.
+  <p>Group Policy and Windows application control still apply. If execution policy blocks this route, contact the assessor for an enterprise-approved signed or offline handoff.
      If Windows blocks the script, use an IT-approved signed EXE or contact the assessor for the approved offline handoff.</p>"""
         document = f"""<!doctype html>
 <html lang="en">
@@ -235,6 +235,7 @@ class PortalBinding:
 <body>
 <main>
   <h1>CSA Security Assessment</h1>
+  <p><strong>UNSIGNED LAB ONLY · Release HOLD · TRUST_ENROLLMENT_PENDING</strong></p>
   <p class="assessment"><strong>Assessment:</strong> {safe_name}</p>
   <p>This collector:</p>
   <ul>
@@ -259,7 +260,7 @@ class PortalBinding:
   <section class="quick-start" aria-labelledby="copy-quick-start-heading">
     <h2 id="copy-quick-start-heading">PowerShell Copy &amp; Paste — one command</h2>
     <p id="copy-quick-start-status"><strong>TRUST_NOT_ESTABLISHED</strong>
-      · Preview for architecture review. The command is unavailable until the publisher and Lab
+      · Publisher signing and independent enrollment are pending. The command is unavailable until the publisher and Lab
       identities, including the origin of the command, can be verified independently (COL-1).</p>
     <button type="button" disabled aria-describedby="copy-quick-start-status">Copy command</button>
     <p>The proposed workflow runs once as a standard user. It downloads and cleans up the engine automatically in
@@ -272,11 +273,24 @@ class PortalBinding:
   {launcher_option}
   {script_option}
   <p>The download options use the same Collector engine, session, integrity checks and privacy controls.</p>
-  <p class="meta">Collector version: 5.6.7<br>Package expires: {safe_expiry}</p>
+  <p class="meta">Collector version: 5.6.8<br>Package expires: {safe_expiry}</p>
 </main>
 </body>
 </html>"""
         return document.encode("utf-8")
+
+    @staticmethod
+    def render_error_page(correlation_id: str) -> bytes:
+        reference = html.escape(correlation_id)
+        return (
+            '<!doctype html><html lang="en"><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            '<title>CSA Collector download stopped</title><main>'
+            '<h1>Collector download could not complete</h1>'
+            '<p>CSA-PORTAL-ERROR. Contact the assessor and provide reference '
+            + reference + '.</p><p>Confirm the assessment is collecting and use its current Collector page. '
+            'If the failure repeats, use the independently approved signed or offline handoff.</p></main></html>'
+        ).encode("utf-8")
 
     @staticmethod
     def render_unavailable_page() -> bytes:

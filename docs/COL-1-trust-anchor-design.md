@@ -1,5 +1,10 @@
 # COL-1: independent investigation and proposed trust anchors
 
+Update 2026-11-05: ADR 565 development is approved. The historical analysis below
+describes the legacy boundary; the [5.6.8 implementation](sprint-5.6.8-trusted-distribution.md)
+adds a separate immutable verifier and signed handoffs. Actual independent
+publisher/Lab enrollment and live acceptance remain pending; release HOLD.
+
 Status: **design proposal, architecture approval required**. No runtime trust-model
 change is included in Independent Audit Correction A. Release remains HOLD.
 

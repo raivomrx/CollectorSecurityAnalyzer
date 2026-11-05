@@ -300,7 +300,7 @@ class UnifiedReportGenerator:
             ]
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.6.7",
+            "reportVersion": "CSA-5.6.8",
             "generatedAt": generated_at,
             "dataClassification": "Confidential - Security Assessment Data",
             "containsPersonalData": True,
@@ -3298,6 +3298,8 @@ def _safe_audit_events(path: Path) -> list[dict[str, Any]]:
             {
                 "timestamp": value.get("timestamp", ""),
                 "eventType": value.get("eventType", ""),
+                "displayEvent": "submission_quarantined — CSA immutable staging before validation"
+                if value.get("eventType") == "submission_quarantined" else value.get("eventType", ""),
                 "entryHash": value.get("entryHash", ""),
             }
         )

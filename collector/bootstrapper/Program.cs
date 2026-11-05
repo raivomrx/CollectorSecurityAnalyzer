@@ -14,7 +14,7 @@ using System.Web.Script.Serialization;
 
 namespace CSA.Collector
 {
-    internal static class Program
+    internal static partial class Program
     {
         private static readonly byte[] Magic = Encoding.ASCII.GetBytes("CSA51PKG");
         private const int TrailerSize = 48;
@@ -154,6 +154,11 @@ namespace CSA.Collector
                 }
             }
 
+            ExtractVerifiedArchive(payload, target);
+        }
+
+        internal static void ExtractVerifiedArchive(byte[] payload, string target)
+        {
             using (MemoryStream memory = new MemoryStream(payload, false))
             using (ZipArchive archive = new ZipArchive(
                 memory, ZipArchiveMode.Read, false))
@@ -368,12 +373,12 @@ namespace CSA.Collector
             }
         }
 
-        private static int RunPowerShell(string root, bool offline, string output)
+        private static int RunPowerShell(string root, bool offline, string output, bool trustedPolicy = false)
         {
             string script = ResolvePackagePath(root, "Invoke-CSACollector.ps1");
             StringBuilder arguments = new StringBuilder();
             arguments.Append("-NoLogo -NoProfile -NonInteractive ");
-            arguments.Append("-ExecutionPolicy Bypass -File ");
+            arguments.Append(trustedPolicy ? "-File " : "-ExecutionPolicy Bypass -File ");
             arguments.Append(Quote(script));
             if (offline)
             {

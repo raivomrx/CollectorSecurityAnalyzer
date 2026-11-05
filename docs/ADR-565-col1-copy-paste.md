@@ -1,7 +1,19 @@
 # ADR 565 · PowerShell Copy & Paste trust
 
-**Status** Proposed. Project lead and Architect approval required before protocol
-implementation. CSA 5.6.5 ships a disabled Join preview. Release HOLD.
+**Status** Development approved by the project lead and Architect on 2026-11-05.
+The subsequent Architect decision confirms implementation and negative testing,
+while the publisher certificate, key owner and final independent enrollment
+channel remain unselected. Public release HOLD; Copy command remains disabled.
+See [5.6.8 implementation and operational gates](sprint-5.6.8-trusted-distribution.md).
+
+The implemented first transport is the independently delivered local signed
+bundle, suitable for managed or assessor handoff. It invokes the fixed installed
+verifier with `--bundle`; it does not download or execute a portal-provided
+command. The network locator/challenge workflow below remains the design for
+future enablement. No network credential exchange or enrollment is inferred
+from a local policy file or a portal flag. The bearer capability in a handoff
+must be delivered privately to its approved recipient; an endpoint label alone
+does not prove hardware identity.
 
 ## Decisions for approval
 

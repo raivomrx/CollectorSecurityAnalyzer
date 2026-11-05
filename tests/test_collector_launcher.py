@@ -196,7 +196,7 @@ class LauncherPortalTests(LauncherCase):
         page = requests.get(self.url,verify=self.session.tls_certificate_path,timeout=5)
         for label in ['CSA Collector (.exe)', 'PowerShell Quick Start (.ps1)', 'PowerShell Offline Package (.zip)']:
             self.assertIn(label,page.text)
-        self.assertIn(r'powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-CSACollector.ps1', page.text)
+        self.assertIn(r'powershell.exe -NoProfile -File .\Start-CSACollector.ps1', page.text)
         self.assertIn('Group Policy and Windows application control still apply', page.text)
         binding = self.download()
         self.assertEqual(binding['assessmentId'], self.state.assessment_id)

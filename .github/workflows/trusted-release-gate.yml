@@ -1,0 +1,27 @@
+name: Trusted Distribution Release Gate
+
+on:
+  workflow_dispatch:
+
+jobs:
+  signed-release-gate:
+    runs-on: windows-latest
+    environment: csa-release-approval
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements.txt -r requirements-build.txt
+      - run: choco install nsis --no-progress -y
+      - name: Require approved trust enrollment and verified final signatures
+        shell: pwsh
+        env:
+          CSA_RELEASE_APPROVED: ${{ vars.CSA_RELEASE_APPROVED }}
+          CSA_TRUST_ENROLLMENT_ACCEPTED: ${{ vars.CSA_TRUST_ENROLLMENT_ACCEPTED }}
+          CSA_PUBLISHER_CERT_SHA256: ${{ vars.CSA_PUBLISHER_CERT_SHA256 }}
+          CSA_SIGNING_CERTIFICATE_BASE64: ${{ secrets.CSA_SIGNING_CERTIFICATE_BASE64 }}
+          CSA_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.CSA_SIGNING_CERTIFICATE_PASSWORD }}
+        run: ./scripts/Build-CSALab.ps1 -Release
+      - name: Verify protected launcher fail-closed behavior
+        run: python -m unittest tests.test_trusted_distribution -v

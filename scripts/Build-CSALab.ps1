@@ -1,11 +1,21 @@
 param(
     [switch]$SkipInstaller,
     [switch]$SkipCollectorBuild,
+    [switch]$Release,
     [string]$PythonExecutable = $env:CSA_PYTHON
 )
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
+if ($Release) {
+    if ($env:CSA_RELEASE_APPROVED -cne 'true' -or $env:CSA_TRUST_ENROLLMENT_ACCEPTED -cne 'true') {
+        throw 'CSA-RELEASE-HOLD: Independent publisher and Lab enrollment acceptance is required.'
+    }
+    if (-not $env:CSA_SIGNING_CERTIFICATE_BASE64 -or -not $env:CSA_SIGNING_CERTIFICATE_PASSWORD) {
+        throw 'CSA-RELEASE-SIGNING-REQUIRED'
+    }
+    $env:CSA_BUILD_KIND = 'RELEASE'
+}
 
 $root = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 if ([string]::IsNullOrWhiteSpace($PythonExecutable)) {
@@ -21,12 +31,16 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Collector build failed." }
     }
     $collector = Join-Path $root "build\collector\CSA-Collector.exe"
-    & powershell.exe `
-        -NoProfile `
-        -ExecutionPolicy Bypass `
-        -File (Join-Path $root "scripts\Sign-CSAArtifacts.ps1") `
-        -Paths $collector
-    if ($LASTEXITCODE -ne 0) { throw "Collector signing stage failed." }
+    # Session overlays remain explicitly unsigned development transports.
+    # The trusted release launcher is immutable and signed in its final form.
+    Write-Host 'Legacy session Collector is UNSIGNED LAB ONLY. Release HOLD.'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'scripts/Build-CSATrustedCollector.ps1')
+    if ($LASTEXITCODE) { throw 'Trusted Collector build failed.' }
+    foreach ($trustedPath in @((Join-Path $root 'build/trusted-collector/CSA-TrustedCollector.exe'),
+                               (Join-Path $root 'build/trusted-collector/Start-CSATrustedCollector.ps1'))) {
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'scripts/Sign-CSAArtifacts.ps1') -Paths $trustedPath
+        if ($LASTEXITCODE) { throw 'Trusted Collector final signing failed.' }
+    }
 
     # Sign copies before trusted manifests are generated, never mutate source.
     $buildRoot = [IO.Path]::GetFullPath((Join-Path $root 'build'))

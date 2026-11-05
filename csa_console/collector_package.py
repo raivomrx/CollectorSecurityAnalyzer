@@ -23,7 +23,7 @@ from csa_console.collection_privacy import assessment_privacy_context
 
 ROOT = Path(__file__).resolve().parents[1]
 COLLECTOR_SOURCE = ROOT / "collector" / "windows"
-COLLECTOR_VERSION = "5.6.7"
+COLLECTOR_VERSION = "5.6.8"
 
 
 class CollectorPackageError(ValueError):

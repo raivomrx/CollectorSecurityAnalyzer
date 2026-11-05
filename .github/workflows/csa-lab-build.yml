@@ -34,7 +34,10 @@ jobs:
           $requiredRuntimeFiles = @(
             "dist/CSA-Lab/_internal/policies/windows_endpoint_default.json",
             "dist/CSA-Lab/_internal/csa_lab/powershell/Start-CSACollector.ps1.in",
-            "dist/CSA-Lab/_internal/csa_lab/powershell/Sign-CSALauncher.ps1"
+            "dist/CSA-Lab/_internal/csa_lab/powershell/Sign-CSALauncher.ps1",
+            "dist/CSA-Lab/_internal/csa_lab/powershell/Sign-CSATrustObject.ps1",
+            "dist/CSA-Lab/_internal/trusted-collector/CSA-TrustedCollector.exe",
+            "dist/CSA-Lab/_internal/trusted-collector/Start-CSATrustedCollector.ps1"
           )
           foreach ($requiredFile in $requiredRuntimeFiles) {
             if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
@@ -70,6 +73,9 @@ jobs:
             "- Installer created (UTC): $($createdUtc.ToString('yyyy-MM-dd HH:mm:ss')) UTC"
             "- File: CSA-Lab-Setup.exe"
             "- Commit: $env:GITHUB_SHA"
+            "- Distribution: UNSIGNED LAB ONLY (development candidate); public release HOLD"
+            "- Trust: TRUST_ENROLLMENT_PENDING; Copy command disabled"
+            "- Authenticode: $((Get-AuthenticodeSignature -LiteralPath $installer.FullName).Status)"
             "- SHA-256: $hash"
             "- Build: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
           )

@@ -44,6 +44,8 @@ jobs:
         run: python -W error::ResourceWarning -m unittest tests.test_audit_correction_a tests.test_audit_privacy tests.test_cve_status_boundaries tests.test_bitlocker_boundaries tests.test_audit2_cve -v
       - name: Verify report clarity, counting units and source limitations
         run: python -W error::ResourceWarning -m unittest tests.test_report_clarity -v
+      - name: Verify trust, immutable staging and safe portal diagnostics
+        run: python -W error::ResourceWarning -m unittest tests.test_trusted_distribution -v
       - name: Generate synthetic report clarity acceptance artifact
         run: python scripts/Generate-ReportClarity.py --output test-artifacts/CSA-5.6.7-Report-Clarity.html
       - name: Generate and independently verify synthetic audit correction report
