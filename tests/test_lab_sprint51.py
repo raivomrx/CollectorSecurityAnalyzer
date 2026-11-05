@@ -968,7 +968,7 @@ class UnifiedReportTests(Sprint5TestCase):
             self.assertIn(f'href="#{anchor}"', html)
         self.assertIn("<details", html)
         self.assertIn("Standard Privileges Assessment", html)
-        self.assertIn("CVE analysis: NOT EVALUATED", html)
+        self.assertIn("Software vulnerability assessment NOT EVALUATED", html)
         self.assertIn("control results", html)
         self.assertEqual(first_model["endpoints"][0]["displayName"], "Endpoint 01")
         self.assertEqual(

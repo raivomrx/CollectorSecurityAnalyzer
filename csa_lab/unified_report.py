@@ -20,6 +20,7 @@ from csa_console.fleet import FleetAnalyzer
 from csa_console.identifiers import utc_text
 from csa_console.sessions import AssessmentSessionService
 from csa_console.storage import AssessmentStorage
+from csa_lab.bitlocker_presentation import bitlocker_presentation
 from frameworks.loader import load_pack
 from frameworks.models import FrameworkPack
 from knowledge.repository import KnowledgeRepository
@@ -282,10 +283,24 @@ class UnifiedReportGenerator:
                 for name in finding["endpointReferences"]
             ]
             finding["verification"] = _verification_for_finding(finding)
+            finding["observations"] = _finding_observations(finding, endpoints)
         framework_rows = _framework_rows(fleet_findings)
+        for finding in fleet_findings:
+            finding["frameworkLinks"] = [
+                {"anchor": row["anchorId"], "label": row["framework"] + " " + row["controlId"]}
+                for row in framework_rows
+                if any(link["anchor"] == "finding-details-" + finding["anchorId"] for link in row["findingLinks"])
+            ]
+        for action in remediation_plan:
+            action["relatedFindingLinks"] = [
+                {"anchor": "finding-details-" + finding["anchorId"], "label": finding.get("displayId", finding["ruleId"])}
+                for finding in fleet_findings
+                if finding["ruleId"] in action["relatedFindings"]
+                or finding["recommendation"].casefold() == action["action"].casefold()
+            ]
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.6.6.1",
+            "reportVersion": "CSA-5.6.7",
             "generatedAt": generated_at,
             "dataClassification": "Confidential - Security Assessment Data",
             "containsPersonalData": True,
@@ -1099,7 +1114,9 @@ def _software_security_findings(
             )
         verification = (
             f"Collect again to verify the installed {software} version, then rerun CVE "
-            "analysis and confirm that " + ", ".join(cve_ids) + " are no longer applicable."
+            "analysis and confirm that " + ", ".join(cve_ids[:3])
+            + (f" and {len(cve_ids) - 3} other listed CVEs" if len(cve_ids) > 3 else "")
+            + " are no longer applicable."
         )
         affected_count = len(endpoints_affected)
         findings.append(
@@ -1749,6 +1766,14 @@ def _executive_endpoint_metrics(
     return {
         "assessedEndpoints": len(endpoints),
         "bitLockerEnabledEndpoints": bitlocker_enabled,
+        "bitLockerReportedOnEndpoints": sum(
+            endpoint.get("bitLocker", {}).get("presentation", {}).get("reportedOn", False)
+            for endpoint in endpoints
+        ),
+        "bitLockerUnresolvedEndpoints": sum(
+            endpoint.get("bitLocker", {}).get("status", "NOT_EVALUATED") not in {"PASS", "FAIL"}
+            for endpoint in endpoints
+        ),
         "bitLockerShellOnEndpoints": sum(endpoint.get("bitLocker", {}).get("shellProtectionIndication") == "ON" for endpoint in endpoints),
         "bitLockerShellOffEndpoints": sum(endpoint.get("bitLocker", {}).get("shellProtectionIndication") == "OFF" for endpoint in endpoints),
         "bitLockerShellHeuristicEndpoints": sum(endpoint.get("bitLocker", {}).get("shellInterpretationMethod") == "FIELD_HEURISTIC" for endpoint in endpoints),
@@ -2193,6 +2218,7 @@ def _bitlocker_detail(evidence: dict[str, Any]) -> dict[str, Any]:
         "confidence": setting.get("confidence", 0) if setting else 0,
         "configured": metadata.get("configured"),
         "fallbacksAttempted": conclusion["providerAttempts"],
+        "presentation": bitlocker_presentation(conclusion),
         "volumes": volumes,
     }
 
@@ -2948,6 +2974,42 @@ def _remediation_plan(
     return rows
 
 
+def _finding_observations(
+    finding: dict[str, Any], endpoints: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Retain each affected endpoint's observed facts beside the action."""
+    observations = []
+    for endpoint in endpoints:
+        if endpoint["displayName"] not in finding["endpointReferences"]:
+            continue
+        if finding.get("kind") == "SOFTWARE_CVE":
+            observed_cves = {
+                cve["cveId"]
+                for software in endpoint.get("softwareResults", [])
+                if (software.get("normalizedVendor"), software.get("normalizedProduct"), software.get("displayVersion"))
+                == (finding["normalizedVendor"], finding["normalizedProduct"], finding["installedVersion"])
+                for cve in software.get("cveDetails", [])
+                if cve.get("matchStatus") in {"AFFECTED", "CONFIRMED"} and cve.get("cveId")
+            }
+            observations.append({
+                "endpoint": endpoint["displayName"],
+                "status": "CONFIRMED",
+                "summary": f"Installed {finding['software']} {finding['installedVersion']} has {len(observed_cves)} confirmed applicable CVEs.",
+                "evidence": {"confirmedCveIds": sorted(observed_cves)},
+            })
+            continue
+        for row in endpoint.get("securityFindings", []):
+            control = row.get("finding", {})
+            if control.get("rule_id") == finding["ruleId"]:
+                observations.append({
+                    "endpoint": endpoint["displayName"],
+                    "status": control.get("status", "NOT_EVALUATED"),
+                    "summary": row.get("client", {}).get("reason") or row.get("knowledge", {}).get("description", ""),
+                    "evidence": control.get("evidence", {}),
+                })
+    return observations
+
+
 def _verification_for_finding(finding: dict[str, Any]) -> str:
     """Return deterministic post-remediation verification guidance."""
 
@@ -3092,6 +3154,7 @@ def _framework_rows(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
         rows.append(
             {
                 "framework": key[0],
+                "anchorId": "framework-" + _slug(key[0] + "-" + key[1]),
                 "controlId": key[1],
                 "controlTitle": metadata["controlTitle"],
                 "controlSourceTitle": metadata["controlSourceTitle"],

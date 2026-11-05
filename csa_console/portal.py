@@ -272,7 +272,7 @@ class PortalBinding:
   {launcher_option}
   {script_option}
   <p>The download options use the same Collector engine, session, integrity checks and privacy controls.</p>
-  <p class="meta">Collector version: 5.6.6.1<br>Package expires: {safe_expiry}</p>
+  <p class="meta">Collector version: 5.6.7<br>Package expires: {safe_expiry}</p>
 </main>
 </body>
 </html>"""
