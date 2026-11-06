@@ -1,4 +1,11 @@
-param([Parameter(Mandatory = $true)][string]$Bundle, [string]$OfflineExport)
+[CmdletBinding(DefaultParameterSetName='Bundle')]
+param(
+    [Parameter(Mandatory=$true, ParameterSetName='Bundle')][string]$Bundle,
+    [Parameter(Mandatory=$true, ParameterSetName='Network')][string]$LabId,
+    [Parameter(Mandatory=$true, ParameterSetName='Network')][string]$EnvelopeId,
+    [string]$OfflineExport,
+    [switch]$QuickRun
+)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 try {
@@ -46,7 +53,9 @@ try {
     if ($keys.Count -ne 1) { throw 'CSA-TRUST-PUBLISHER' }
     # Both transports invoke the same immutable enrolled verifier. It checks
     # the publisher, Lab, session and all engine bytes before collection.
-    $arguments = @('--bundle', [IO.Path]::GetFullPath($Bundle))
+    $arguments = if ($PSCmdlet.ParameterSetName -eq 'Network') { @('--lab', $LabId, '--envelope', $EnvelopeId) }
+                 else { @('--bundle', [IO.Path]::GetFullPath($Bundle)) }
+    if ($QuickRun) { $arguments += '--quick-run' }
     if ($OfflineExport) { $arguments += @('--offline', [IO.Path]::GetFullPath($OfflineExport)) }
     & $executable @arguments
     exit $LASTEXITCODE

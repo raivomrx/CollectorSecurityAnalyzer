@@ -227,6 +227,9 @@ class UnifiedReportGenerator:
         software = _aggregate_software(endpoints)
         software_intelligence = _aggregate_software_intelligence(endpoints)
         software_matrix = _software_matrix(endpoints)
+        for finding in fleet_findings:
+            finding["observations"] = _finding_observations(finding, endpoints)
+            finding["verification"] = _verification_for_finding(finding)
         priority_actions = _priority_actions(endpoints, fleet_findings)
         remediation_plan = _remediation_plan(priority_actions, fleet_findings)
         main_limitations = _main_coverage_limitations(endpoints, cve)
@@ -282,8 +285,6 @@ class UnifiedReportGenerator:
                 }
                 for name in finding["endpointReferences"]
             ]
-            finding["verification"] = _verification_for_finding(finding)
-            finding["observations"] = _finding_observations(finding, endpoints)
         framework_rows = _framework_rows(fleet_findings)
         for finding in fleet_findings:
             finding["frameworkLinks"] = [
@@ -300,7 +301,7 @@ class UnifiedReportGenerator:
             ]
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.6.8",
+            "reportVersion": "CSA-5.6.8.1",
             "generatedAt": generated_at,
             "dataClassification": "Confidential - Security Assessment Data",
             "containsPersonalData": True,
@@ -594,6 +595,12 @@ class UnifiedReportGenerator:
             for item in findings
         )
         security_findings = _security_findings(findings)
+        for row in findings + security_findings:
+            control = row.get("finding", {})
+            row["verification"] = _verification_for_finding({
+                "ruleId": control.get("rule_id", ""), "status": control.get("status", "NOT_EVALUATED"),
+                "evidence": control.get("evidence", {}),
+            })
         severity_counts = Counter(
             str(item.get("finding", {}).get("severity", "INFO")) for item in security_findings
         )
@@ -2896,7 +2903,10 @@ def _priority_actions(
                 if affected:
                     candidates.append((70, "bitlocker-" + state, _action(action, finding["title"], affected, "High", "Medium", ["BIT-001"], "Confirm protection is on and encryption is complete.")))
         if finding["ruleId"].startswith("DEF-") and finding["severity"] in {"CRITICAL", "HIGH", "MEDIUM"}:
-            candidates.append((60, "defender", _action("Harden Microsoft Defender configuration", finding["title"], finding["endpointReferences"], "Medium", "Low", [finding["ruleId"]], "Rerun collection and confirm the related Defender controls pass.")))
+            affected = [row["endpoint"] for row in finding["observations"]
+                        if row.get("status") in {"FAIL", "WARN", "WARNING"}]
+            if affected:
+                candidates.append((60, "defender", _action("Harden Microsoft Defender configuration", finding["title"], affected, "Medium", "Low", [finding["ruleId"]], _verification_for_finding(finding))))
     deduped: dict[str, tuple[int, dict[str, Any]]] = {}
     for score, key, action in candidates:
         if key not in deduped or score > deduped[key][0]:
@@ -3013,18 +3023,33 @@ def _finding_observations(
 def _verification_for_finding(finding: dict[str, Any]) -> str:
     """Return deterministic post-remediation verification guidance."""
 
+    rule_id = str(finding.get("ruleId", "the control"))
+    statuses = {str(row.get("status", "NOT_EVALUATED")).upper() for row in finding.get("observations", [])}
+    if finding.get("status"):
+        statuses.add(str(finding["status"]).upper())
+    incomplete = not statuses or bool(statuses - {"FAIL", "WARN", "WARNING", "CONFIRMED", "AFFECTED", "PASS"})
+    if finding.get("kind") == "SOFTWARE_CVE":
+        incomplete = False
+    if incomplete:
+        proven = statuses & {"FAIL", "WARN", "WARNING", "CONFIRMED", "AFFECTED"}
+        separate = (" Correct independently confirmed deviations on the endpoints where they were observed; "
+                    "verify the effective setting there." if proven else "")
+        return (f"For {rule_id}, inspect the recorded evidence source, collection time and limitations. "
+            "Resolve missing permissions, inaccessible providers, enforced policy and contradictory observations with the authorized owner. "
+            "Recollect the required evidence and reevaluate; retain an unresolved result until sufficient evidence is available." + separate)
+    if statuses == {"PASS"}:
+        return "Maintain the observed control state and verify current evidence at the next scheduled assessment."
     explicit = str(finding.get("verification", "")).strip()
     if explicit:
         return explicit
-    rule_id = str(finding.get("ruleId", ""))
     if rule_id == "BIT-001":
         return "Rerun CSA and verify BitLocker protection is enabled on the OS volume."
     if rule_id == "AV-001":
         return "Rerun CSA; confirm the active AV product, protection state and security intelligence are current."
     if rule_id.startswith("DEF-"):
-        return "Rerun CSA and verify the related Microsoft Defender control passes."
+        return "Apply the approved Defender configuration change, independently inspect its effective setting and protection state, then recollect and reevaluate the affected control."
     if rule_id.startswith("FW-"):
-        return "Rerun CSA and verify all applicable Windows Firewall profiles pass."
+        return "Correct the confirmed firewall configuration under the approved policy, independently inspect every applicable profile, then recollect and reevaluate."
     if rule_id == "ACC-011":
         return (
             "Collect again for the identified Collector execution account. Review direct and inherited "
@@ -3036,7 +3061,7 @@ def _verification_for_finding(finding: dict[str, Any]) -> str:
             "Collect the endpoints again and verify PASSWORD_POLICY_MIN_LENGTH "
             "meets the selected policy-profile threshold and ACC-006 reports PASS."
         )
-    return f"Rerun CSA and verify {rule_id or 'the related control'} reports PASS."
+    return f"Apply the recommended configuration correction for {rule_id}, independently verify its effective state and recorded evidence source, then recollect and reevaluate the control."
 
 
 def _action(

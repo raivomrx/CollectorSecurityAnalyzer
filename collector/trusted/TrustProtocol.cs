@@ -220,7 +220,7 @@ namespace CSA.Trust
             catch (TrustFailure) { throw; }
             catch { throw new TrustFailure("CSA-TRUST-SIGNATURE"); }
             Window(value, now);
-            Require(Number(value, "schemaVersion") == 1, "CSA-TRUST-SCHEMA");
+            Require(Number(value, "schemaVersion") == 1 || role == "labs" && Number(value, "schemaVersion") == 2, "CSA-TRUST-SCHEMA");
             if (role == "publishers")
             {
                 Fields(value, "objectType", "schemaVersion", "keyId", "issuedAt", "expiresAt", "releaseSequence",
@@ -279,12 +279,17 @@ namespace CSA.Trust
         {
             string full = Path.GetFullPath(path);
             string[] trusted = { "S-1-5-18", "S-1-5-32-544" };
+            bool reachedRoot = false;
             for (string current = full; current != null; current = Path.GetDirectoryName(current))
             {
+                Require((File.GetAttributes(current) & FileAttributes.ReparsePoint) == 0, "CSA-TRUST-POLICY-PATH");
                 if (String.Equals(current, Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
                     StringComparison.OrdinalIgnoreCase) || String.Equals(current,
-                    Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), StringComparison.OrdinalIgnoreCase)) break;
-                Require((File.GetAttributes(current) & FileAttributes.ReparsePoint) == 0, "CSA-TRUST-POLICY-PATH");
+                    Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), StringComparison.OrdinalIgnoreCase))
+                {
+                    reachedRoot = true;
+                    break;
+                }
                 FileSystemSecurity acl = Directory.Exists(current)
                     ? (FileSystemSecurity)Directory.GetAccessControl(current) : File.GetAccessControl(current);
                 Require(trusted.Contains(acl.GetOwner(typeof(SecurityIdentifier)).Value), "CSA-TRUST-POLICY-ACL");
@@ -298,34 +303,14 @@ namespace CSA.Trust
                         || trusted.Contains(rule.IdentityReference.Value), "CSA-TRUST-POLICY-ACL");
                 }
             }
+            Require(reachedRoot, "CSA-TRUST-INSTALLATION");
         }
 
         public static void VerifyArchive(byte[] bytes, Dictionary<string, object> release, Dictionary<string, object> session)
         {
             Require(Digest(bytes) == Text(session, "packageDigest"), "CSA-TRUST-DIGEST");
-            foreach (object item in Rows(release, "profiles"))
-                Fields(Object(item), "profileId", "profileDigest", "privacyPolicyDigest");
-            Dictionary<string, object>[] profiles = Rows(release, "profiles").Select(Object)
-                .Where(item => Text(item, "profileId") == Text(session, "profileId")).ToArray();
-            Require(profiles.Length == 1, "CSA-TRUST-PROFILE");
-            Fields(profiles[0], "profileId", "profileDigest", "privacyPolicyDigest");
-            Require(Text(profiles[0], "profileDigest") == Text(session, "profileDigest")
-                && Text(profiles[0], "privacyPolicyDigest") == Text(session, "privacyPolicyDigest"), "CSA-TRUST-PROFILE");
-            Dictionary<string, Dictionary<string, object>> engine = new Dictionary<string, Dictionary<string, object>>(StringComparer.OrdinalIgnoreCase);
-            foreach (object item in Rows(release, "files"))
-            {
-                Dictionary<string, object> file = Object(item);
-                Fields(file, "path", "size", "sha256");
-                string name = Text(file, "path");
-                SafePath(name);
-                Require(Number(file, "size") >= 0 && Number(file, "size") <= 32 * 1024 * 1024, "CSA-TRUST-SIZE");
-                HashValue(Text(file, "sha256"));
-                Require(name != "trusted-manifest.json" && !new[] { "session-config.json", "server-cert.pem", "offline-public.xml", "OPERATOR-INSTRUCTIONS.txt" }
-                    .Contains(name, StringComparer.OrdinalIgnoreCase), "CSA-TRUST-ENGINE");
-                Require(!engine.ContainsKey(name), "CSA-TRUST-PATH");
-                engine.Add(name, file);
-            }
-            Require(engine.ContainsKey("Invoke-CSACollector.ps1"), "CSA-TRUST-ENGINE");
+            VerifyProfile(release, session);
+            Dictionary<string, Dictionary<string, object>> engine = EngineInventory(release);
             HashSet<string> data = new HashSet<string>(new[] { "session-config.json", "server-cert.pem", "offline-public.xml", "OPERATOR-INSTRUCTIONS.txt" }, StringComparer.Ordinal);
             HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             long size = 0;
@@ -352,6 +337,38 @@ namespace CSA.Trust
                 }
             }
             Require(engine.Keys.All(seen.Contains) && data.All(seen.Contains) && seen.Contains("trusted-manifest.json"), "CSA-TRUST-MISSING-FILE");
+        }
+
+        public static void VerifyProfile(Dictionary<string, object> release, Dictionary<string, object> session)
+        {
+            foreach (object item in Rows(release, "profiles"))
+                Fields(Object(item), "profileId", "profileDigest", "privacyPolicyDigest");
+            Dictionary<string, object>[] profiles = Rows(release, "profiles").Select(Object)
+                .Where(item => Text(item, "profileId") == Text(session, "profileId")).ToArray();
+            Require(profiles.Length == 1, "CSA-TRUST-PROFILE");
+            Fields(profiles[0], "profileId", "profileDigest", "privacyPolicyDigest");
+            Require(Text(profiles[0], "profileDigest") == Text(session, "profileDigest")
+                && Text(profiles[0], "privacyPolicyDigest") == Text(session, "privacyPolicyDigest"), "CSA-TRUST-PROFILE");
+        }
+
+        public static Dictionary<string, Dictionary<string, object>> EngineInventory(Dictionary<string, object> release)
+        {
+            Dictionary<string, Dictionary<string, object>> engine = new Dictionary<string, Dictionary<string, object>>(StringComparer.OrdinalIgnoreCase);
+            foreach (object item in Rows(release, "files"))
+            {
+                Dictionary<string, object> file = Object(item);
+                Fields(file, "path", "size", "sha256");
+                string name = Text(file, "path");
+                SafePath(name);
+                Require(Number(file, "size") >= 0 && Number(file, "size") <= 32 * 1024 * 1024, "CSA-TRUST-SIZE");
+                HashValue(Text(file, "sha256"));
+                Require(name != "trusted-manifest.json" && !new[] { "session-config.json", "server-cert.pem", "offline-public.xml", "OPERATOR-INSTRUCTIONS.txt" }
+                    .Contains(name, StringComparer.OrdinalIgnoreCase), "CSA-TRUST-ENGINE");
+                Require(!engine.ContainsKey(name), "CSA-TRUST-PATH");
+                engine.Add(name, file);
+            }
+            Require(engine.ContainsKey("Invoke-CSACollector.ps1"), "CSA-TRUST-ENGINE");
+            return engine;
         }
 
         public static void SafePath(string name)
@@ -390,6 +407,42 @@ namespace CSA.Trust
         public static void Artifact(byte[] bytes, string expected)
         {
             Require(Digest(bytes) == expected, "CSA-TRUST-BOOTSTRAP");
+        }
+    }
+
+    public sealed class BundleMetadata
+    {
+        public Dictionary<string, object> Release;
+        public Dictionary<string, object> Session;
+        public byte[] PublisherBytes;
+        public byte[] SessionBytes;
+        public byte[] PublisherSignature;
+        public byte[] SessionSignature;
+
+        public static BundleMetadata Verify(Dictionary<string, object> policy, byte[] publisher, byte[] publisherSignature,
+            byte[] session, byte[] sessionSignature, byte[] executable, byte[] entryPoint, long now)
+        {
+            Dictionary<string, object> release = Protocol.VerifySigned(publisher, publisherSignature, policy, "publishers", now);
+            Protocol.Require(executable.LongLength == Protocol.Number(release, "bootstrapSize")
+                && entryPoint.LongLength == Protocol.Number(release, "entryPointSize"), "CSA-TRUST-BOOTSTRAP");
+            Protocol.Artifact(executable, Protocol.Text(release, "bootstrapSha256"));
+            Protocol.Artifact(entryPoint, Protocol.Text(release, "entryPointSha256"));
+            Dictionary<string, object> envelope = Protocol.VerifySigned(session, sessionSignature, policy, "labs", now);
+            Protocol.Require(Protocol.Digest(publisher) == Protocol.Text(envelope, "publisherManifestDigest"), "CSA-TRUST-SESSION");
+            Dictionary<string, object> submission = Protocol.Object(envelope["submissionPolicy"]);
+            if (Protocol.Number(envelope, "schemaVersion") == 2)
+            {
+                Protocol.Fields(submission, "transport", "maximumBytes", "receiptRequired", "authorizationDigest");
+                Protocol.Require(Regex.IsMatch(Protocol.Text(submission, "authorizationDigest"), "\\Asha256:[0-9a-f]{64}\\z"), "CSA-TRUST-AUTHORIZATION");
+            }
+            else Protocol.Fields(submission, "transport", "maximumBytes", "receiptRequired");
+            Protocol.Require(Protocol.Text(submission, "transport") == "HTTPS_OR_ENCRYPTED_OFFLINE"
+                && Protocol.Number(submission, "maximumBytes") > 0 && Protocol.Number(submission, "maximumBytes") <= 128 * 1024 * 1024
+                && submission["receiptRequired"] is bool && (bool)submission["receiptRequired"], "CSA-TRUST-SCOPE");
+            Protocol.VerifyProfile(release, envelope);
+            Protocol.EngineInventory(release);
+            return new BundleMetadata { Release = release, Session = envelope, PublisherBytes = publisher, SessionBytes = session,
+                PublisherSignature = publisherSignature, SessionSignature = sessionSignature };
         }
     }
 }

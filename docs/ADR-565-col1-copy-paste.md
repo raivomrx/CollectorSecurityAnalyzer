@@ -4,13 +4,15 @@
 The subsequent Architect decision confirms implementation and negative testing,
 while the publisher certificate, key owner and final independent enrollment
 channel remain unselected. Public release HOLD; Copy command remains disabled.
-See [5.6.8 implementation and operational gates](sprint-5.6.8-trusted-distribution.md).
+See [5.6.8.1 implementation and operational gates](sprint-5.6.8.1-correction.md)
+and [ADR 5681](ADR-5681-authenticated-quick-run.md) for the implemented network
+authorization and the approved process-only Quick Run amendment.
 
 The implemented first transport is the independently delivered local signed
 bundle, suitable for managed or assessor handoff. It invokes the fixed installed
 verifier with `--bundle`; it does not download or execute a portal-provided
-command. The network locator/challenge workflow below remains the design for
-future enablement. No network credential exchange or enrollment is inferred
+command. The network locator/challenge workflow below is implemented separately
+and remains gated pending real enrollment. No network authority is inferred
 from a local policy file or a portal flag. The bearer capability in a handoff
 must be delivered privately to its approved recipient; an endpoint label alone
 does not prove hardware identity.

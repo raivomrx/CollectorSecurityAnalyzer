@@ -12,10 +12,14 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 import uuid
+import re
 from urllib.parse import urlparse
 
 from csa_console.network import validate_listen_address
 from csa_console.portal import PortalBinding
+from csa_console.distribution import DistributionDenied
+from csa_console.quick_start import PORTAL_SCRIPT_HASH
+from csa_console.trusted_network import TrustedNetworkService
 from csa_console.pipeline import ConsoleAnalysisPipeline
 from csa_console.reporting import ConsoleReportGenerator
 from csa_console.serde import model_to_dict
@@ -23,9 +27,15 @@ from csa_console.sessions import AssessmentSessionService
 from csa_console.storage import AssessmentStorage
 from csa_console.submission import SubmissionRejected, SubmissionService
 from csa_console.canonical import write_canonical_json
+from csa_console.audit import ConsoleAuditLog
 from csa_console.identifiers import utc_text
 
 LOGGER = logging.getLogger(__name__)
+
+
+class _SafeThreadingHTTPServer(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        LOGGER.warning("CSA-HTTP-CONNECTION-CLOSED: request stopped before a safe response was available")
 
 
 class _HttpRequestError(ValueError):
@@ -51,12 +61,15 @@ class ConsoleHttpsServer:
         allow_wildcard_bind: bool = False,
         analyze_automatically: bool = True,
         portal: PortalBinding | None = None,
+        trusted_network: TrustedNetworkService | None = None,
     ) -> None:
         """Create a configured but not yet started HTTPS server."""
 
         self.storage = storage or AssessmentStorage()
         self.assessment_id = assessment_id
         self.session_id = session_id
+        self.portal = portal
+        self.trusted_network = trusted_network or TrustedNetworkService(self.storage, assessment_id, session_id)
         self.session = AssessmentSessionService(self.storage).load_session(
             assessment_id, session_id
         )
@@ -79,8 +92,9 @@ class ConsoleHttpsServer:
             self.storage,
             analyze_automatically,
             portal,
+            self.trusted_network,
         )
-        self._server = ThreadingHTTPServer(
+        self._server = _SafeThreadingHTTPServer(
             (self.session.listen_address, self.session.listen_port), handler
         )
         self._server.daemon_threads = True
@@ -193,6 +207,7 @@ def _handler_factory(
     storage: AssessmentStorage,
     analyze_automatically: bool,
     portal: PortalBinding | None = None,
+    trusted_network: TrustedNetworkService | None = None,
 ):
     """Build a request handler bound to one assessment session."""
 
@@ -200,17 +215,116 @@ def _handler_factory(
     pipeline = ConsoleAnalysisPipeline(storage)
     reporter = ConsoleReportGenerator(storage)
     limiter = _RateLimiter()
+    trusted_network = trusted_network or TrustedNetworkService(storage, assessment_id, session_id)
 
     class SubmissionHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Lab/5.6.8"
+        server_version = "CSA-Lab/5.6.8.1"
         protocol_version = "HTTP/1.1"
+
+        def handle_one_request(self):
+            self.correlation_id = uuid.uuid4().hex
+            self.diagnostic_stage = "REQUEST_VALIDATION"
+            self.diagnostic_code = "HTTP_REQUEST"
+            self.connection.settimeout(max(1, min(15, submission_service.sessions.load_session(assessment_id, session_id).request_timeout)))
+            return super().handle_one_request()
+
+        def send_error(self, code, message=None, explain=None):
+            # Never echo a malformed request, URL or injected header into HTML/logs.
+            self.close_connection = True
+            self._json(HTTPStatus(code), {"error": "HTTP_REQUEST_REJECTED"})
+
+        def _require_legacy(self, source):
+            if portal is None:
+                raise DistributionDenied()
+            portal.distribution_policy.require_legacy(source)
+            session = submission_service.sessions.load_session(assessment_id, session_id)
+            if trusted_network.grants.required(session):
+                raise DistributionDenied()
+
+        def _legacy_available(self, source):
+            try:
+                self._require_legacy(source)
+                return True
+            except DistributionDenied:
+                return False
+
+        def _request_path(self):
+            if not self.path.startswith("/") or self.path.startswith("//"):
+                raise _HttpRequestError(HTTPStatus.BAD_REQUEST, "INVALID_REQUEST_TARGET")
+            try:
+                return urlparse(self.path).path
+            except ValueError:
+                raise _HttpRequestError(HTTPStatus.BAD_REQUEST, "INVALID_REQUEST_TARGET") from None
+
+        def _trusted_route(self):
+            parts = self._request_path().strip("/").split("/")
+            if len(parts) != 5 or parts[:3] != ["api", "v2", "trusted"] or not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", parts[3]):
+                raise _HttpRequestError(HTTPStatus.NOT_FOUND, "NOT_FOUND")
+            return parts[3], parts[4]
+
+        def _credential(self, prefix):
+            values = self.headers.get_all("Authorization", [])
+            if len(values) != 1 or len(values[0]) > 256 or not values[0].startswith(prefix):
+                raise _HttpRequestError(HTTPStatus.FORBIDDEN, "CSA-TRUST-AUTHORIZATION")
+            return values[0][len(prefix):]
+
+        def _trusted_result(self, callback):
+            try:
+                return callback()
+            except (OSError, ValueError, KeyError) as error:
+                value = str(error)
+                code = value if re.fullmatch(r"(?:CSA-(?:TRUST|NETWORK)-[A-Z0-9-]+|TRUST_NOT_ESTABLISHED|TRUST_ENROLLMENT_PENDING)", value) else "CSA-TRUST-REQUEST"
+                raise _HttpRequestError(HTTPStatus.FORBIDDEN, code) from None
+
+        def _trusted_get(self, source):
+            envelope, action = self._trusted_route()
+            if action == "metadata":
+                self.diagnostic_stage = "TRUSTED_METADATA"
+                result = self._trusted_result(lambda: trusted_network.metadata(envelope, source))
+            elif action == "challenge":
+                self.diagnostic_stage = "TRUSTED_CHALLENGE"
+                result = self._trusted_result(lambda: trusted_network.challenge(envelope, source))
+            else:
+                raise _HttpRequestError(HTTPStatus.NOT_FOUND, "NOT_FOUND")
+            self._json(HTTPStatus.OK, result)
+
+        def _trusted_post(self, source):
+            envelope, action = self._trusted_route()
+            if action == "authorize":
+                self.diagnostic_stage = "TRUSTED_AUTHORIZATION"
+                if self.headers.get_content_type() != "application/json":
+                    raise _HttpRequestError(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "CONTENT_TYPE")
+                body = self._read_json(4096)
+                secret = self._credential("CSA-Assessor ")
+                result = self._trusted_result(lambda: trusted_network.authorize(envelope, source, body, secret))
+            elif action == "download-grant":
+                self.diagnostic_stage = "TRUSTED_DOWNLOAD_GRANT"
+                if self._read_json(64) != {}:
+                    raise _HttpRequestError(HTTPStatus.BAD_REQUEST, "INVALID_REQUEST")
+                ticket = self._credential("CSA-Authorization ")
+                result = self._trusted_result(lambda: trusted_network.download_grant(envelope, source, ticket))
+            elif action == "package":
+                self.diagnostic_stage = "TRUSTED_PACKAGE_DOWNLOAD"
+                self._read_body(0)
+                grant = self._credential("CSA-Download ")
+                data = self._trusted_result(lambda: trusted_network.package(envelope, source, grant))
+                self._bytes(HTTPStatus.OK, data, "application/zip")
+                return
+            else:
+                raise _HttpRequestError(HTTPStatus.NOT_FOUND, "NOT_FOUND")
+            self._json(HTTPStatus.OK, result)
 
         def do_GET(self) -> None:
             self.correlation_id = uuid.uuid4().hex
             self.diagnostic_stage = "PORTAL_JOIN"
             source = str(self.client_address[0])
-            path = urlparse(self.path).path
             try:
+                path = self._request_path()
+                if path.startswith("/api/v2/trusted/"):
+                    if not limiter.allow(source):
+                        raise _HttpRequestError(HTTPStatus.TOO_MANY_REQUESTS, "RATE_LIMIT")
+                    self._trusted_get(source)
+                    return
                 if portal is None:
                     self._json(HTTPStatus.NOT_FOUND, {"error": "NOT_FOUND"})
                     return
@@ -232,6 +346,8 @@ def _handler_factory(
                         "text/html; charset=utf-8",
                     )
                     return
+                if len(parts) == 2 and parts[1] in {"download", "download-powershell", "download-launcher"}:
+                    self._require_legacy(source)
                 if len(parts) == 1:
                     if not path.endswith("/"):
                         self._redirect(f"{path}/")
@@ -239,7 +355,9 @@ def _handler_factory(
                     body = portal.render_page(
                         submission_service.sessions.load_session(
                             assessment_id, session_id
-                        ).assessment_name
+                        ).assessment_name,
+                        network_options=self._trusted_result(lambda: trusted_network.advertisements(source)),
+                        development_available=self._legacy_available(source),
                     )
                     self._bytes(
                         HTTPStatus.OK,
@@ -271,8 +389,13 @@ def _handler_factory(
                     content_type,
                     attachment=filename,
                 )
+            except DistributionDenied:
+                self._json(HTTPStatus.FORBIDDEN, {"error": "TRUST_NOT_ESTABLISHED"})
+            except _HttpRequestError as error:
+                self._json(error.status, {"error": error.code})
             except (OSError, ValueError):
                 LOGGER.warning("CSA-PORTAL-ERROR correlation=%s stage=%s", self.correlation_id, self.diagnostic_stage)
+                self.diagnostic_code = "CSA-PORTAL-ERROR"
                 self._bytes(HTTPStatus.INTERNAL_SERVER_ERROR,
                     PortalBinding.render_error_page(self.correlation_id), "text/html; charset=utf-8")
 
@@ -283,11 +406,14 @@ def _handler_factory(
             if not limiter.allow(source):
                 self._json(HTTPStatus.TOO_MANY_REQUESTS, {"error": "RATE_LIMIT"})
                 return
-            path = urlparse(self.path).path
             try:
-                if path == "/api/v1/collector-package":
+                path = self._request_path()
+                if path.startswith("/api/v2/trusted/"):
+                    self._trusted_post(source)
+                elif path == "/api/v1/collector-package":
                     self.diagnostic_stage = "PACKAGE_DOWNLOAD"
                     self._read_body(0)
+                    self._require_legacy(source)
                     authorization = self.headers.get("Authorization", "")
                     credential = authorization[len("CSA-Launcher "):] if authorization.startswith("CSA-Launcher ") else ""
                     if (portal is None or portal.script_collector_path is None or
@@ -306,6 +432,8 @@ def _handler_factory(
                     self._submission(source, submission_id)
                 else:
                     self._json(HTTPStatus.NOT_FOUND, {"error": "NOT_FOUND"})
+            except DistributionDenied:
+                self._json(HTTPStatus.FORBIDDEN, {"error": "TRUST_NOT_ESTABLISHED"})
             except SubmissionRejected as error:
                 self._json(
                     HTTPStatus.FORBIDDEN,
@@ -333,13 +461,14 @@ def _handler_factory(
                 )
                 return
             data = self._read_json(4096)
-            submission_id = str(data.get("submissionId", ""))
+            submission_id = data.get("submissionId", "")
             token = self._token()
             if not submission_id or not token:
                 self._json(
                     HTTPStatus.BAD_REQUEST, {"error": "MISSING_BINDING"}
                 )
                 return
+            self._validate_submission_id(submission_id)
             nonce = submission_service.request_nonce(
                 assessment_id,
                 session_id,
@@ -351,6 +480,7 @@ def _handler_factory(
             self._json(HTTPStatus.OK, {"nonce": nonce, "expiresIn": 120})
 
         def _submission(self, source: str, submission_id: str) -> None:
+            self._validate_submission_id(submission_id)
             if self.headers.get_content_type() not in {
                 "application/zip",
                 "application/vnd.csa.submission+zip",
@@ -389,34 +519,65 @@ def _handler_factory(
                     analysis_state = "COMPLETED"
                 except Exception:
                     LOGGER.warning("CSA-ANALYSIS-ERROR correlation=%s stage=POST_ACCEPTANCE", self.correlation_id)
-                    submission_service.update_processing_state(
-                        assessment_id, submission_id, "ERROR"
-                    )
                     analysis_state = "FAILED"
+                    try:
+                        submission_service.update_processing_state(assessment_id, submission_id, "ERROR")
+                    except (OSError, ValueError):
+                        LOGGER.warning("CSA-STATE-WRITE-FAILED correlation=%s stage=POST_ACCEPTANCE", self.correlation_id)
+                    try:
+                        ConsoleAuditLog(storage.path(assessment_id, "audit", "audit.jsonl")).append("post_acceptance_analysis_failed", {
+                            "correlationId": self.correlation_id, "submissionId": submission_id,
+                            "httpStatus": 201, "stage": "EVIDENCE_ACCEPTED_ANALYSIS_FAILED", "eventClass": "ACCEPTED_ANALYSIS_FAILED",
+                            "code": "CSA-ANALYSIS-ERROR"})
+                    except (OSError, ValueError):
+                        LOGGER.warning("CSA-AUDIT-WRITE-FAILED correlation=%s stage=POST_ACCEPTANCE", self.correlation_id)
             response = model_to_dict(receipt)
             response["analysisState"] = analysis_state
-            self.diagnostic_stage = "EVIDENCE_ACCEPTED"
+            self.diagnostic_stage = "EVIDENCE_ACCEPTED_ANALYSIS_FAILED" if analysis_state == "FAILED" else "EVIDENCE_ACCEPTED"
+            if analysis_state != "FAILED":
+                try:
+                    ConsoleAuditLog(storage.path(assessment_id, "audit", "audit.jsonl")).append("http_evidence_accepted", {
+                        "correlationId": self.correlation_id, "submissionId": submission_id, "httpStatus": 201,
+                        "stage": self.diagnostic_stage, "eventClass": "ACCEPTED", "code": "CSA-EVIDENCE-ACCEPTED"})
+                except (OSError, ValueError):
+                    LOGGER.warning("CSA-AUDIT-WRITE-FAILED correlation=%s stage=%s", self.correlation_id, self.diagnostic_stage)
             self._json(HTTPStatus.CREATED, response)
 
         def _token(self) -> str:
-            value = str(self.headers.get("Authorization", ""))
+            values = self.headers.get_all("Authorization", [])
+            value = values[0] if len(values) == 1 and len(values[0]) <= 256 else ""
             prefix = "CSA-Enrollment "
             return value[len(prefix) :] if value.startswith(prefix) else ""
 
+        @staticmethod
+        def _validate_submission_id(submission_id):
+            if not isinstance(submission_id, str) or not re.fullmatch(r"SUB-[A-Za-z0-9_-]{1,96}", submission_id):
+                raise _HttpRequestError(HTTPStatus.BAD_REQUEST, "INVALID_SUBMISSION_ID")
+
         def _read_json(self, maximum: int) -> dict[str, Any]:
             raw = self._read_body(maximum)
-            value = json.loads(raw.decode("utf-8"))
+            def unique(pairs):
+                result = {}
+                for key, item in pairs:
+                    if key in result:
+                        raise _HttpRequestError(HTTPStatus.BAD_REQUEST, "DUPLICATE_JSON_FIELD")
+                    result[key] = item
+                return result
+            value = json.loads(raw.decode("utf-8"), object_pairs_hook=unique)
             if not isinstance(value, dict):
                 raise ValueError("Request JSON root must be an object")
             return value
 
         def _read_body(self, maximum: int) -> bytes:
-            if self.headers.get("Transfer-Encoding"):
+            if self.headers.get_all("Transfer-Encoding"):
                 raise _HttpRequestError(
                     HTTPStatus.BAD_REQUEST, "CHUNKED_BODY_NOT_ACCEPTED"
                 )
             try:
-                length = int(self.headers.get("Content-Length", ""))
+                lengths = self.headers.get_all("Content-Length", [])
+                if len(lengths) != 1 or not re.fullmatch(r"[0-9]{1,10}", lengths[0]):
+                    raise ValueError
+                length = int(lengths[0])
             except ValueError as error:
                 raise _HttpRequestError(
                     HTTPStatus.LENGTH_REQUIRED, "CONTENT_LENGTH_REQUIRED"
@@ -439,6 +600,8 @@ def _handler_factory(
 
         def _json(self, status: HTTPStatus, value: dict[str, Any]) -> None:
             if status >= 400:
+                candidate = str(value.get("error", "HTTP_REQUEST_REJECTED"))
+                self.diagnostic_code = candidate if re.fullmatch(r"[A-Z][A-Z0-9_-]{0,80}", candidate) else "HTTP_REQUEST_REJECTED"
                 value = {**value, "correlationId": self.correlation_id, "stage": self.diagnostic_stage,
                          "eventClass": "REJECTED", "httpStatus": int(status)}
             body = json.dumps(
@@ -466,21 +629,44 @@ def _handler_factory(
             *,
             attachment: str | None = None,
         ) -> None:
+            stage = getattr(self, "diagnostic_stage", "REQUEST_VALIDATION")
+            event_class = ("REJECTED" if status >= 400 else "ACCEPTED_ANALYSIS_FAILED" if stage == "EVIDENCE_ACCEPTED_ANALYSIS_FAILED"
+                           else "ACCEPTED" if stage == "EVIDENCE_ACCEPTED" else "DELIVERED")
+            if status >= 400:
+                self.close_connection = True
+                code = getattr(self, "diagnostic_code", "HTTP_REQUEST_REJECTED")
+                LOGGER.warning("CSA-HTTP-REJECTED correlation=%s stage=%s status=%s eventClass=%s code=%s",
+                    self.correlation_id, stage, int(status), event_class, code)
+                try:
+                    ConsoleAuditLog(storage.path(assessment_id, "audit", "audit.jsonl")).append("http_request_rejected", {
+                        "correlationId": self.correlation_id, "stage": stage, "httpStatus": int(status),
+                        "eventClass": event_class, "code": code})
+                except (OSError, ValueError):
+                    LOGGER.warning("CSA-AUDIT-WRITE-FAILED correlation=%s stage=%s", self.correlation_id, stage)
+            elif stage.startswith("TRUSTED_"):
+                try:
+                    ConsoleAuditLog(storage.path(assessment_id, "audit", "audit.jsonl")).append("http_trusted_phase_delivered", {
+                        "correlationId": self.correlation_id, "stage": stage, "httpStatus": int(status),
+                        "eventClass": event_class})
+                except (OSError, ValueError):
+                    LOGGER.warning("CSA-AUDIT-WRITE-FAILED correlation=%s stage=%s", self.correlation_id, stage)
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("Pragma", "no-cache")
+            if status >= 400:
+                self.send_header("Connection", "close")
             self.send_header("X-CSA-Correlation-ID", getattr(self, "correlation_id", ""))
             self.send_header("X-CSA-Stage", getattr(self, "diagnostic_stage", "REQUEST"))
-            self.send_header("X-CSA-Event-Class", "REJECTED" if status >= 400 else
-                             "ACCEPTED" if getattr(self, "diagnostic_stage", "") == "EVIDENCE_ACCEPTED" else "DELIVERED")
+            self.send_header("X-CSA-Event-Class", event_class)
+            self.send_header("X-CSA-Code", getattr(self, "diagnostic_code", "HTTP_REQUEST"))
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header(
                 "Content-Security-Policy",
-                "default-src 'none'; style-src 'unsafe-inline'; "
+                "default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-" + PORTAL_SCRIPT_HASH + "'; "
                 "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
             )
             self.send_header(
@@ -491,7 +677,12 @@ def _handler_factory(
                     "Content-Disposition", f'attachment; filename="{attachment}"'
                 )
             self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.wfile.write(body)
+            except (OSError, ConnectionError):
+                LOGGER.warning("CSA-NETWORK-DELIVERY-INTERRUPTED correlation=%s stage=%s status=%s",
+                    self.correlation_id, stage, int(status))
+                self.close_connection = True
 
         def log_message(self, format: str, *args: Any) -> None:
             # BaseHTTPRequestHandler also calls this for malformed requests.

@@ -250,6 +250,9 @@ class ReportClarityTests(Sprint5TestCase):
             started = time.perf_counter()
             html = generator.environment.get_template("unified.html").render(model=model, inline_style="", inline_script="")
             self.assertLess(time.perf_counter() - started, 15)
+            self.assertIn("BitLocker protection reported ON (not necessarily verified)", html)
+            self.assertIn("Recollect the required evidence and reevaluate", html)
+            self.assertIn("Verification per accepted submission", html)
             for number in range(count):
                 self.assertNotIn(f"<script>scale-{number}</script>", html)
             ids = LinkIndex()

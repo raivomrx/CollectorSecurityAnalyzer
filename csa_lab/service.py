@@ -25,7 +25,8 @@ from cve.exceptions import CveScanCancelled
 from cve.status import normalize_metadata, aggregate_statuses
 
 from csa_console.audit import ConsoleAuditLog
-from csa_console.canonical import read_json, write_canonical_json
+from csa_console.distribution import DistributionPolicy, DistributionState
+from csa_console.canonical import path_lock, read_json, write_canonical_json
 from csa_console.archive import export_assessment_archive
 from csa_console.collector_package import (
     create_collector_package,
@@ -102,7 +103,7 @@ class LabApplicationService:
         self._secret = self._load_or_create_join_secret()
         self._application_audit().append(
             "application_started",
-            {"version": "5.6.8", "processId": os.getpid()},
+            {"version": "5.6.8.1", "processId": os.getpid()},
         )
         self.detect_recovery_items()
 
@@ -428,6 +429,39 @@ class LabApplicationService:
             state.download_count = int(portal.get("downloadCount", 0))
         return state
 
+    def configure_development_distribution(self, assessment_id: str, *, enabled: bool, allowed_sources: list[str]) -> dict:
+        """Explicit localhost-assessor opt-in; never a pilot/release approval."""
+        import ipaddress
+        if (type(enabled) is not bool or not isinstance(allowed_sources, list) or len(allowed_sources) > 32
+                or not all(isinstance(item, str) for item in allowed_sources)):
+            raise ValueError("Invalid development distribution configuration")
+        sources = sorted({str(ipaddress.ip_address(item)) for item in allowed_sources})
+        if enabled and (not sources or len(sources) > 32):
+            raise ValueError("Restricted development requires 1 to 32 explicit assessor endpoint addresses")
+        state = self.load_state(assessment_id)
+        from csa_console.trusted_grants import TrustedGrantStore
+        session_path = self.storage.path(assessment_id, "sessions", state.session_id + ".json")
+        with self._lock, path_lock(session_path):
+            session = self.sessions.load_session(assessment_id, state.session_id)
+            if enabled and TrustedGrantStore(self.storage).required(session):
+                raise ValueError("A trusted session cannot downgrade to unsigned development; create a separate development assessment")
+            if enabled and assessment_id in self._servers:
+                raise ValueError("Pause collection before enabling restricted development distribution")
+            session.report_configuration["distribution"] = {
+                "mode": "DEVELOPMENT_UNSIGNED" if enabled else "TRUST_ENROLLMENT_PENDING",
+                "assessorOnly": enabled, "allowedSources": sources if enabled else [],
+            }
+            self.sessions._write_session(session)
+            policy = DistributionPolicy.from_session(session)
+            server = self._servers.get(assessment_id)
+            if server is not None and server.portal is not None:
+                server.portal.distribution_policy = policy
+        self._audit(assessment_id).append("distribution_policy_changed", {
+            "sessionId": state.session_id, "state": policy.state.value,
+            "allowedSourceDigests": ["sha256:" + hashlib.sha256(item.encode()).hexdigest() for item in sources],
+        })
+        return {"state": policy.state.value, "assessorOnly": bool(enabled)}
+
     def start_collection(self, assessment_id: str) -> LabAssessmentState:
         """Start the scoped HTTPS portal and temporary firewall lifecycle."""
 
@@ -444,20 +478,22 @@ class LabApplicationService:
                 )
             if session.status != SessionStatus.OPEN:
                 raise ValueError("Collection session is no longer active")
-            script_path = Path(state.collector_path).with_name("CSA-PowerShell-Collector.zip")
-            if not script_path.is_file():
-                # Existing assessments already have a trusted script package.
-                build_script_collector(Path(state.collector_path).parent / "package", script_path)
+            distribution = DistributionPolicy.from_session(session)
+            script_path, launcher, credential_hash = None, b"", ""
+            if distribution.state == DistributionState.DEVELOPMENT_UNSIGNED:
+                script_path = Path(state.collector_path).with_name("CSA-PowerShell-Collector.zip")
+                if not script_path.is_file():
+                    build_script_collector(Path(state.collector_path).parent / "package", script_path)
+                if not hmac.compare_digest(script_path.read_bytes(), read_bound_collector_payload(state.collector_path)):
+                    raise ValueError("Collector transport package mismatch")
+                credential = secrets.token_urlsafe(32)
+                launcher = build_powershell_launcher(
+                    script_path, session,
+                    f"https://{state.listener_address}:{state.listener_port}", credential,
+                    self.storage.path(assessment_id, "downloads", state.session_id, "signing"),
+                )
+                credential_hash = hashlib.sha256(credential.encode("utf-8")).hexdigest()
             code = self.join_code(assessment_id)
-            # Anchor the launcher to the identical package shipped in this EXE.
-            if not hmac.compare_digest(script_path.read_bytes(), read_bound_collector_payload(state.collector_path)):
-                raise ValueError("Collector transport package mismatch")
-            credential = secrets.token_urlsafe(32)
-            launcher = build_powershell_launcher(
-                script_path, session,
-                f"https://{state.listener_address}:{state.listener_port}", credential,
-                self.storage.path(assessment_id, "downloads", state.session_id, "signing"),
-            )
             portal = PortalBinding(
                 assessment_id=assessment_id,
                 session_id=state.session_id,
@@ -467,7 +503,7 @@ class LabApplicationService:
                 collector_path=Path(state.collector_path),
                 script_collector_path=script_path,
                 launcher_bytes=launcher,
-                launcher_token_hash=hashlib.sha256(credential.encode("utf-8")).hexdigest(),
+                launcher_token_hash=credential_hash,
                 expires_at=state.expires_at,
                 maximum_downloads=max(
                     state.expected_endpoints + 10,
@@ -475,6 +511,7 @@ class LabApplicationService:
                 ),
                 storage=self.storage,
                 download_count=state.download_count,
+                distribution_policy=distribution,
             )
             server = ConsoleHttpsServer(
                 assessment_id,
@@ -1213,7 +1250,7 @@ class LabApplicationService:
         summary = {
             "schemaVersion": "5.2",
             "generatedAt": utc_text(),
-            "applicationVersion": "5.6.8",
+            "applicationVersion": "5.6.8.1",
             "assessmentCount": len(assessments),
             "assessments": assessments,
             "containsEvidence": False,

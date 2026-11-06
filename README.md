@@ -11,7 +11,7 @@
 The current installer is **CSA Lab 5.6.0** and is unsigned. After updating,
 create a new assessment to obtain the updated Collector package.
 
-**5.6.8 is a development review candidate (UNSIGNED LAB ONLY)**, available from the
+**5.6.8.1 is a development review candidate (UNSIGNED LAB ONLY)**, available from the
 [CSA Lab Build workflow](https://github.com/raivomrx/CollectorSecurityAnalyzer/actions/workflows/csa-lab-build.yml).
 The [Audit2 correction](docs/sprint-5.6.6-audit2.md) tightens CVE applicability
 and preserves UTF-8 in new Collector submissions.
@@ -22,9 +22,10 @@ reported BitLocker ON, verified protection, counting units and action traceabili
 The [5.6.8 trusted distribution handoff](docs/sprint-5.6.8-trusted-distribution.md)
 adds immutable launchers, independent publisher/Lab signature verification,
 one-use signed session handoffs and a fail-closed release signing lane.
-The Join page keeps **PowerShell Copy & Paste** disabled with
-`TRUST_NOT_ESTABLISHED`. ADR 565 development is approved; the actual publisher
-identity and independent enrollment channel remain **TRUST_ENROLLMENT_PENDING**.
+The [5.6.8.1 correction](docs/sprint-5.6.8.1-correction.md) adds authenticated
+**PowerShell Copy & Paste** and **Quick Run – ExecutionPolicy Bypass** for the
+Collector process only. Both remain disabled on ordinary Join pages with
+`TRUST_NOT_ESTABLISHED` until independent enrollment is approved.
 The public release and customer pilot trust gates remain **HOLD**.
 See the [English and Estonian operator guide](docs/sprint-5.6.5-quick-start.md).
 The [5.6.4 acceptance guide](docs/sprint-5.6.4-live-stability.md) covers the

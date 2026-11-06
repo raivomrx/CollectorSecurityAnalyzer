@@ -71,8 +71,9 @@ class LauncherCase(unittest.TestCase):
         self.service = LabApplicationService(self.root/'assessments', firewall=NullFirewallManager(), collector_bootstrap=bootstrap)
         self.addCleanup(self.service.shutdown)
 
-    def create(self, synthetic=False, privacy_failure=False, name='Synthetic launcher acceptance', evidence_encoding=None):
-        request = AssessmentWizardRequest(name=name, organization='DEMO', expected_endpoints=1,
+    def create(self, synthetic=False, privacy_failure=False, name='Synthetic launcher acceptance', evidence_encoding=None,
+               development=True, expected_endpoints=1):
+        request = AssessmentWizardRequest(name=name, organization='DEMO', expected_endpoints=expected_endpoints,
             source_subnet='127.0.0.0/8', network_profile='Private', listener_address='127.0.0.1', listener_port=_free_port())
         if synthetic:
             source = self.root/'synthetic-engine'
@@ -123,6 +124,8 @@ Export-ModuleMember -Function Get-CSAExecutionTokenContext
                 state = self.service.create_assessment(request)
         else:
             state = self.service.create_assessment(request)
+        if development:
+            self.service.configure_development_distribution(state.assessment_id, enabled=True, allowed_sources=['127.0.0.1'])
         self.state = self.service.start_collection(state.assessment_id)
         self.session = self.service.sessions.load_session(state.assessment_id,state.session_id)
         self.url = self.service.portal_url(state.assessment_id)
@@ -194,7 +197,7 @@ class LauncherPortalTests(LauncherCase):
     def test_join_offers_three_transports_and_launcher_uses_header_only_download(self):
         self.create()
         page = requests.get(self.url,verify=self.session.tls_certificate_path,timeout=5)
-        for label in ['CSA Collector (.exe)', 'PowerShell Quick Start (.ps1)', 'PowerShell Offline Package (.zip)']:
+        for label in ['Development Collector (.exe)', 'PowerShell Quick Start (.ps1)', 'PowerShell Offline Package (.zip)']:
             self.assertIn(label,page.text)
         self.assertIn(r'powershell.exe -NoProfile -File .\Start-CSACollector.ps1', page.text)
         self.assertIn('Group Policy and Windows application control still apply', page.text)
@@ -280,6 +283,7 @@ class LauncherPortalTests(LauncherCase):
         state = self.service.create_assessment(AssessmentWizardRequest(name='Synthetic',expected_endpoints=1,
             listener_address='127.0.0.1',listener_port=_free_port(),source_subnet='127.0.0.0/8',network_profile='Private'))
         Path(state.collector_path).with_name('CSA-PowerShell-Collector.zip').write_bytes(b'tampered')
+        self.service.configure_development_distribution(state.assessment_id, enabled=True, allowed_sources=['127.0.0.1'])
         with self.assertRaisesRegex(ValueError,'transport package mismatch'):
             self.service.start_collection(state.assessment_id)
 

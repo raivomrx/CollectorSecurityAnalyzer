@@ -120,7 +120,7 @@ class HomeLiveAcceptanceTests(unittest.TestCase):
             / "unified.html"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("Computers with BitLocker enabled", template)
+        self.assertIn("BitLocker protection reported ON (not necessarily verified)", template)
         self.assertIn("Collector accounts with administrator membership", template)
         self.assertIn("Administrative Privileges", template)
 

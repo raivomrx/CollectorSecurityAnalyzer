@@ -541,6 +541,7 @@ class LabServiceTests(unittest.TestCase):
 
     def test_collection_lifecycle_and_portal_security(self) -> None:
         state = self.service.create_assessment(self.request())
+        self.service.configure_development_distribution(state.assessment_id, enabled=True, allowed_sources=["127.0.0.1"])
         state = self.service.start_collection(state.assessment_id)
         self.assertEqual(state.status, LabAssessmentStatus.COLLECTING)
         self.assertTrue(self.firewall.exists(state.firewall_rule_name))
@@ -564,9 +565,9 @@ class LabServiceTests(unittest.TestCase):
             timeout=5,
         )
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Download CSA Collector", response.text)
+        self.assertIn("Restricted assessor development only", response.text)
         self.assertIn('href="download"', response.text)
-        self.assertIn("CSA Collector (.exe) — Default/Home", response.text)
+        self.assertIn("Development Collector (.exe) — unsigned; not approved for customers", response.text)
         self.assertIn("PowerShell Offline Package (.zip) — Manual/offline fallback", response.text)
         self.assertIn('href="download-powershell"', response.text)
         self.assertNotIn("enrollmentToken", response.text)
@@ -747,6 +748,7 @@ class LabServiceTests(unittest.TestCase):
 
     def test_existing_assessment_exposes_original_trusted_script_package(self) -> None:
         state = self.service.create_assessment(self.request())
+        self.service.configure_development_distribution(state.assessment_id, enabled=True, allowed_sources=["127.0.0.1"])
         script_path = Path(state.collector_path).with_name("CSA-PowerShell-Collector.zip")
         script_path.unlink()
         self.service.start_collection(state.assessment_id)

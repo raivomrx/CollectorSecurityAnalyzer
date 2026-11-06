@@ -1,12 +1,13 @@
 # CSA Lab kiirjuhend
 
-**5.6.8 arenduskandidaat: UNSIGNED LAB ONLY. Avalik väljalase HOLD.**
+**5.6.8.1 arenduskandidaat: UNSIGNED LAB ONLY. Avalik väljalase HOLD.**
 ADR 565 arendus on kinnitatud, kuid avaldaja sertifikaat, võtmeomanik ja
 sõltumatu usalduskanal on veel kinnitamata (`TRUST_ENROLLMENT_PENDING`).
-Copy command jääb keelatuks. Arenduskandidaadi enda SHA-256 või sertifikaat
+Tavaline Copy ja **Quick Run – ExecutionPolicy Bypass** jäävad keelatuks kuni
+sõltumatu usalduse juurutamiseni. Arenduskandidaadi enda SHA-256 või sertifikaat
 ei tõesta sõltumatut usaldust. Kliendipiloot vajab eraldi vastuvõttu.
 
-[Usaldatud ja võrguühenduseta levituse juhend](sprint-5.6.8-trusted-distribution.md)
+[Levituse, seadistuse ja vastuvõtu juhend](sprint-5.6.8.1-correction.md)
 
 [PowerShell Copy & Paste eelvaade ja usaldusnõuded](sprint-5.6.5-quick-start.md#eesti-keeles)
 
@@ -22,8 +23,12 @@ ei tõesta sõltumatut usaldust. Kliendipiloot vajab eraldi vastuvõttu.
 9. Kontrolli hindajaga sõltumatu kinnitatud kanali kaudu Labi täpset aadressi ja
    TLS-identiteeti. Lehel endal kuvatud sõrmejälg üksi ei tõenda lehe päritolu.
    Lahendamata brauserihoiatuse korral kasuta kinnitatud eraldi üleandmist.
-10. Laadi alla ja käivita `CSA-Collector.exe` tavakasutajana. Ära kasuta
-    **Run as administrator**.
+10. Vali pärast sõltumatu usalduse kinnitamist tavaline PowerShelli Copy
+    või **Quick Run – ExecutionPolicy Bypass** ja kleebi käsk üks kord
+    tavakasutaja Windows PowerShelli. Sisesta eraldi antud ühekordne kood
+    alles paigaldatud käivitaja peidetud sisestusviibal. HOLD-olekus küsi
+    hindajalt sõltumatult kinnitatud üleandmist. Allkirjastamata allalaadimine
+    on lubatud ainult selgelt märgitud sisemises hindaja arendusrežiimis.
 11. Oota teadet **Submission accepted**.
 12. Kontrolli CSA Labis, et endpoint on **Complete**, transport on **HTTPS**,
     execution mode on standard user ja integrity on medium.
@@ -48,7 +53,9 @@ Windows Home'is tuleb samad identiteedid hindajaga eraldi kontrollida ja
 usalduspakett volitatud viisil paigaldada. Collector ise UAC-d ei küsi ega
 usalduse seadistust ei muuda. Kui PowerShelli või rakenduse käivitamine on
 reeglitega keelatud, palu IT heakskiidetud allkirjastatud või offline-töövoogu.
-Ära muuda execution policy't ega lülita kaitset välja.
+Quick Run kasutab ainult Collectori käivituse protsessipoliitikat. See ei
+muuda arvuti püsivat poliitikat, ei tühista GPO-d ja jätab Defenderi, AMSI,
+WDAC-i ning AppLockeri aktiivseks.
 
 Pärast tegelikku usalduse juurutamist saab privaatse sessioonipaketi käivitada
 paigaldatud `CSA-TrustedCollector.exe --bundle <kaust>` või samas kaustas oleva

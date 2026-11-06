@@ -2,7 +2,7 @@ Unicode True
 !include "MUI2.nsh"
 
 !define PRODUCT_NAME "CSA Lab"
-!define PRODUCT_VERSION "5.6.8"
+!define PRODUCT_VERSION "5.6.8.1"
 !define PRODUCT_PUBLISHER "CollectorSecurityAnalyzer"
 !define PRODUCT_EXE "CSA-Lab.exe"
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\CSA Lab"
@@ -27,6 +27,10 @@ ShowUninstDetails show
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "English"
+VIProductVersion "${PRODUCT_VERSION}"
+VIAddVersionKey /LANG=1033 "ProductName" "${PRODUCT_NAME}"
+VIAddVersionKey /LANG=1033 "ProductVersion" "${PRODUCT_VERSION}"
+VIAddVersionKey /LANG=1033 "FileVersion" "${PRODUCT_VERSION}"
 
 Section "CSA Lab" SEC_MAIN
   SetShellVarContext current

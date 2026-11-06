@@ -206,6 +206,12 @@ class SubmissionService:
         index_path = self.storage.path(
             assessment_id, "submissions", "index.json"
         )
+        try:
+            TrustedGrantStore(self.storage).require_evidence_binding(session, submission_id, "HTTPS", package)
+        except ValueError as error:
+            quarantine_path.unlink(missing_ok=True)
+            self._reject(assessment_id, submission_id, SubmissionState.REJECTED_UNTRUSTED_COLLECTOR, package.package_digest)
+            raise SubmissionRejected(SubmissionState.REJECTED_UNTRUSTED_COLLECTOR, "CSA-TRUST-ENGINE") from error
         with self._lock, path_lock(index_path):
             index = self._load_index(assessment_id)
             duplicate = any(
@@ -284,6 +290,8 @@ class SubmissionService:
             ("submissions", "accepted", f"{submission_id}.receipt.json"),
             model_to_dict(receipt),
         )
+        from csa_console.trust_receipts import record_accepted_provenance
+        record_accepted_provenance(self.storage, session, package, model_to_dict(receipt), "HTTPS")
         self._audit(assessment_id).append(
             "submission_accepted",
             {

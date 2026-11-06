@@ -94,7 +94,7 @@ namespace CSA.Collector
             }
         }
 
-        private static string CreateRestrictedTemporaryDirectory()
+        internal static string CreateRestrictedTemporaryDirectory()
         {
             string root = Path.Combine(Path.GetTempPath(), "CSA");
             Directory.CreateDirectory(root);
@@ -373,12 +373,12 @@ namespace CSA.Collector
             }
         }
 
-        private static int RunPowerShell(string root, bool offline, string output, bool trustedPolicy = false)
+        internal static int RunPowerShell(string root, bool offline, string output, bool trustedPolicy = false, bool quickRun = false)
         {
             string script = ResolvePackagePath(root, "Invoke-CSACollector.ps1");
             StringBuilder arguments = new StringBuilder();
             arguments.Append("-NoLogo -NoProfile -NonInteractive ");
-            arguments.Append(trustedPolicy ? "-File " : "-ExecutionPolicy Bypass -File ");
+            arguments.Append(trustedPolicy && !quickRun ? "-File " : "-ExecutionPolicy Bypass -File ");
             arguments.Append(Quote(script));
             if (offline)
             {
@@ -478,7 +478,7 @@ namespace CSA.Collector
             return difference == 0;
         }
 
-        private static bool RemoveTemporaryDirectory(string path)
+        internal static bool RemoveTemporaryDirectory(string path)
         {
             for (int attempt = 0; attempt < 5; attempt++)
             {

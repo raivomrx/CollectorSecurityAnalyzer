@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from csa_console.audit import ConsoleAuditLog
+from csa_console.distribution import DistributionPolicy, DistributionState
+from csa_console.quick_start import PORTAL_SCRIPT, quick_start_command
 from csa_console.canonical import write_canonical_json
 from csa_console.enums import SessionStatus
 from csa_console.network import source_is_allowed
@@ -61,6 +63,7 @@ class PortalBinding:
     failure_window_seconds: float = 60.0
     throttle_seconds: float = 30.0
     failed_authorization_count: int = 0
+    distribution_policy: DistributionPolicy = field(default_factory=DistributionPolicy)
     throttled_authorization_count: int = 0
     _failed_attempts: dict[str, list[float]] = field(
         default_factory=dict, repr=False, compare=False
@@ -182,13 +185,47 @@ class PortalBinding:
             },
         )
 
-    def render_page(self, assessment_name: str) -> bytes:
+    def render_page(self, assessment_name: str, network_options=None, *, development_available=False) -> bytes:
         """Render the small remote-safe download page."""
 
         safe_name = html.escape(assessment_name)
         safe_expiry = html.escape(self.expires_at)
+        development = self.distribution_policy.state == DistributionState.DEVELOPMENT_UNSIGNED and development_available
+        distribution_label = (DistributionState.DEVELOPMENT_UNSIGNED if development
+                              else DistributionState.TRUST_ENROLLMENT_PENDING).value
+        network_options = network_options or []
+        if network_options:
+            development = False
+            distribution_label = "TEST_ONLY — isolated loopback fixtures" if any(option["assurance"] == "TEST_ONLY" for option in network_options) else network_options[0]["approvalState"]
+        legacy_option = ('''<p><strong>Restricted assessor development only — UNSIGNED LAB ONLY.</strong></p>
+  <p><a class="button" href="download">Development Collector (.exe) — unsigned; not approved for customers</a></p>'''
+            if development else '''<p><strong>TRUST_NOT_ESTABLISHED</strong>: customer downloads are blocked.</p>
+  <p>Ask the assessor for an independently approved signed handoff. No executable or script download is authorized by this page.</p>''')
+        if network_options:
+            legacy_option = '<p>Unsigned legacy downloads are blocked. The authenticated Collector options are below.</p>'
+        quick_options = []
+        for index, option in enumerate(network_options):
+            from datetime import datetime, timezone
+            expiry = datetime.fromtimestamp(option["expiresAt"], timezone.utc).isoformat()
+            quick_options.append('<article><p>Recipient: ' + html.escape(option["recipientId"]) +
+                '<br>Publisher key: ' + html.escape(option["publisherKeyId"]) +
+                '<br>Publisher certificate SHA-256: ' + html.escape(option["publisherCertificateSha256"]) +
+                '<br>Target Lab: ' + html.escape(option["labId"]) + ' / ' + html.escape(option["origin"]) +
+                '<br>Command expires (UTC): ' + html.escape(expiry) +
+                '<br>Independent enrollment: ' + html.escape(option["copyState"]) + '</p>')
+            for quick_run in (False, True):
+                identifier = 'trusted-command-' + str(index) + ('-quick' if quick_run else '-standard')
+                command = quick_start_command(option["labId"], option["envelopeId"], quick_run=quick_run)
+                label = 'Quick Run – ExecutionPolicy Bypass' if quick_run else 'Copy command — standard policy'
+                quick_options.append('<pre><code id="' + identifier + '">' + html.escape(command) + '</code></pre>' +
+                    '<button type="button" data-copy-command="' + identifier + '">' + label + '</button>')
+            quick_options.append('<p>Paste only after independently authenticating this command source. Enter the separately delivered one-time assessor authorization only when the installed verifier prompts after trust checks.</p></article>')
+        quick_content = ''.join(quick_options) if quick_options else '''<p id="copy-quick-start-status"><strong>TRUST_ENROLLMENT_PENDING / TRUST_NOT_ESTABLISHED</strong>.
+      There is no current invitation with independent publisher, Lab and command-origin approval. Ask the assessor for an authorized handoff.</p>
+    <button type="button" disabled aria-describedby="copy-quick-start-status">Copy command</button>
+    <button type="button" disabled aria-describedby="copy-quick-start-status">Quick Run – ExecutionPolicy Bypass</button>'''
         script_option = ""
-        if self.script_collector_path is not None and self.script_collector_path.is_file():
+        if development and self.script_collector_path is not None and self.script_collector_path.is_file():
             script_option = """<p><a class="button" href="download-powershell">PowerShell Offline Package (.zip) — Manual/offline fallback</a></p>
   <p>Extract all files from <strong>CSA-PowerShell-Collector.zip</strong> into a new folder.
      Open a standard-user PowerShell window in that folder and run:</p>
@@ -196,7 +233,7 @@ class PortalBinding:
   <p>Organization execution restrictions still apply. The ZIP can be transferred for manual/offline use;
      use <code>-NoSubmit -ExportPath &lt;path&gt;</code> for an encrypted offline submission.</p>"""
         launcher_option = ""
-        if self.launcher_bytes:
+        if development and self.launcher_bytes:
             launcher_option = """<p><a class="button" href="download-launcher">Download PowerShell Quick Start (.ps1) — Existing Lab workflow</a></p>
   <p>Save <strong>Start-CSACollector.ps1</strong>. Open a standard-user Windows PowerShell window
      in its download folder and copy this command:</p>
@@ -235,7 +272,7 @@ class PortalBinding:
 <body>
 <main>
   <h1>CSA Security Assessment</h1>
-  <p><strong>UNSIGNED LAB ONLY · Release HOLD · TRUST_ENROLLMENT_PENDING</strong></p>
+  <p><strong>{distribution_label} · Release HOLD</strong></p>
   <p class="assessment"><strong>Assessment:</strong> {safe_name}</p>
   <p>This collector:</p>
   <ul>
@@ -250,31 +287,25 @@ class PortalBinding:
   <p><strong>If Windows blocks the Collector, record the exact Windows Security message.</strong>
      Do not disable Smart App Control as the default remediation. Use a trusted,
      signed CSA Collector build or contact the assessment administrator.</p>
-  <p>Download CSA Collector:</p>
-  <p><a class="button" href="download">CSA Collector (.exe) — Default/Home</a></p>
-  <ol>
-    <li>Open <strong>CSA-Collector.exe</strong>.</li>
-    <li>Wait for <strong>Submission accepted</strong>.</li>
-    <li>Close the collector.</li>
-  </ol>
+  {legacy_option}
   <section class="quick-start" aria-labelledby="copy-quick-start-heading">
     <h2 id="copy-quick-start-heading">PowerShell Copy &amp; Paste — one command</h2>
-    <p id="copy-quick-start-status"><strong>TRUST_NOT_ESTABLISHED</strong>
-      · Publisher signing and independent enrollment are pending. The command is unavailable until the publisher and Lab
-      identities, including the origin of the command, can be verified independently (COL-1).</p>
-    <button type="button" disabled aria-describedby="copy-quick-start-status">Copy command</button>
-    <p>The proposed workflow runs once as a standard user. It downloads and cleans up the engine automatically in
+    {quick_content}
+    <p>Quick Run is an approved alternative using a process-only execution policy. It requires the same independent trust checks.
+      Defender, AMSI, WDAC, AppLocker and enforced Group Policy remain active; no persistent execution policy is changed.</p>
+    <p>The workflow runs once as a standard user. It downloads and cleans up the engine automatically in
       temporary storage, with no persistent agent. The authorized assessment and session expiry define its scope.
       Group Policy and Windows application control apply.</p>
-    <p>For an approved assessment, use the EXE above or ask the assessor for the approved offline or enterprise handoff.</p>
-    <p lang="et">Ühe käsuga PowerShelli käivitus on eelvaates. Käsk muutub kättesaadavaks pärast
+    <p>Use only the independently approved Collector command or the assessor's verified offline/enterprise handoff.</p>
+    <p lang="et">Ühe käsuga PowerShelli käivitus muutub kättesaadavaks pärast
       väljaandja, Labi ja käsu päritolu sõltumatut kontrolli. Kasuta kinnitatud EXE- või võrguühenduseta töövoogu.</p>
   </section>
   {launcher_option}
   {script_option}
   <p>The download options use the same Collector engine, session, integrity checks and privacy controls.</p>
-  <p class="meta">Collector version: 5.6.8<br>Package expires: {safe_expiry}</p>
+  <p class="meta">Collector version: 5.6.8.1<br>Package expires: {safe_expiry}</p>
 </main>
+{f'<script>{PORTAL_SCRIPT}</script>' if quick_options else ''}
 </body>
 </html>"""
         return document.encode("utf-8")

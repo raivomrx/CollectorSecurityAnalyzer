@@ -107,7 +107,7 @@ def _admin_handler_factory(application: LabAdminServer):
     service = application.service
 
     class AdminHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Lab-Admin/5.6.8"
+        server_version = "CSA-Lab-Admin/5.6.8.1"
         protocol_version = "HTTP/1.1"
 
         def do_GET(self) -> None:
@@ -268,7 +268,14 @@ def _admin_handler_factory(application: LabAdminServer):
                     self._json(HTTPStatus.NOT_FOUND, {"error": "NOT_FOUND"})
                     return
                 assessment_id, action = self._assessment_route(path)
-                if action == "bitlocker-verification":
+                if action == "distribution":
+                    payload = self._read_json(MAX_JSON)
+                    if set(payload) - {"developmentAssessorOnly", "allowedSources"} or type(payload.get("developmentAssessorOnly")) is not bool:
+                        raise ValueError("Invalid development distribution configuration")
+                    result = service.configure_development_distribution(assessment_id,
+                        enabled=payload["developmentAssessorOnly"], allowed_sources=payload.get("allowedSources", []))
+                    self._json(HTTPStatus.OK, result)
+                elif action == "bitlocker-verification":
                     self.close_connection = True
                     self._json(HTTPStatus.FORBIDDEN, {"error": "BITLOCKER_VERIFICATION_COL1_REQUIRED"})
                 elif action == "start":
@@ -479,6 +486,10 @@ def _assessment_payload(
     service: LabApplicationService, assessment_id: str
 ) -> dict[str, Any]:
     state = service.load_state(assessment_id)
+    from csa_console.distribution import DistributionPolicy
+    from csa_console.trusted_grants import TrustedGrantStore
+    session = service.sessions.load_session(assessment_id, state.session_id)
+    distribution = DistributionPolicy() if TrustedGrantStore(service.storage).required(session) else DistributionPolicy.from_session(session)
     endpoints = service.dashboard(assessment_id)
     try:
         audit = service.audit_status(assessment_id)
@@ -491,6 +502,7 @@ def _assessment_payload(
     )
     return {
         "assessment": model_to_dict(state),
+        "distributionState": distribution.state.value,
         "portalUrl": (
             service.portal_url(assessment_id)
             if state.status.value == "COLLECTING"

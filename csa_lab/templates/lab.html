@@ -227,6 +227,7 @@
         <button type="button" class="settings-tab" data-tab="network">Network</button>
         <button type="button" class="settings-tab" data-tab="tls">TLS Certificate</button>
         <button type="button" class="settings-tab" data-tab="collector">Collector</button>
+        <button type="button" class="settings-tab" data-tab="distribution">Distribution</button>
         <button type="button" class="settings-tab" data-tab="reporting">Reporting</button>
         <button type="button" class="settings-tab" data-tab="nvd">Vulnerability Intelligence</button>
         <button type="button" class="settings-tab" data-tab="privacy">Privacy</button>
@@ -247,7 +248,15 @@
         <section data-panel="storage" class="hidden"><h3>Storage</h3><p>Assessment data is stored outside the installation directory with restricted access.</p></section>
         <section data-panel="network" class="hidden"><h3>Network</h3><p>CSA uses the interface and source subnet confirmed in each assessment.</p></section>
         <section data-panel="tls" class="hidden"><h3>TLS Certificate</h3><p>Generated assessment certificates are the current fallback. Collector identity validation is pinned and cannot be bypassed.</p></section>
-        <section data-panel="collector" class="hidden"><h3>Collector</h3><button type="button" disabled aria-describedby="bitlocker-verification-gate">Verify BitLocker status</button><p id="bitlocker-verification-gate">Read-only OS volume verification requires operator consent and independently trusted helper and Lab identities (COL-1).</p><p>Collector 5.6.8, Standard Privileges Assessment profile, offline fallback enabled by default.</p><p>If Windows application control blocks execution, record the exact Windows Security message. Do not disable Smart App Control as the default remediation. Use a trusted, signed CSA Collector build or contact the assessment administrator.</p></section>
+        <section data-panel="collector" class="hidden"><h3>Collector</h3><button type="button" disabled aria-describedby="bitlocker-verification-gate">Verify BitLocker status</button><p id="bitlocker-verification-gate">Read-only OS volume verification requires operator consent and independently trusted helper and Lab identities (COL-1).</p><p>Collector 5.6.8.1, Standard Privileges Assessment profile, offline fallback enabled by default.</p><p>If Windows application control blocks execution, record the exact Windows Security message. Do not disable Smart App Control as the default remediation. Use a trusted, signed CSA Collector build or contact the assessment administrator.</p></section>
+        <section data-panel="distribution" class="hidden"><h3>Collector distribution</h3>
+          <p>Customer downloads stay blocked until independent trust and transport acceptance are approved.</p>
+          <p>For the selected assessment only, an authorized assessor may enable restricted unsigned development downloads.</p>
+          <label>Explicit assessor endpoint addresses (comma separated)<input id="development-sources" placeholder="127.0.0.1" autocomplete="off"></label>
+          <button id="enable-development-distribution" type="button">Enable restricted development — UNSIGNED LAB ONLY</button>
+          <button id="disable-development-distribution" type="button">Block legacy downloads</button>
+          <p id="distribution-status" role="status">TRUST_ENROLLMENT_PENDING</p>
+        </section>
         <section data-panel="reporting" class="hidden"><h3>Reporting</h3><p>The unified self-contained HTML report is the primary output.</p></section>
         <section data-panel="nvd" class="hidden">
           <h3>NVD vulnerability intelligence</h3>

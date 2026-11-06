@@ -108,6 +108,7 @@
     const processingEndpoints = payload.endpoints.filter((item) => item.status !== "COMPLETE");
     $("assessment-name").textContent = assessment.name;
     $("assessment-reference").textContent = assessment.organization || assessment.referenceNumber || "CSA assessment";
+    $("distribution-status").textContent = payload.distributionState;
     $("assessment-status").textContent = status.replaceAll("_", " ");
     $("assessment-status").className = `status status-${status.toLowerCase()}`;
     $("endpoint-count").textContent = `${payload.endpoints.length} / ${assessment.expectedEndpoints}`;
@@ -407,6 +408,20 @@
       showMessage(error.message, true);
     }
   }
+
+  async function configureDevelopmentDistribution(enabled) {
+    if (!state.currentId) { showMessage("Select an assessment first.", true); return; }
+    const allowedSources = $("development-sources").value.split(",").map(value => value.trim()).filter(Boolean);
+    try {
+      await request(`/api/v1/assessments/${encodeURIComponent(state.currentId)}/distribution`, {
+        method: "POST", body: JSON.stringify({ developmentAssessorOnly: enabled, allowedSources })
+      });
+      await openAssessment(state.currentId);
+      showMessage(enabled ? "Restricted assessor development downloads enabled. Customer use remains HOLD." : "Legacy downloads blocked.");
+    } catch (error) { showMessage(error.message, true); }
+  }
+  $("enable-development-distribution").addEventListener("click", () => configureDevelopmentDistribution(true));
+  $("disable-development-distribution").addEventListener("click", () => configureDevelopmentDistribution(false));
 
   async function runCveAnalysis() {
     if (!state.currentId) return;

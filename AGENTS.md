@@ -34,6 +34,12 @@ an instruction to implement it again.
   bypass AppLocker/WDAC, or silently escalate privileges to make collection work.
   Handle endpoint-security file locks with bounded, narrowly classified retries;
   do not retry or ignore hash mismatches or unsafe package paths.
+- The project lead explicitly approves **Quick Run – ExecutionPolicy Bypass**
+  as an alternative for the Collector process only, after independent origin,
+  publisher/Lab identity and package integrity verification. Do not change
+  persistent execution policy. GPO, AMSI, Defender, WDAC and AppLocker remain
+  enforced; explain their refusal and stop. This exception does not authorize
+  unverified download-and-execute or any application-control workaround.
 - **Passive credential/Responder posture** is not a credential-capture result.
   Any active validation requires a distinct, explicit scope and authorization;
   never enable capture, relay, cracking, hash dumping or credential retention as

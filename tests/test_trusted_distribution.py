@@ -72,6 +72,7 @@ class TrustedProtocolTests(unittest.TestCase):
             "/reference:System.IO.Compression.dll", "/reference:System.IO.Compression.FileSystem.dll",
             "/reference:System.Web.Extensions.dll", "/reference:System.Security.dll",
             str(ROOT / "collector/bootstrapper/Program.cs"), str(ROOT / "collector/trusted/TrustedEntry.cs"),
+            str(ROOT / "collector/trusted/TrustedNetwork.cs"), str(ROOT / "collector/trusted/TrustInspection.cs"),
             str(ROOT / "collector/trusted/TrustProtocol.cs"), str(ROOT / "tests/fixtures/trust_protocol_harness.cs")],
             capture_output=True, text=True, timeout=30)
         if result.returncode:
@@ -142,6 +143,14 @@ class TrustedProtocolTests(unittest.TestCase):
         result = subprocess.run([str(self.harness), str(source)], capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)
+
+    def test_enforced_organization_policy_refuses_quick_run_with_machine_precedence(self):
+        cases = [dict(kind="organizationPolicy", now=self.now, machineEnabled=me, machinePolicy=mp,
+                      userEnabled=ue, userPolicy=up)
+                 for me, mp, ue, up in ((0, None, 1, "RemoteSigned"), (None, None, 0, None),
+                                       (1, "Restricted", 1, "AllSigned"), (1, "AllSigned", 0, None),
+                                       (None, None, None, None))]
+        self.assertEqual(self.run_cases(cases), ["CSA-COL-ORGANIZATION-POLICY"] * 3 + ["PASS", "PASS"])
 
     def test_publisher_signatures_substitution_expiry_revocation_and_rollback(self):
         release = self.release()
@@ -444,13 +453,15 @@ except ValueError:
             service.import_file(self.assessment.assessment_id, encrypted, analyze=False)
 
     def test_portal_error_has_safe_correlation_and_stable_stage(self):
+        from csa_console.distribution import DistributionPolicy, DistributionState
         from csa_console.portal import normalize_join_code
         import hashlib
         join = normalize_join_code("ABCD-EFGH")
         collector = Path(self.temporary.name) / "collector.exe"
         collector.write_bytes(b"fixture")
         portal = PortalBinding(self.assessment.assessment_id, self.session.session_id,
-            hashlib.sha256(join.encode()).hexdigest(), collector, self.session.expires_at, 10, self.storage)
+            hashlib.sha256(join.encode()).hexdigest(), collector, self.session.expires_at, 10, self.storage,
+            distribution_policy=DistributionPolicy(DistributionState.DEVELOPMENT_UNSIGNED, frozenset({"127.0.0.1"})))
         server = ConsoleHttpsServer(self.assessment.assessment_id, self.session.session_id, self.storage,
                                     analyze_automatically=False, portal=portal)
         thread = threading.Thread(target=server.serve_forever, daemon=True)

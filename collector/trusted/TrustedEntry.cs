@@ -14,7 +14,11 @@ namespace CSA.Collector
 {
     internal static class TrustedEntry
     {
-        private static int Main(string[] args) { return Program.RunTrusted(args); }
+        private static int Main(string[] args)
+        {
+            if (args.Length > 0 && args[0] == "--inspect-bundle") return Program.InspectTrustedBundle(args);
+            return Program.RunTrusted(args);
+        }
     }
 
     internal static partial class Program
@@ -22,12 +26,13 @@ namespace CSA.Collector
         internal static int RunTrusted(string[] args)
         {
             string root = null;
+            string downloaded = null;
             int exitCode = 1;
             List<FileStream> leases = new List<FileStream>();
             try
             {
                 WriteHeading();
-                Protocol.Require((args.Length == 2 || args.Length == 4 && args[2] == "--offline") && args[0] == "--bundle", "CSA-TRUST-ARGUMENTS");
+                TrustedOptions options = TrustedOptions.Parse(args);
                 string policyPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "CSA", "Trust", "policy.json");
                 Protocol.Require(File.Exists(policyPath), "TRUST_NOT_ESTABLISHED");
                 RejectElevatedProcess();
@@ -39,47 +44,33 @@ namespace CSA.Collector
                 Protocol.Require(String.Equals(self, installed, StringComparison.OrdinalIgnoreCase), "CSA-TRUST-INSTALLATION");
                 Protocol.ProtectedPath(self);
                 VerifyPublisherExecutable(self, policy, now);
+                RejectEnforcedScriptPolicy();
                 // The bundle is data. Never execute a downloaded entry point.
-                string bundle = Path.GetFullPath(args[1]);
-                byte[] publisherBytes = ReadTrustedInput(Path.Combine(bundle, "publisher-manifest.json"), 4 * 1024 * 1024);
-                Dictionary<string, object> release = Protocol.VerifySigned(publisherBytes,
-                    ReadTrustedInput(Path.Combine(bundle, "publisher-manifest.p7s"), 65536), policy, "publishers", now);
-                Protocol.Fields(release, "objectType", "schemaVersion", "keyId", "issuedAt", "expiresAt",
-                    "releaseSequence", "version", "commit", "bootstrapSha256", "bootstrapSize", "entryPointSha256", "entryPointSize", "files", "profiles");
-                Protocol.Require(Protocol.Text(release, "objectType") == "CSA_PUBLISHER_RELEASE" && Protocol.Number(release, "schemaVersion") == 1,
-                    "CSA-TRUST-SCHEMA");
-                Protocol.Require(Protocol.Number(release, "releaseSequence") >= Protocol.Number(policy, "minimumReleaseSequence"), "CSA-TRUST-ROLLBACK");
-                byte[] executable = ReadTrustedInput(self, 16 * 1024 * 1024);
-                byte[] entryPoint = ReadTrustedInput(Path.Combine(Path.GetDirectoryName(self), "Start-CSATrustedCollector.ps1"), 1024 * 1024);
-                Protocol.Require(executable.LongLength == Protocol.Number(release, "bootstrapSize")
-                    && entryPoint.LongLength == Protocol.Number(release, "entryPointSize"), "CSA-TRUST-BOOTSTRAP");
-                Protocol.Artifact(executable, Protocol.Text(release, "bootstrapSha256"));
-                Protocol.Artifact(entryPoint, Protocol.Text(release, "entryPointSha256"));
-
-                byte[] sessionBytes = ReadTrustedInput(Path.Combine(bundle, "session-envelope.json"), 1024 * 1024);
-                Dictionary<string, object> session = Protocol.VerifySigned(sessionBytes,
-                    ReadTrustedInput(Path.Combine(bundle, "session-envelope.p7s"), 65536), policy, "labs", now);
-                Protocol.Fields(session, "objectType", "schemaVersion", "keyId", "issuedAt", "expiresAt", "envelopeId",
-                    "labId", "recipientId", "assessmentId", "sessionId", "origin", "tlsFingerprint", "mode",
-                    "profileId", "profileDigest", "privacyPolicyDigest", "publisherManifestDigest",
-                    "packageDigest", "sessionManifestDigest", "nonce", "submissionPolicy");
-                Protocol.Require(Protocol.Text(session, "objectType") == "CSA_LAB_SESSION" && Protocol.Number(session, "schemaVersion") == 1,
-                    "CSA-TRUST-SCHEMA");
-                Dictionary<string, object> lab = Protocol.Key(policy, "labs", Protocol.Text(session, "keyId"), now);
-                foreach (string field in new[] { "labId", "origin", "tlsFingerprint" })
-                    Protocol.Require(Protocol.Text(lab, field) == Protocol.Text(session, field), "CSA-TRUST-LAB");
-                Protocol.Origin(Protocol.Text(session, "origin"));
-                Protocol.Require(System.Text.RegularExpressions.Regex.IsMatch(Protocol.Text(session, "envelopeId"), "\\A[A-Za-z0-9_-]{16,128}\\z")
-                    && System.Text.RegularExpressions.Regex.IsMatch(Protocol.Text(session, "nonce"), "\\A[A-Za-z0-9_-]{16,128}\\z"), "CSA-TRUST-NONCE");
-                Protocol.Require(Protocol.Text(policy, "endpointId") == Protocol.Text(session, "recipientId"), "CSA-TRUST-RECIPIENT");
-                Protocol.Require(Protocol.Digest(publisherBytes) == Protocol.Text(session, "publisherManifestDigest"), "CSA-TRUST-SESSION");
-                Protocol.Require(Protocol.Text(session, "mode") == "STANDARD_USER_COLLECTION", "CSA-TRUST-MODE");
-                Protocol.Require(Protocol.Number(session, "expiresAt") - Protocol.Number(session, "issuedAt") <= 86400, "CSA-TRUST-EXPIRED");
-                Dictionary<string, object> submission = Protocol.Object(session["submissionPolicy"]);
-                Protocol.Fields(submission, "transport", "maximumBytes", "receiptRequired");
-                Protocol.Require(Protocol.Text(submission, "transport") == "HTTPS_OR_ENCRYPTED_OFFLINE"
-                    && Protocol.Number(submission, "maximumBytes") > 0 && Protocol.Number(submission, "maximumBytes") <= 128 * 1024 * 1024
-                    && submission["receiptRequired"] is bool && (bool)submission["receiptRequired"], "CSA-TRUST-SCOPE");
+                string bundle;
+                if (options.LabId != null)
+                {
+                    NetworkBundle fetched = NetworkBootstrap.Acquire(policy, options.LabId, options.EnvelopeId,
+                        ReadTrustedInput(self, 16 * 1024 * 1024),
+                        ReadTrustedInput(Path.Combine(Path.GetDirectoryName(self), "Start-CSATrustedCollector.ps1"), 1024 * 1024),
+                        ReadAssessorSecret, code => Console.WriteLine("CSA phase: " + code),
+                        options.QuickRun ? "QUICK_RUN_PROCESS_BYPASS" : "STANDARD_POLICY");
+                    downloaded = CreateRestrictedTemporaryDirectory();
+                    foreach (KeyValuePair<string, byte[]> file in fetched.Files)
+                        RetryFileOperation(() => { File.WriteAllBytes(ResolvePackagePath(downloaded, file.Key), file.Value); return true; });
+                    bundle = downloaded;
+                }
+                else bundle = Path.GetFullPath(options.Bundle);
+                BundleMetadata metadata = BundleMetadata.Verify(policy,
+                    ReadTrustedInput(Path.Combine(bundle, "publisher-manifest.json"), 4 * 1024 * 1024),
+                    ReadTrustedInput(Path.Combine(bundle, "publisher-manifest.p7s"), 65536),
+                    ReadTrustedInput(Path.Combine(bundle, "session-envelope.json"), 1024 * 1024),
+                    ReadTrustedInput(Path.Combine(bundle, "session-envelope.p7s"), 65536),
+                    ReadTrustedInput(self, 16 * 1024 * 1024),
+                    ReadTrustedInput(Path.Combine(Path.GetDirectoryName(self), "Start-CSATrustedCollector.ps1"), 1024 * 1024), now);
+                Dictionary<string, object> release = metadata.Release;
+                Dictionary<string, object> session = metadata.Session;
+                Protocol.Require(options.LabId != null || Protocol.Number(session, "schemaVersion") == 1,
+                    "CSA-TRUST-AUTHORIZATION");
 
                 byte[] package = ReadTrustedInput(Path.Combine(bundle, "collector.zip"), 64 * 1024 * 1024);
                 Protocol.VerifyArchive(package, release, session);
@@ -98,15 +89,25 @@ namespace CSA.Collector
                 Console.WriteLine("Target Lab: " + Protocol.Text(session, "labId") + " / " + Protocol.Text(session, "origin"));
                 Console.WriteLine("Session expires (UTC): " + DateTimeOffset.FromUnixTimeSeconds(Protocol.Number(session, "expiresAt")).ToString("u"));
                 PrintAssessmentSummary(root);
-                exitCode = RunPowerShell(root, args.Length == 4, args.Length == 4 ? Path.GetFullPath(args[3]) : null, true);
+                Console.WriteLine("CSA execution transport: " + (options.QuickRun ? "QUICK_RUN_PROCESS_BYPASS" : "STANDARD_POLICY"));
+                exitCode = RunPowerShell(root, options.OfflineExport != null,
+                    options.OfflineExport != null ? Path.GetFullPath(options.OfflineExport) : null, true, options.QuickRun);
+                if (exitCode != 0) Console.Error.WriteLine("CSA-COL-POLICY-OR-RUN: Collection stopped. Record the Windows policy/application-control message for the assessor; protections remain enforced.");
             }
             catch (TrustFailure error)
             {
-                Console.Error.WriteLine(error.Message + ": Verification stopped. Contact the assessor using the approved trust channel.");
+                if (error.Message == "CSA-COL-ORGANIZATION-POLICY")
+                    Console.Error.WriteLine(error.Message + ": Your organization's Group Policy blocks PowerShell scripts, including Quick Run. Contact the assessor for an approved transport.");
+                else
+                    Console.Error.WriteLine(error.Message + ": Verification stopped. Contact the assessor using the approved trust channel.");
             }
             catch (TransientFileLockException)
             {
                 Console.Error.WriteLine("CSA-COL-FILELOCK: Endpoint security is scanning a Collector file. Retry shortly.");
+            }
+            catch (TransientTransportFailure)
+            {
+                Console.Error.WriteLine("CSA-NETWORK-INTERRUPTED: The authenticated download was interrupted. Request a fresh assessor handoff if authorization was consumed.");
             }
             catch
             {
@@ -119,6 +120,11 @@ namespace CSA.Collector
                 {
                     exitCode = 1;
                     Console.Error.WriteLine("CSA-BOOT-CLEANUP: Temporary data cleanup requires assessor review.");
+                }
+                if (downloaded != null && !RemoveTemporaryDirectory(downloaded))
+                {
+                    exitCode = 1;
+                    Console.Error.WriteLine("CSA-BOOT-CLEANUP: Download cleanup requires assessor review.");
                 }
             }
             return exitCode;
@@ -174,8 +180,13 @@ namespace CSA.Collector
                 && Protocol.Text(config, "collectionProfile") == Protocol.Text(session, "profileId")
                 && Protocol.Text(config, "collectionProfileDigest") == Protocol.Text(session, "profileDigest")
                 && Protocol.Text(manifest, "collectionProfileDigest") == Protocol.Text(session, "profileDigest"), "CSA-TRUST-SCOPE");
+            string privateProof = Protocol.Text(config, "trustedEnvelopeNonce");
             Protocol.Require(Protocol.Text(config, "trustedEnvelopeId") == Protocol.Text(session, "envelopeId")
-                && Protocol.Text(config, "trustedEnvelopeNonce") == Protocol.Text(session, "nonce"), "CSA-TRUST-NONCE");
+                && NetworkBootstrap.Locator(privateProof), "CSA-TRUST-NONCE");
+            if (Protocol.Number(session, "schemaVersion") == 2)
+                Protocol.Require(Protocol.Digest(Encoding.ASCII.GetBytes(privateProof)) ==
+                    Protocol.Text(Protocol.Object(session["submissionPolicy"]), "authorizationDigest"), "CSA-TRUST-NONCE");
+            else Protocol.Require(privateProof == Protocol.Text(session, "nonce"), "CSA-TRUST-NONCE");
             string privacy = Protocol.Text(config, "privacyPolicy");
             Protocol.SafePath(privacy);
             Protocol.Require(privacy.StartsWith("collector/profiles/", StringComparison.Ordinal)
@@ -216,6 +227,74 @@ namespace CSA.Collector
                 Protocol.Require(keys.Length == 1 && rsa.KeySize >= 3072, "CSA-TRUST-PUBLISHER");
                 Protocol.Key(policy, "publishers", Protocol.Text(keys[0], "keyId"), now);
             }
+        }
+
+        private static string ReadAssessorSecret()
+        {
+            Protocol.Require(!Console.IsInputRedirected, "CSA-TRUST-SECURE-PROMPT");
+            Console.Write("Enter the one-time authorization from the independent assessor handoff (input hidden): ");
+            StringBuilder secret = new StringBuilder();
+            while (true)
+            {
+                ConsoleKeyInfo key = Console.ReadKey(true);
+                if (key.Key == ConsoleKey.Enter) break;
+                if (key.Key == ConsoleKey.Escape) throw new TrustFailure("CSA-TRUST-CANCELLED");
+                if (key.Key == ConsoleKey.Backspace) { if (secret.Length > 0) secret.Length--; continue; }
+                Protocol.Require(secret.Length < 128 && (Char.IsLetterOrDigit(key.KeyChar) && key.KeyChar < 128
+                    || key.KeyChar == '_' || key.KeyChar == '-'), "CSA-TRUST-AUTHORIZATION");
+                secret.Append(key.KeyChar);
+            }
+            Console.WriteLine();
+            return secret.ToString();
+        }
+
+        internal static void RejectEnforcedScriptPolicy()
+        {
+            using (Microsoft.Win32.RegistryKey machine = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"Software\Policies\Microsoft\Windows\PowerShell", false))
+            using (Microsoft.Win32.RegistryKey user = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Policies\Microsoft\Windows\PowerShell", false))
+            {
+                VerifyEnforcedScriptPolicy(machine == null ? null : machine.GetValue("EnableScripts"),
+                    machine == null ? null : machine.GetValue("ExecutionPolicy"), user == null ? null : user.GetValue("EnableScripts"),
+                    user == null ? null : user.GetValue("ExecutionPolicy"));
+            }
+        }
+
+        internal static void VerifyEnforcedScriptPolicy(object machineEnabled, object machinePolicy, object userEnabled, object userPolicy)
+        {
+            // Windows PowerShell evaluates MachinePolicy before UserPolicy.
+            bool machineConfigured = machineEnabled != null || machinePolicy != null;
+            object enabled = machineConfigured ? machineEnabled : userEnabled;
+            object policy = machineConfigured ? machinePolicy : userPolicy;
+            Protocol.Require(Convert.ToString(enabled) != "0"
+                && !String.Equals(Convert.ToString(policy), "Restricted", StringComparison.OrdinalIgnoreCase),
+                "CSA-COL-ORGANIZATION-POLICY");
+        }
+    }
+
+    internal sealed class TrustedOptions
+    {
+        internal string Bundle, LabId, EnvelopeId, OfflineExport;
+        internal bool QuickRun;
+        internal static TrustedOptions Parse(string[] args)
+        {
+            TrustedOptions options = new TrustedOptions();
+            HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int index = 0; index < args.Length; index++)
+            {
+                string flag = args[index];
+                Protocol.Require(seen.Add(flag), "CSA-TRUST-ARGUMENTS");
+                if (flag == "--quick-run") { options.QuickRun = true; continue; }
+                Protocol.Require(index + 1 < args.Length, "CSA-TRUST-ARGUMENTS");
+                string value = args[++index];
+                if (flag == "--bundle") options.Bundle = value;
+                else if (flag == "--lab") options.LabId = value;
+                else if (flag == "--envelope") options.EnvelopeId = value;
+                else if (flag == "--offline") options.OfflineExport = value;
+                else throw new TrustFailure("CSA-TRUST-ARGUMENTS");
+            }
+            Protocol.Require(options.Bundle != null && options.LabId == null && options.EnvelopeId == null
+                || options.Bundle == null && options.LabId != null && options.EnvelopeId != null, "CSA-TRUST-ARGUMENTS");
+            return options;
         }
     }
 }

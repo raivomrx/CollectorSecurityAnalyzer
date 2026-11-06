@@ -354,6 +354,10 @@ class OfflineImportService:
         index_path = self.storage.path(
             assessment_id, "submissions", "index.json"
         )
+        try:
+            TrustedGrantStore(self.storage).require_evidence_binding(session, submission_id, "OFFLINE_ENCRYPTED", package)
+        except ValueError as error:
+            raise OfflineImportError("CSA-TRUST-ENGINE") from error
         with path_lock(index_path):
             existing = self.submissions.list_submissions(assessment_id)
             if any(
@@ -423,6 +427,8 @@ class OfflineImportService:
             ("submissions", "accepted", f"{submission_id}.receipt.json"),
             model_to_dict(receipt),
         )
+        from csa_console.trust_receipts import record_accepted_provenance
+        record_accepted_provenance(self.storage, session, package, model_to_dict(receipt), "OFFLINE_ENCRYPTED")
         audit = ConsoleAuditLog(
             self.storage.path(assessment_id, "audit", "audit.jsonl")
         )

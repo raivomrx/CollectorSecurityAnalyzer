@@ -5,13 +5,14 @@ from datetime import datetime
 import json
 from pathlib import Path
 import re
+import secrets
 import shutil
 import subprocess
 import tempfile
 from typing import Callable
 from urllib.parse import urlsplit
 
-from csa_console.canonical import path_lock, sha256_bytes, sha256_file, sha256_value, write_canonical_json
+from csa_console.canonical import sha256_bytes, sha256_file, sha256_value, write_canonical_json
 from csa_console.collector_package import verify_collector_package
 from csa_console.file_security import restrict_directory
 from csa_lab.collector_executable import _package_zip
@@ -56,7 +57,7 @@ def publisher_manifest(package_root: Path, bootstrap: Path, entry_point: Path, *
 
 def session_envelope(package_root: Path, publisher: bytes, *, key_id: str, lab_id: str,
                      recipient_id: str, envelope_id: str, nonce: str, issued_at: int,
-                     maximum_bytes: int = 128 * 1024 * 1024) -> tuple[bytes, bytes]:
+                     maximum_bytes: int = 128 * 1024 * 1024, authorization_digest: str | None = None) -> tuple[bytes, bytes]:
     """Bind the existing session, TLS pin, profile, privacy and engine archive."""
     package = verify_collector_package(package_root)
     config = json.loads((package_root / "session-config.json").read_text(encoding="utf-8"))
@@ -74,7 +75,7 @@ def session_envelope(package_root: Path, publisher: bytes, *, key_id: str, lab_i
         raise ValueError("CSA-TRUST-SCOPE")
     archive = _package_zip(package_root)
     envelope = trust_bytes({
-        "objectType": "CSA_LAB_SESSION", "schemaVersion": 1, "keyId": key_id,
+        "objectType": "CSA_LAB_SESSION", "schemaVersion": 2 if authorization_digest else 1, "keyId": key_id,
         "issuedAt": issued_at, "expiresAt": expires, "envelopeId": envelope_id, "nonce": nonce,
         "labId": lab_id, "recipientId": recipient_id, "assessmentId": config["assessmentId"],
         "sessionId": config["sessionId"], "origin": config["serverUrl"],
@@ -84,13 +85,13 @@ def session_envelope(package_root: Path, publisher: bytes, *, key_id: str, lab_i
         "publisherManifestDigest": sha256_bytes(publisher), "packageDigest": sha256_bytes(archive),
         "sessionManifestDigest": sha256_file(package_root / "trusted-manifest.json"),
         "submissionPolicy": {"transport": "HTTPS_OR_ENCRYPTED_OFFLINE", "maximumBytes": maximum_bytes,
-                             "receiptRequired": True},
+                             "receiptRequired": True, **({"authorizationDigest": authorization_digest} if authorization_digest else {})},
     })
     return envelope, archive
 
 
 def create_trusted_bundle(output: Path, package_root: Path, publisher: bytes, publisher_signature: bytes, *,
-                          sign_session: Callable[[bytes], bytes], grant_store, session, **scope) -> Path:
+                          sign_session: Callable[[bytes], bytes], grant_store, session, network=False, authority=None, **scope) -> Path:
     """Publish a complete private handoff without mutating the original package."""
     output = output.resolve()
     if output.exists():
@@ -103,14 +104,23 @@ def create_trusted_bundle(output: Path, package_root: Path, publisher: bytes, pu
         restrict_directory(work)
         package = work / "package"
         shutil.copytree(package_root, package)
-        staged = _create_trusted_bundle(work / "bundle", package, publisher, publisher_signature,
-            sign_session=sign_session, grant_store=grant_store, session=session, **scope)
-        staged.replace(output)
+        staged, envelope, build_digest = _create_trusted_bundle(work / "bundle", package, publisher, publisher_signature,
+            sign_session=sign_session, grant_store=grant_store, session=session, network=network, **scope)
+        try:
+            if network and authority is None:
+                raise ValueError("TRUST_ENROLLMENT_PENDING")
+            provenance = authority.verify(staged) if authority is not None else None
+            staged.replace(output)
+            grant_store.finish_issue(session, envelope, build_digest=build_digest, provenance=provenance,
+                bundle_path=output, network=network)
+        except Exception:
+            grant_store.fail_issue(session, scope["envelope_id"], "CSA-TRUST-ISSUANCE-PUBLISH")
+            raise
     return output
 
 
 def _create_trusted_bundle(output: Path, package_root: Path, publisher: bytes, publisher_signature: bytes, *,
-                           sign_session: Callable[[bytes], bytes], grant_store, session, **scope) -> Path:
+                           sign_session: Callable[[bytes], bytes], grant_store, session, network=False, **scope):
     """Write a separate data-only handoff. Publisher code is never modified."""
     if output.exists():
         raise ValueError("CSA-TRUST-OUTPUT")
@@ -118,7 +128,9 @@ def _create_trusted_bundle(output: Path, package_root: Path, publisher: bytes, p
     config = json.loads(configuration_path.read_text(encoding="utf-8"))
     if config.get("assessmentId") != session.assessment_id or config.get("sessionId") != session.session_id:
         raise ValueError("CSA-TRUST-SESSION")
-    config.update(trustedEnvelopeId=scope["envelope_id"], trustedEnvelopeNonce=scope["nonce"])
+    private_proof = secrets.token_urlsafe(32) if network else scope["nonce"]
+    authorization_secret = secrets.token_urlsafe(32) if network else None
+    config.update(trustedEnvelopeId=scope["envelope_id"], trustedEnvelopeNonce=private_proof)
     write_canonical_json(configuration_path, config)
     manifest_path = package_root / "trusted-manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -128,23 +140,27 @@ def _create_trusted_bundle(output: Path, package_root: Path, publisher: bytes, p
     manifest["collectorBuildDigest"] = sha256_value(manifest["files"])
     write_canonical_json(manifest_path, manifest)
     envelope, archive = session_envelope(package_root, publisher,
-        maximum_bytes=session.maximum_package_size, **scope)
-    signature = sign_session(envelope)
-    if not signature:
-        raise ValueError("CSA-TRUST-SIGNATURE")
-    session_path = grant_store.storage.path(session.assessment_id, "sessions", session.session_id + ".json")
-    with path_lock(session_path):
-        current = grant_store.sessions.load_session(session.assessment_id, session.session_id)
-        grant_store.issue(current, json.loads(envelope))
-        current = grant_store.sessions.load_session(session.assessment_id, session.session_id)
-        grant_store.sessions.trust_collector_build(current, manifest["collectorBuildDigest"])
-    output.mkdir(parents=True)
-    restrict_directory(output)
-    files = {"publisher-manifest.json": publisher, "publisher-manifest.p7s": publisher_signature,
-             "session-envelope.json": envelope, "session-envelope.p7s": signature, "collector.zip": archive}
-    for name, value in files.items():
-        (output / name).write_bytes(value)
-    return output
+        maximum_bytes=session.maximum_package_size,
+        authorization_digest=sha256_bytes(private_proof.encode("ascii")) if network else None, **scope)
+    value = json.loads(envelope)
+    grant_store.begin_issue(session, value, private_proof=private_proof, authorization_secret=authorization_secret)
+    try:
+        signature = sign_session(envelope)
+        if not signature:
+            raise ValueError("CSA-TRUST-SIGNATURE")
+        output.mkdir(parents=True)
+        restrict_directory(output)
+        files = {"publisher-manifest.json": publisher, "publisher-manifest.p7s": publisher_signature,
+                 "session-envelope.json": envelope, "session-envelope.p7s": signature, "collector.zip": archive}
+        if network:
+            # Private out-of-band handoff, never served by the network endpoints.
+            files["assessor-authorization.txt"] = authorization_secret.encode("ascii")
+        for name, content in files.items():
+            (output / name).write_bytes(content)
+        return output, value, manifest["collectorBuildDigest"]
+    except Exception:
+        grant_store.fail_issue(session, scope["envelope_id"], "CSA-TRUST-ISSUANCE-SIGNING")
+        raise
 
 
 def sign_with_windows_store(content: bytes, thumbprint: str, work_root: Path, *,
