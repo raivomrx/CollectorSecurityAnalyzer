@@ -74,7 +74,7 @@ jobs:
             "- File: CSA-Lab-Setup.exe"
             "- Commit: $env:GITHUB_SHA"
             "- Distribution: UNSIGNED LAB ONLY (development candidate); public release HOLD"
-            "- Trust: TRUST_ENROLLMENT_PENDING; Copy command disabled"
+            "- Trust: production network Copy TRUST_ENROLLMENT_PENDING; private ASSESSOR_VERIFIED_PILOT EXE/Quick Run available under approved ADR 5682"
             "- Authenticode: $((Get-AuthenticodeSignature -LiteralPath $installer.FullName).Status)"
             "- SHA-256: $hash"
             "- Build: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
