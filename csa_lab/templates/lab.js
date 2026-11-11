@@ -90,7 +90,7 @@
   async function openAssessment(assessmentId) {
     if (state.currentId !== assessmentId) {
       pilotHandoff = null;
-      for (const id of ["pilot-exe-command", "pilot-standard-command", "pilot-quick-command", "assessor-pilot-result"]) $(id).textContent = "";
+      for (const id of ["pilot-exe-command", "pilot-standard-command", "pilot-quick-command", "pilot-verification-script", "assessor-pilot-result"]) $(id).textContent = "";
       for (const id of ["download-assessor-pilot", "build-pilot-commands", "copy-pilot-quick"]) $(id).disabled = true;
       $("pilot-status").textContent = "SETUP_REQUIRED — inspect this assessment";
       $("pilot-checks").replaceChildren();
@@ -502,6 +502,7 @@
       $("pilot-exe-command").textContent=data.exe;
       $("pilot-standard-command").textContent=data.standard;
       $("pilot-quick-command").textContent=data.quick;
+      $("pilot-verification-script").textContent=data.verificationScript;
       $("copy-pilot-quick").disabled=false;
     } catch(error) { showMessage(error.message,true); }
   });

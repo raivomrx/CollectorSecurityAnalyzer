@@ -82,7 +82,7 @@ try {
             Object.defineProperty(navigator,'clipboard',{value:{writeText:async value=>{text=value;}}});
             document.getElementById('copy-pilot-quick').click();await Promise.resolve();return text;
         })()`);
-        assert.match(copied,/CSA-PILOT-EXE-HASH/);
+        assert.match(Buffer.from(copied.split(' -EncodedCommand ')[1],'base64').toString('utf16le'),/CSA-PILOT-EXE-HASH/);
         await evaluate("document.getElementById('copy-pilot-quick').scrollIntoView({block:'center'})");
         if(screenshot) {
             const capture=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});

@@ -55,6 +55,11 @@ Windowsi kaitsed võivad käivitamisest keelduda; neid ei lülitata välja.
   kirjutamist/asendamist keelava lugemislingiga, kontrollib sõltumatult
   saadud EXE räsi ja käivitab siis sama kontrollija. Sama funktsiooni
   tavalise täitmispoliitikaga käsk on samuti valitava tekstina nähtav.
+  Käsu avalik kontrollskript edastatakse `-EncodedCommand` kaudu, et
+  CMD ja juba avatud PowerShell tõlgendaksid jutumärke ning muutujaid
+  ühtemoodi. Loetav sisu on Lab-is eraldi avatav. See ei laadi koodi
+  võrgust, ei kasuta IEX-i ega peida mandaate; AMSI ja Windowsi kaitsed
+  jäävad jõusse.
 - Mõlemad kontrollivad sõltumatult kinnitatud approval-faili räsi,
   CMS-allkirju, võtmerolle, sessiooni, profiili, TLS-i sõrmejälge,
   arvuti sõrmejälge, kehtivust, paketi terviklust ja korduskasutust.

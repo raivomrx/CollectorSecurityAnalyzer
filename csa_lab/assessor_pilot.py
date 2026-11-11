@@ -49,8 +49,14 @@ def pilot_commands(folder, approval_digest, exe_digest):
             "finally{$h.Dispose()};if($d -cne '"+exe_digest+"'){throw 'CSA-PILOT-EXE-HASH'};"
             "& $p --assessor-pilot --bundle '"+folder+"' --approval-sha256 '"+approval_digest+"'"+
             (" --quick-run" if quick else "")+";exit $LASTEXITCODE}finally{$f.Dispose()}")
+        # One literal argument works in both CMD and an existing PowerShell.
+        # Encoding is for quoting only: the public verifier script is returned
+        # separately for inspection, and never fetches/evaluates remote code.
         commands["quick" if quick else "standard"] = (
-            "powershell.exe -NoProfile" + (" -ExecutionPolicy Bypass" if quick else "") + ' -Command "'+script+'"')
+            "powershell.exe -NoProfile" + (" -ExecutionPolicy Bypass" if quick else "") +
+            " -EncodedCommand " + base64.b64encode(script.encode("utf-16-le")).decode("ascii"))
+        if quick:
+            commands["verificationScript"] = script
     commands["exe"] = ('"'+exe+'" --assessor-pilot --bundle "'+folder+
         '" --approval-sha256 '+approval_digest+" --quick-run")
     return commands

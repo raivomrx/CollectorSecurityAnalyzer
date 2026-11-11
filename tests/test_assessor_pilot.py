@@ -76,7 +76,8 @@ class AssessorPilotTests(launcher.LauncherCase):
                 # The same independently fingerprinted binaries, launched directly or by the copy command.
                 if quick:
                     command = pilot_commands(str(bundle), result["approvalSha256"], result["exeSha256"])["quick"]
-                    run = subprocess.run(command, capture_output=True, text=True, timeout=90, env=env)
+                    run = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                        capture_output=True, text=True, timeout=90, env=env)
                 else:
                     run = subprocess.run([str(bundle/"CSA-TrustedCollector.exe"), "--assessor-pilot", "--bundle", str(bundle),
                         "--approval-sha256", result["approvalSha256"]], capture_output=True, text=True, timeout=90, env=env)
@@ -134,6 +135,20 @@ class AssessorPilotTests(launcher.LauncherCase):
         self.assertEqual(proof["publisherAuthenticity"],"ASSESSOR_VERIFIED_PILOT")
         self.assertEqual(proof["signedReceiptIntegrity"],"VERIFIED")
 
+    def test_cmd_paste_runs_native_pilot_or_honors_the_real_elevation_gate(self):
+        result,bundle=self.issue()
+        command=pilot_commands(str(bundle),result["approvalSha256"],result["exeSha256"])["quick"]
+        env={**os.environ};env.pop("PSModulePath",None)
+        run=subprocess.run(["cmd.exe","/d","/s","/c",command],capture_output=True,text=True,timeout=90,env=env)
+        if ctypes.windll.shell32.IsUserAnAdmin():
+            self.assertNotEqual(run.returncode,0)
+            self.assertIn("CSA-PILOT-STANDARD-USER-REQUIRED",run.stderr)
+            self.assertEqual(self.service.submissions.list_submissions(self.state.assessment_id),[])
+        else:
+            self.assertEqual(run.returncode,0,run.stdout+run.stderr)
+            self.assertIn("Submission accepted",run.stdout)
+            self.assertEqual(len(self.service.submissions.list_submissions(self.state.assessment_id)),1)
+
     def test_command_generation_refuses_shell_injection_and_omits_secrets(self):
         result,bundle=self.issue()
         for path in ('C:\\pilot&whoami', 'C:\\%TEMP%', 'C:\\pilot"bad', 'C:\\pilot\\..\\other'):
@@ -143,6 +158,9 @@ class AssessorPilotTests(launcher.LauncherCase):
         config=json.loads((Path(self.state.collector_path).parent/"package/session-config.json").read_bytes())
         self.assertNotIn(config["enrollmentToken"],json.dumps(commands))
         self.assertIn("-ExecutionPolicy Bypass",commands["quick"])
+        import base64
+        decoded=base64.b64decode(commands["quick"].split(" -EncodedCommand ")[1]).decode("utf-16-le")
+        self.assertEqual(decoded,commands["verificationScript"])
         self.assertNotIn("Set-ExecutionPolicy",json.dumps(commands))
 
     def test_local_assessor_ui_and_private_scope_status(self):
