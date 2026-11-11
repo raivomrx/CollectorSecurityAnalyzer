@@ -50,6 +50,7 @@ class AssessorPilotTests(launcher.LauncherCase):
             approvedBy="Synthetic assessor", customerApprovalReference="CONTRACT-FIXTURE",
             assessorApprovalReference="APPROVAL-FIXTURE", independentChannelReference="OFFLINE-FIXTURE", riskAccepted=True)
         result = issue_assessor_pilot(self.service, self.state.assessment_id, request)
+        self.assertTrue(result["handoffId"].startswith("PILOT-"))
         bundle = self.service.storage.path(self.state.assessment_id, "pilot-handoffs", result["handoffId"])
         return result, bundle
 

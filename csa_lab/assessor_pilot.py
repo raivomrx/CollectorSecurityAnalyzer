@@ -127,7 +127,7 @@ def issue_assessor_pilot(service, assessment_id, request):
               "publishers":[publisher], "labs":[lab]}
     release = publisher_manifest(package_root, executable, entry, key_id=publisher["keyId"], version=COLLECTOR_VERSION,
         commit=config.get("collectorBuildCommit") or "0"*40, release_sequence=1, issued_at=now-30, expires_at=expiry)
-    envelope_id = secrets.token_urlsafe(24)
+    envelope_id = "PILOT-" + secrets.token_urlsafe(24)
     output = service.storage.path(assessment_id, "pilot-handoffs", envelope_id)
     output.parent.mkdir(parents=True, exist_ok=True)
     store = TrustedGrantStore(service.storage)
