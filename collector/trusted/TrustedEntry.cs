@@ -16,6 +16,8 @@ namespace CSA.Collector
     {
         private static int Main(string[] args)
         {
+            if (args.Length > 0 && args[0] == "--assessor-pilot") return Program.RunAssessorPilot(args);
+            if (args.Length > 0 && args[0] == "--inspect-assessor-pilot") return Program.InspectAssessorPilot(args);
             if (args.Length > 0 && args[0] == "--inspect-bundle") return Program.InspectTrustedBundle(args);
             return Program.RunTrusted(args);
         }

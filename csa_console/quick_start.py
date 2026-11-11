@@ -15,3 +15,10 @@ def quick_start_command(lab_id, envelope_id, *, quick_run=False):
     return ('powershell.exe -NoProfile' + policy + ' -Command "& (Join-Path '
         "([Environment]::GetFolderPath('ProgramFiles')) 'CSA\\Collector\\CSA-TrustedCollector.exe') "
         f"--lab '{lab_id}' --envelope '{envelope_id}'" + mode + '"')
+
+
+def exe_start_command(lab_id, envelope_id):
+    # CMD.exe form. The installed native verifier authenticates every input itself.
+    quick_start_command(lab_id, envelope_id)
+    return ('"%ProgramFiles%\\CSA\\Collector\\CSA-TrustedCollector.exe" '
+            f'--lab "{lab_id}" --envelope "{envelope_id}"')

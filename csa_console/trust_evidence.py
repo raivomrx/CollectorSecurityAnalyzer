@@ -13,14 +13,14 @@ class VerifiedTrustEvidence:
     facts: object
 
     def __post_init__(self):
-        if self.assurance not in {"REAL", "TEST_ONLY"}:
+        if self.assurance not in {"REAL", "TEST_ONLY", "ASSESSOR_VERIFIED_PILOT"}:
             raise ValueError("CSA-TRUST-ASSURANCE")
         hashes = {"publisherManifestDigest", "publisherSignatureDigest", "sessionEnvelopeDigest",
                   "sessionSignatureDigest", "sessionManifestDigest", "packageDigest", "collectorBuildDigest",
                   "profileDigest", "privacyPolicyDigest", "publisherSpkiSha256", "labSpkiSha256",
                   "publisherCertificateSha256", "tlsFingerprint", "policyDigest", "approvalDigest"}
         identifiers = {"assessmentId", "sessionId", "envelopeId", "recipientId", "labId", "publisherKeyId", "labKeyId"}
-        states = {"TEST_ONLY"} if self.assurance == "TEST_ONLY" else {"PILOT_APPROVED", "RELEASE_APPROVED"}
+        states = ({self.assurance} if self.assurance != "REAL" else {"PILOT_APPROVED", "RELEASE_APPROVED"})
         value = dict(self.facts)
         if (value.keys() != hashes | identifiers | {"expiresAt", "origin", "approvalState"}
                 or any(not isinstance(value[key], str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", value[key]) for key in hashes)

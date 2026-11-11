@@ -30,6 +30,11 @@ MAX_JSON = 256 * 1024
 MAX_OFFLINE = 30 * 1024 * 1024
 
 
+class _AdminHttpServer(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        LOGGER.warning("CSA-LAB-CONNECTION-INTERRUPTED")
+
+
 class LabAdminServer:
     """Serve the CSA Lab UI only on an ephemeral localhost port."""
 
@@ -52,7 +57,7 @@ class LabAdminServer:
         self._heartbeat_seen = threading.Event()
         self._shutdown_requested = threading.Event()
         handler = _admin_handler_factory(self)
-        self.server = ThreadingHTTPServer((host, port), handler)
+        self.server = _AdminHttpServer((host, port), handler)
         self.server.daemon_threads = True
 
     @property
@@ -107,7 +112,7 @@ def _admin_handler_factory(application: LabAdminServer):
     service = application.service
 
     class AdminHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Lab-Admin/5.6.8.1"
+        server_version = "CSA-Lab-Admin/5.6.8.2"
         protocol_version = "HTTP/1.1"
 
         def do_GET(self) -> None:
@@ -268,7 +273,59 @@ def _admin_handler_factory(application: LabAdminServer):
                     self._json(HTTPStatus.NOT_FOUND, {"error": "NOT_FOUND"})
                     return
                 assessment_id, action = self._assessment_route(path)
-                if action == "distribution":
+                if action == "assessor-pilot-commands":
+                    from csa_lab.assessor_pilot import pilot_commands
+                    data = self._read_json(MAX_JSON)
+                    if set(data) != {"folder", "approvalSha256", "exeSha256"}:
+                        raise ValueError("Invalid command request")
+                    self._json(HTTPStatus.OK, pilot_commands(data["folder"], data["approvalSha256"], data["exeSha256"]))
+                elif action == "assessor-pilot-issue":
+                    from csa_lab.assessor_pilot import issue_assessor_pilot
+                    self._json(HTTPStatus.CREATED, issue_assessor_pilot(service, assessment_id, self._read_json(MAX_JSON)))
+                elif action == "assessor-pilot-package":
+                    import io
+                    import re
+                    import zipfile
+                    payload = self._read_json(MAX_JSON)
+                    identifier = payload.get("handoffId", "")
+                    if not isinstance(identifier, str) or not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", identifier):
+                        raise ValueError("Invalid handoff identifier")
+                    root = service.storage.path(assessment_id, "pilot-handoffs", identifier)
+                    state = service.load_state(assessment_id)
+                    from csa_console.trusted_grants import TrustedGrantStore
+                    store = TrustedGrantStore(service.storage)
+                    session = service.sessions.load_session(assessment_id, state.session_id)
+                    record = store.record(session, identifier)
+                    if record["used"] or record["networkEnabled"]:
+                        raise ValueError("Private handoff no longer available")
+                    from csa_lab.assessor_pilot import AssessorAuthority, bootstrap_directory
+                    from csa_console.canonical import sha256_file
+                    proof = AssessorAuthority(bootstrap_directory()/"CSA-TrustedCollector.exe",
+                        json.loads(record["provenance"])["facts"]["approvalDigest"]).verify(root)
+                    if proof.record() != json.loads(record["provenance"]):
+                        raise ValueError("CSA-PILOT-ATTESTATION-SCOPE")
+                    stream = io.BytesIO()
+                    with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as archive:
+                        for name in ("pilot-approval.json", "publisher-manifest.json", "publisher-manifest.p7s",
+                                     "session-envelope.json", "session-envelope.p7s", "collector.zip",
+                                     "CSA-TrustedCollector.exe", "Start-CSATrustedCollector.ps1"):
+                            archive.writestr(name, (root/name).read_bytes())
+                    self._bytes(HTTPStatus.OK, stream.getvalue(), "application/zip")
+                elif action in {"pilot-readiness", "pilot-handoff"}:
+                    from csa_lab.pilot_readiness import inspect_pilot, handoff_markdown
+                    from csa_console.canonical import sha256_value
+                    payload = self._read_json(MAX_JSON)
+                    if set(payload) - {"recipientId"} or not isinstance(payload.get("recipientId", ""), str):
+                        raise ValueError("Invalid pilot request")
+                    result = inspect_pilot(service, assessment_id, payload.get("recipientId", ""))
+                    service._audit(assessment_id).append("pilot_readiness_checked", {
+                        "state": result["state"], "code": result["diagnosticCode"],
+                        "checklistDigest": sha256_value(result), "publicRelease": "HOLD"})
+                    if action == "pilot-handoff":
+                        self._bytes(HTTPStatus.OK, handoff_markdown(result).encode("utf-8"), "text/markdown; charset=utf-8")
+                    else:
+                        self._json(HTTPStatus.OK, result)
+                elif action == "distribution":
                     payload = self._read_json(MAX_JSON)
                     if set(payload) - {"developmentAssessorOnly", "allowedSources"} or type(payload.get("developmentAssessorOnly")) is not bool:
                         raise ValueError("Invalid development distribution configuration")

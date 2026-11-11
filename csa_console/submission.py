@@ -59,6 +59,7 @@ class SubmissionService:
         enrollment_token: str,
         source_address: str,
         trusted_envelope: tuple[str, str] | None = None,
+        requested_execution_mode: str = "NOT_RECORDED",
     ) -> str:
         """Authenticate a collector and issue a one-use nonce."""
 
@@ -74,7 +75,7 @@ class SubmissionService:
         if TrustedGrantStore(self.storage).required(session):
             try:
                 envelope_id, proof = trusted_envelope or ("", "")
-                TrustedGrantStore(self.storage).consume(session, envelope_id, proof, submission_id, "HTTPS")
+                TrustedGrantStore(self.storage).consume(session, envelope_id, proof, submission_id, "HTTPS", source_address, requested_execution_mode)
             except ValueError as error:
                 raise SubmissionRejected(SubmissionState.REJECTED_REPLAY, "CSA-TRUST-SESSION") from error
         nonce = self.nonces.issue(session, submission_id, source_address)

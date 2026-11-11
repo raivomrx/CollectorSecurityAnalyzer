@@ -21,6 +21,8 @@ def _trust_summary(rows, key):
         return verified[0]
     if verified:
         return "PARTIAL"
+    if "ASSESSOR_VERIFIED_PILOT" in states:
+        return "ASSESSOR_VERIFIED_PILOT" if all(value == "ASSESSOR_VERIFIED_PILOT" for value in states) else "PARTIAL"
     if "TEST_ONLY" in states:
         return "TEST_ONLY"
     return "NOT_EVALUATED"
@@ -112,6 +114,10 @@ def verify_recorded_evidence(storage, assessment_id, analyses, index):
                     row["assurance"] = trust["assurance"]
                     if trust["assurance"] == "REAL":
                         row.update(publisherProvenance="VERIFIED_AUTHORIZED_PROVENANCE", labAuthority="VERIFIED_ENROLLED_AUTHORITY", tlsIdentity="VERIFIED_ENROLLED_PIN")
+                    elif trust["assurance"] == "ASSESSOR_VERIFIED_PILOT":
+                        row.update(publisherProvenance="ASSESSOR_VERIFIED_PILOT", labAuthority="ASSESSOR_VERIFIED_PILOT",
+                            tlsIdentity="ASSESSOR_VERIFIED_PILOT")
+                        row["trustReason"] = "Independently handed-off assessor pilot identity; production Authenticode trust NOT_ESTABLISHED. Not remote execution attestation."
                     else:
                         row.update(publisherProvenance="TEST_ONLY", labAuthority="TEST_ONLY", tlsIdentity="TEST_ONLY")
                         row["trustReason"] = "Isolated test identities only. No real publisher/Lab/channel enrollment is established."

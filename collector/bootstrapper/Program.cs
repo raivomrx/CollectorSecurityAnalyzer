@@ -393,6 +393,7 @@ namespace CSA.Collector
             start.WorkingDirectory = root;
             start.UseShellExecute = false;
             start.CreateNoWindow = false;
+            start.EnvironmentVariables["CSA_EXECUTION_TRANSPORT"] = quickRun ? "QUICK_RUN_PROCESS_BYPASS" : "STANDARD_POLICY";
             using (Process process = Process.Start(start))
             {
                 process.WaitForExit();

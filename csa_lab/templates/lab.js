@@ -2,6 +2,7 @@
   "use strict";
   const csrf = document.querySelector('meta[name="csa-csrf"]').content;
   const state = { assessments: [], currentId: "", current: null, interfaces: [], timer: null, cveTimer: null, cveRunning: false };
+  let pilotHandoff = null;
   const $ = (id) => document.getElementById(id);
   const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
 
@@ -87,6 +88,14 @@
   }
 
   async function openAssessment(assessmentId) {
+    if (state.currentId !== assessmentId) {
+      pilotHandoff = null;
+      for (const id of ["pilot-exe-command", "pilot-standard-command", "pilot-quick-command", "assessor-pilot-result"]) $(id).textContent = "";
+      for (const id of ["download-assessor-pilot", "build-pilot-commands", "copy-pilot-quick"]) $(id).disabled = true;
+      $("pilot-status").textContent = "SETUP_REQUIRED — inspect this assessment";
+      $("pilot-checks").replaceChildren();
+      $("pilot-recipient").value = "";
+    }
     if (state.currentId !== assessmentId && state.cveTimer) {
       window.clearTimeout(state.cveTimer);
       state.cveTimer = null;
@@ -422,6 +431,86 @@
   }
   $("enable-development-distribution").addEventListener("click", () => configureDevelopmentDistribution(true));
   $("disable-development-distribution").addEventListener("click", () => configureDevelopmentDistribution(false));
+  async function inspectPilot(exportChecklist = false) {
+    if (!state.currentId) { showMessage("Select an assessment first.", true); return; }
+    const assessmentId = state.currentId;
+    try {
+      if (exportChecklist) {
+        const response = await fetch(`/api/v1/assessments/${encodeURIComponent(assessmentId)}/pilot-handoff`, {
+          method: "POST", headers: {"Content-Type": "application/json", "X-CSA-Lab-CSRF": csrf},
+          body: JSON.stringify({recipientId: $("pilot-recipient").value.trim()})
+        });
+        if (!response.ok) throw new Error("Pilot checklist export failed");
+        const url = URL.createObjectURL(await response.blob());
+        const link = document.createElement("a"); link.href = url; link.download = "PILOT_GO_NO_GO.md";
+        link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return;
+      }
+      const data = await request(`/api/v1/assessments/${encodeURIComponent(assessmentId)}/pilot-readiness`, {
+        method: "POST", body: {recipientId: $("pilot-recipient").value.trim()}
+      });
+      if (state.currentId !== assessmentId) return;
+      $("pilot-status").textContent = `${data.state}: EXE ${data.exe}; Quick Run ${data.quickRun}; ${data.diagnosticCode}. ${(data.missingComponents || []).join(", ")}. Public release HOLD.`;
+      $("pilot-setup").textContent = data.oneTimeSetup;
+      $("pilot-checks").replaceChildren(...data.checks.map(check => {
+        const item = document.createElement("li"); item.textContent = `${check.id}: ${check.status}. ${check.remediation}`; return item;
+      }));
+    } catch (error) { showMessage(error.message, true); }
+  }
+  $("inspect-pilot").addEventListener("click", () => inspectPilot());
+  $("export-pilot-handoff").addEventListener("click", () => inspectPilot(true));
+  $("prepare-assessor-pilot").addEventListener("click", async () => {
+    if (!state.currentId) { showMessage("Select an assessment first.", true); return; }
+    const assessmentId = state.currentId;
+    const button = $("prepare-assessor-pilot"); button.disabled = true;
+    pilotHandoff = null;
+    for (const id of ["download-assessor-pilot", "build-pilot-commands", "copy-pilot-quick"]) $(id).disabled = true;
+    try {
+      const data = await request(`/api/v1/assessments/${encodeURIComponent(assessmentId)}/assessor-pilot-issue`, {
+        method:"POST", body:{recipientId:$("pilot-recipient").value.trim(),
+          endpointBinding:$("pilot-endpoint-binding").value.trim(), sourceAddress:$("pilot-source").value.trim(),
+          approvedBy:$("pilot-approver").value.trim(), customerApprovalReference:$("pilot-customer-reference").value.trim(),
+          assessorApprovalReference:$("pilot-assessor-reference").value.trim(),
+          independentChannelReference:$("pilot-channel-reference").value.trim(), riskAccepted:$("pilot-risk-accepted").checked}
+      });
+      if (state.currentId !== assessmentId) return;
+      pilotHandoff = data;
+      $("assessor-pilot-result").textContent = `${data.assurance}. Approval: ${data.approvalSha256}. EXE: ${data.exeSha256}. Expires: ${new Date(data.expiresAt*1000).toLocaleString()}. ${data.instruction}`;
+      $("download-assessor-pilot").disabled = false; $("build-pilot-commands").disabled = false;
+    } catch (error) { showMessage(error.message, true); }
+    finally { button.disabled = false; }
+  });
+  $("download-assessor-pilot").addEventListener("click", async () => {
+    if (!pilotHandoff) return;
+    try {
+      const response = await fetch(`/api/v1/assessments/${encodeURIComponent(state.currentId)}/assessor-pilot-package`, {
+        method:"POST", headers:{"Content-Type":"application/json","X-CSA-Lab-CSRF":csrf},
+        body:JSON.stringify({handoffId:pilotHandoff.handoffId})
+      });
+      if (!response.ok) throw new Error("Private handoff unavailable; inspect session expiry and audit.");
+      const url=URL.createObjectURL(await response.blob()); const link=document.createElement("a");
+      link.href=url; link.download="CSA-Private-Pilot.zip"; link.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+    } catch (error) { showMessage(error.message,true); }
+  });
+  $("build-pilot-commands").addEventListener("click", async () => {
+    if (!pilotHandoff) return;
+    try {
+      const data=await request(`/api/v1/assessments/${encodeURIComponent(state.currentId)}/assessor-pilot-commands`, {
+        method:"POST",body:{folder:$("pilot-local-folder").value.trim(),
+          approvalSha256:pilotHandoff.approvalSha256,exeSha256:pilotHandoff.exeSha256}
+      });
+      $("pilot-exe-command").textContent=data.exe;
+      $("pilot-standard-command").textContent=data.standard;
+      $("pilot-quick-command").textContent=data.quick;
+      $("copy-pilot-quick").disabled=false;
+    } catch(error) { showMessage(error.message,true); }
+  });
+  $("copy-pilot-quick").addEventListener("click", async () => {
+    const code=$("pilot-quick-command");
+    try { await navigator.clipboard.writeText(code.textContent); showMessage("Quick Run copied."); }
+    catch { const range=document.createRange(); range.selectNodeContents(code); const selection=window.getSelection();
+      selection.removeAllRanges();selection.addRange(range);showMessage("Vali ja kopeeri märgitud käsk."); }
+  });
 
   async function runCveAnalysis() {
     if (!state.currentId) return;

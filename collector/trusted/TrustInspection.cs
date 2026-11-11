@@ -92,7 +92,9 @@ namespace CSA.Collector
             Protocol.Fields(approval, "objectType", "schemaVersion", "issuedAt", "expiresAt", "state", "publisherKeyId", "labKeyId",
                 "recipientId", "origin", "tlsFingerprint", "publisherLegalEntity", "publisherKeyOwner", "publisherPinSource",
                 "labKeyOwner", "labPinSource", "independentChannel", "channelOwner", "channelEvidenceDigest",
-                "homeLabAcceptanceDigest", "publisherManifestDigest", "assessmentId", "sessionId");
+                "homeLabAcceptanceDigest", "publisherManifestDigest", "assessmentId", "sessionId",
+                "approvedBy", "approvedAt", "assessorApprovalReference", "customerApprovalReference",
+                "approvedSourceAddresses");
             Protocol.Require(Protocol.Text(approval, "objectType") == "CSA_DISTRIBUTION_APPROVAL"
                 && Protocol.Number(approval, "schemaVersion") == 1, "CSA-TRUST-ENROLLMENT");
             Protocol.Window(approval, now);
@@ -104,7 +106,17 @@ namespace CSA.Collector
             Protocol.Require(Protocol.Text(approval, "publisherKeyId") == Protocol.Text(metadata.Release, "keyId")
                 && Protocol.Text(approval, "labKeyId") == Protocol.Text(metadata.Session, "keyId"), "CSA-TRUST-ENROLLMENT");
             Protocol.Require(new[] { "MANAGED_SOFTWARE", "ASSESSOR_VERIFIED_HANDOFF" }.Contains(Protocol.Text(approval, "independentChannel")), "TRUST_ENROLLMENT_PENDING");
-            foreach (string field in new[] { "publisherLegalEntity", "publisherKeyOwner", "publisherPinSource", "labKeyOwner", "labPinSource", "channelOwner" })
+            Protocol.Require(Protocol.Number(approval, "approvedAt") > 0 && Protocol.Number(approval, "approvedAt") <= now,
+                "PILOT_APPROVAL_REQUIRED");
+            object[] sources = Protocol.Rows(approval, "approvedSourceAddresses");
+            Protocol.Require(sources.Length > 0 && sources.Length <= 32, "PILOT_SOURCE_SCOPE_REQUIRED");
+            foreach (object source in sources)
+            {
+                System.Net.IPAddress address;
+                Protocol.Require(source is string && System.Net.IPAddress.TryParse((string)source, out address), "PILOT_SOURCE_SCOPE_REQUIRED");
+            }
+            foreach (string field in new[] { "publisherLegalEntity", "publisherKeyOwner", "publisherPinSource", "labKeyOwner", "labPinSource", "channelOwner",
+                "approvedBy", "assessorApprovalReference", "customerApprovalReference" })
             {
                 string value = Protocol.Text(approval, field);
                 Protocol.Require(!String.IsNullOrWhiteSpace(value) && !Regex.IsMatch(value, "PENDING|UNKNOWN|UNSELECTED|EXAMPLE|TEST_ONLY|PLACEHOLDER", RegexOptions.IgnoreCase), "TRUST_ENROLLMENT_PENDING");

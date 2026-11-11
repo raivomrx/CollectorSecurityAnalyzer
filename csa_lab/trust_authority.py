@@ -149,4 +149,23 @@ class NativeTrustAuthority:
         record = json.loads(result.stdout)
         if set(record) != {"assurance", "facts"} or record["assurance"] != "REAL":
             raise ValueError("CSA-TRUST-ASSURANCE")
+        from types import SimpleNamespace
+        from csa_lab.pilot_readiness import validate_pilot_authorization
+        approval = json.loads(self.approval_path.read_text("utf-8"))
+        facts = record["facts"]
+        if sha256_bytes(self.approval_path.read_bytes()) != facts["approvalDigest"]:
+            raise ValueError("CSA-TRUST-ENROLLMENT")
+        validate_pilot_authorization(approval, SimpleNamespace(assessment_id=facts["assessmentId"],
+            session_id=facts["sessionId"], tls_fingerprint=facts["tlsFingerprint"]), facts["recipientId"])
         return VerifiedTrustEvidence("REAL", record["facts"])
+
+    def permits_source(self, source, proof):
+        import ipaddress
+        require_protected_path(self.approval_path)
+        data = self.approval_path.read_bytes()
+        if sha256_bytes(data) != proof.facts["approvalDigest"]:
+            return False
+        sources = json.loads(data).get("approvedSourceAddresses")
+        return (isinstance(sources, list) and 1 <= len(sources) <= 32
+                and all(isinstance(item, str) for item in sources)
+                and str(ipaddress.ip_address(source)) in {str(ipaddress.ip_address(item)) for item in sources})

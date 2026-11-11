@@ -44,6 +44,34 @@ internal static class TrustHarness
             {
                 long now = Convert.ToInt64(row["now"]);
                 string kind = (string)row["kind"];
+                if (kind == "pilot")
+                {
+                    string bundle = (string)row["root"];
+                    BundleMetadata metadata = CSA.Collector.Program.VerifyAssessorPilot(bundle, (string)row["approvalDigest"],
+                        File.ReadAllBytes((string)row["executable"]), File.ReadAllBytes((string)row["entryPoint"]),
+                        (string)row["endpoint"], now);
+                    if (row.ContainsKey("execute") && (bool)row["execute"])
+                    {
+                        string root = CSA.Collector.Program.CreateRestrictedTemporaryDirectory();
+                        List<FileStream> leases = new List<FileStream>();
+                        try
+                        {
+                            byte[] archive = File.ReadAllBytes(Path.Combine(bundle, "collector.zip"));
+                            CSA.Collector.Program.ExtractVerifiedArchive(archive, root);
+                            CSA.Collector.Program.VerifyTrustedConfiguration(root, metadata.Session);
+                            CSA.Collector.Program.LeaseVerifiedFiles(archive, root, leases);
+                            Protocol.Require(CSA.Collector.Program.RunPowerShell(root, row.ContainsKey("offlineOutput"),
+                                row.ContainsKey("offlineOutput") ? (string)row["offlineOutput"] : null, true, (bool)row["quick"]) == 0, "FIXTURE-COLLECTION-FAILED");
+                        }
+                        finally
+                        {
+                            foreach (FileStream lease in leases) lease.Dispose();
+                            Protocol.Require(CSA.Collector.Program.RemoveTemporaryDirectory(root), "FIXTURE-CLEANUP-FAILED");
+                        }
+                    }
+                    outcomes.Add("PASS");
+                    continue;
+                }
                 if (kind == "inspect" || kind == "network")
                 {
                     Dictionary<string, object> policy = Protocol.Policy(Convert.FromBase64String((string)row["policy"]), now);

@@ -73,6 +73,7 @@ class TrustedProtocolTests(unittest.TestCase):
             "/reference:System.Web.Extensions.dll", "/reference:System.Security.dll",
             str(ROOT / "collector/bootstrapper/Program.cs"), str(ROOT / "collector/trusted/TrustedEntry.cs"),
             str(ROOT / "collector/trusted/TrustedNetwork.cs"), str(ROOT / "collector/trusted/TrustInspection.cs"),
+            str(ROOT / "collector/trusted/AssessorPilot.cs"),
             str(ROOT / "collector/trusted/TrustProtocol.cs"), str(ROOT / "tests/fixtures/trust_protocol_harness.cs")],
             capture_output=True, text=True, timeout=30)
         if result.returncode:

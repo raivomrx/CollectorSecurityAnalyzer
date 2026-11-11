@@ -218,7 +218,7 @@ def _handler_factory(
     trusted_network = trusted_network or TrustedNetworkService(storage, assessment_id, session_id)
 
     class SubmissionHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Lab/5.6.8.1"
+        server_version = "CSA-Lab/5.6.8.2"
         protocol_version = "HTTP/1.1"
 
         def handle_one_request(self):
@@ -476,6 +476,7 @@ def _handler_factory(
                 token,
                 source,
                 trusted_envelope=(self.headers.get("X-CSA-Envelope", ""), self.headers.get("X-CSA-Envelope-Nonce", "")),
+                requested_execution_mode=self.headers.get("X-CSA-Execution-Transport", "NOT_RECORDED"),
             )
             self._json(HTTPStatus.OK, {"nonce": nonce, "expiresIn": 120})
 

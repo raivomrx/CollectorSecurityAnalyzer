@@ -40,6 +40,11 @@ an instruction to implement it again.
   persistent execution policy. GPO, AMSI, Defender, WDAC and AppLocker remain
   enforced; explain their refusal and stop. This exception does not authorize
   unverified download-and-execute or any application-control workaround.
+- ADR 5682 is approved for a separate private ASSESSOR_VERIFIED_PILOT:
+  independent exact-byte handoff, endpoint/source/session/time scope, one-use
+  authority, signed metadata and the same Collector, without production
+  Authenticode enrollment. Never label this production signing or open legacy
+  customer routes; public release remains HOLD.
 - **Passive credential/Responder posture** is not a credential-capture result.
   Any active validation requires a distinct, explicit scope and authorization;
   never enable capture, relay, cracking, hash dumping or credential retention as

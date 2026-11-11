@@ -67,7 +67,7 @@ def verify_trust_receipt(record, *, session, receipt, manifest, transport, sourc
     if any(record.get(key) != value for key, value in expected.items()):
         return False
     facts = record.get("provenance", {})
-    return (record.get("assurance") in {"REAL", "TEST_ONLY"}
+    return (record.get("assurance") in {"REAL", "TEST_ONLY", "ASSESSOR_VERIFIED_PILOT"}
         and facts.get("assessmentId") == session.assessment_id and facts.get("sessionId") == session.session_id
         and facts.get("envelopeId") == record.get("envelopeId")
         and facts.get("collectorBuildDigest") == manifest["collectorBuildDigest"]

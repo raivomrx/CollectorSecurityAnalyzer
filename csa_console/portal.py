@@ -197,6 +197,8 @@ class PortalBinding:
         if network_options:
             development = False
             distribution_label = "TEST_ONLY — isolated loopback fixtures" if any(option["assurance"] == "TEST_ONLY" for option in network_options) else network_options[0]["approvalState"]
+            if distribution_label in {"PILOT_APPROVED", "RELEASE_APPROVED"}:
+                distribution_label = "PILOT_READY"
         legacy_option = ('''<p><strong>Restricted assessor development only — UNSIGNED LAB ONLY.</strong></p>
   <p><a class="button" href="download">Development Collector (.exe) — unsigned; not approved for customers</a></p>'''
             if development else '''<p><strong>TRUST_NOT_ESTABLISHED</strong>: customer downloads are blocked.</p>
@@ -205,6 +207,7 @@ class PortalBinding:
             legacy_option = '<p>Unsigned legacy downloads are blocked. The authenticated Collector options are below.</p>'
         quick_options = []
         for index, option in enumerate(network_options):
+            from csa_console.quick_start import exe_start_command
             from datetime import datetime, timezone
             expiry = datetime.fromtimestamp(option["expiresAt"], timezone.utc).isoformat()
             quick_options.append('<article><p>Recipient: ' + html.escape(option["recipientId"]) +
@@ -213,6 +216,9 @@ class PortalBinding:
                 '<br>Target Lab: ' + html.escape(option["labId"]) + ' / ' + html.escape(option["origin"]) +
                 '<br>Command expires (UTC): ' + html.escape(expiry) +
                 '<br>Independent enrollment: ' + html.escape(option["copyState"]) + '</p>')
+            quick_options.append('<p><strong>EXE Collector — enrolled launcher (CMD)</strong></p><pre><code>' +
+                html.escape(exe_start_command(option["labId"], option["envelopeId"])) +
+                '</code></pre><p>The signed immutable EXE is independently supplied once; no session overlay modifies it. Choose EXE or PowerShell for this one-use invitation; a second run requires a new invitation.</p>')
             for quick_run in (False, True):
                 identifier = 'trusted-command-' + str(index) + ('-quick' if quick_run else '-standard')
                 command = quick_start_command(option["labId"], option["envelopeId"], quick_run=quick_run)
@@ -222,6 +228,7 @@ class PortalBinding:
             quick_options.append('<p>Paste only after independently authenticating this command source. Enter the separately delivered one-time assessor authorization only when the installed verifier prompts after trust checks.</p></article>')
         quick_content = ''.join(quick_options) if quick_options else '''<p id="copy-quick-start-status"><strong>TRUST_ENROLLMENT_PENDING / TRUST_NOT_ESTABLISHED</strong>.
       There is no current invitation with independent publisher, Lab and command-origin approval. Ask the assessor for an authorized handoff.</p>
+    <p><strong>SETUP_REQUIRED</strong>: the assessor opens local Lab Settings → Distribution → Pilot readiness / Enroll trust. Check the selected transport's package identity, exact origin/TLS, independent handoff, endpoint scope/expiry and acceptance evidence. This public page cannot approve them.</p>
     <button type="button" disabled aria-describedby="copy-quick-start-status">Copy command</button>
     <button type="button" disabled aria-describedby="copy-quick-start-status">Quick Run – ExecutionPolicy Bypass</button>'''
         script_option = ""
@@ -290,6 +297,8 @@ class PortalBinding:
   {legacy_option}
   <section class="quick-start" aria-labelledby="copy-quick-start-heading">
     <h2 id="copy-quick-start-heading">PowerShell Copy &amp; Paste — one command</h2>
+    <p>One paste in Windows PowerShell or CMD <strong>after one-time trusted launcher enrollment</strong>.
+      A client administrator or managed channel performs provisioning separately. The engine is temporary; the trusted launcher and policy remain installed.</p>
     {quick_content}
     <p>Quick Run is an approved alternative using a process-only execution policy. It requires the same independent trust checks.
       Defender, AMSI, WDAC, AppLocker and enforced Group Policy remain active; no persistent execution policy is changed.</p>
@@ -297,13 +306,15 @@ class PortalBinding:
       temporary storage, with no persistent agent. The authorized assessment and session expiry define its scope.
       Group Policy and Windows application control apply.</p>
     <p>Use only the independently approved Collector command or the assessor's verified offline/enterprise handoff.</p>
+    <p>ENDPOINT_POLICY_BLOCKED: if Windows refuses execution, record the exact control name (Defender, Smart App Control, WDAC, AppLocker or GPO); if unknown, retain UNKNOWN. Contact the assessor for the approved alternative. Do not disable protection.</p>
+    <p>SUBMISSION_FAILED / PORTAL_ERROR: retain the safe correlation ID and stage shown in the response and ask the assessor to inspect the matching audit event. Reissue a consumed or expired invitation; do not reuse its private code.</p>
     <p lang="et">Ühe käsuga PowerShelli käivitus muutub kättesaadavaks pärast
       väljaandja, Labi ja käsu päritolu sõltumatut kontrolli. Kasuta kinnitatud EXE- või võrguühenduseta töövoogu.</p>
   </section>
   {launcher_option}
   {script_option}
   <p>The download options use the same Collector engine, session, integrity checks and privacy controls.</p>
-  <p class="meta">Collector version: 5.6.8.1<br>Package expires: {safe_expiry}</p>
+  <p class="meta">Collector version: 5.6.8.2<br>Package expires: {safe_expiry}</p>
 </main>
 {f'<script>{PORTAL_SCRIPT}</script>' if quick_options else ''}
 </body>

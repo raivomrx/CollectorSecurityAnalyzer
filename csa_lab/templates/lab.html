@@ -248,8 +248,40 @@
         <section data-panel="storage" class="hidden"><h3>Storage</h3><p>Assessment data is stored outside the installation directory with restricted access.</p></section>
         <section data-panel="network" class="hidden"><h3>Network</h3><p>CSA uses the interface and source subnet confirmed in each assessment.</p></section>
         <section data-panel="tls" class="hidden"><h3>TLS Certificate</h3><p>Generated assessment certificates are the current fallback. Collector identity validation is pinned and cannot be bypassed.</p></section>
-        <section data-panel="collector" class="hidden"><h3>Collector</h3><button type="button" disabled aria-describedby="bitlocker-verification-gate">Verify BitLocker status</button><p id="bitlocker-verification-gate">Read-only OS volume verification requires operator consent and independently trusted helper and Lab identities (COL-1).</p><p>Collector 5.6.8.1, Standard Privileges Assessment profile, offline fallback enabled by default.</p><p>If Windows application control blocks execution, record the exact Windows Security message. Do not disable Smart App Control as the default remediation. Use a trusted, signed CSA Collector build or contact the assessment administrator.</p></section>
+        <section data-panel="collector" class="hidden"><h3>Collector</h3><button type="button" disabled aria-describedby="bitlocker-verification-gate">Verify BitLocker status</button><p id="bitlocker-verification-gate">Read-only OS volume verification requires operator consent and independently trusted helper and Lab identities (COL-1).</p><p>Collector 5.6.8.2, Standard Privileges Assessment profile, offline fallback enabled by default.</p><p>If Windows application control blocks execution, record the exact Windows Security message. Do not disable Smart App Control as the default remediation. Use a trusted, signed CSA Collector build or contact the assessment administrator.</p></section>
         <section data-panel="distribution" class="hidden"><h3>Collector distribution</h3>
+          <h4>Pilot readiness / Enroll trust</h4>
+          <h4>Hindaja kinnitatud privaatne piloot — ADR 5682</h4>
+          <p>Kliendi kasutusluba on kinnitatud. Tootmise allkirjastamissertifikaati selles režiimis ei nõuta. Kontrolli paketi ja käivitaja sõrmejälgi sõltumatu kanali kaudu enne käivitamist. See privaatne üleandmine ei vaja administraatoriõigusi ega eelpaigaldust; Windowsi kaitsed võivad käivitamisest keelduda.</p>
+          <label>Hindaja / kinnitaja<input id="pilot-approver" maxlength="160" autocomplete="off"></label>
+          <label>Kliendi lepingu või loa viide<input id="pilot-customer-reference" maxlength="160" autocomplete="off"></label>
+          <label>Hindaja kinnituse viide<input id="pilot-assessor-reference" maxlength="160" autocomplete="off"></label>
+          <label>Sõltumatu üleandmiskanali viide<input id="pilot-channel-reference" maxlength="160" autocomplete="off"></label>
+          <label>Kliendiarvuti täpne IP-aadress<input id="pilot-source" autocomplete="off"></label>
+          <label>Kliendiarvuti sõrmejälg (sha256:...)<input id="pilot-endpoint-binding" autocomplete="off"></label>
+          <p>Arvuti sõrmejälje saamiseks käivita Windows PowerShellis lugemiskäsk:</p>
+          <pre><code>$v=(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Cryptography').MachineGuid.Trim().ToLowerInvariant();$h=[Security.Cryptography.SHA256]::Create();try{'sha256:'+([BitConverter]::ToString($h.ComputeHash([Text.Encoding]::UTF8.GetBytes($v)))).Replace('-','').ToLowerInvariant()}finally{$h.Dispose()}</code></pre>
+          <label><input id="pilot-risk-accepted" type="checkbox">Kinnitan piiratud piloodi riski ning selle arvuti sõltumatult kontrollitud üleandmise. See ei tõenda tootmise Authenticode-allkirja.</label>
+          <button id="prepare-assessor-pilot" type="button">Koosta privaatne piloodipakett</button>
+          <button id="download-assessor-pilot" type="button" disabled>Salvesta privaatne ZIP</button>
+          <p id="assessor-pilot-result" role="status"></p>
+          <label>ZIP-i lahtipakkimise kaust kliendiarvutis<input id="pilot-local-folder" value="C:\CSA-Pilot" autocomplete="off"></label>
+          <button id="build-pilot-commands" type="button" disabled>Kuva EXE ja Copy &amp; Paste käsud</button>
+          <p>Võrdle allolevaid räsiandmeid hindajaga sõltumatu kanali kaudu. Kleebi Quick Run Windows PowerShelli või CMD-sse. Üks pakett lubab ühe käivituse; teise transpordi testimiseks koosta uus pakett.</p>
+          <pre id="pilot-exe-command"></pre>
+          <pre id="pilot-standard-command"></pre>
+          <pre id="pilot-quick-command"></pre>
+          <button id="copy-pilot-quick" type="button" disabled>Kopeeri Quick Run</button>
+          <h4>Tootmise allkirjastatud ja eelpaigaldatud töövoog</h4>
+          <p>One-time independent enrollment is required before one-paste collection. This page inspects existing independently provisioned trust; it cannot approve or enroll its own identity.</p>
+          <label>Approved recipient identifier<input id="pilot-recipient" autocomplete="off" maxlength="128"></label>
+          <button id="inspect-pilot" type="button">Inspect independent enrollment</button>
+          <button id="export-pilot-handoff" type="button">Export PILOT_GO_NO_GO checklist</button>
+          <p id="pilot-status" role="status">SETUP_REQUIRED — inspect the selected assessment</p>
+          <p id="pilot-setup">An authorized administrator or managed channel provisions the immutable launcher and protected trust once. Collection then runs as standard user with a temporary engine.</p>
+          <ul id="pilot-checks"></ul>
+          <p>Provisioning: independently verify the signed immutable EXE/PS and approved pins; install in %ProgramFiles%\CSA\Collector\ and protect policy.json in %ProgramData%\CSA\Trust\. On Lab, provision the recipient policy and distribution-approval.json in the Trust\recipients directory. Record assessor/customer approval references, approver, UTC time, exact recipient/source addresses, expiry and real HOME/LAB evidence. Ask the authorized IT/channel owner to perform this separate step.</p>
+          <h4>Restricted development</h4>
           <p>Customer downloads stay blocked until independent trust and transport acceptance are approved.</p>
           <p>For the selected assessment only, an authorized assessor may enable restricted unsigned development downloads.</p>
           <label>Explicit assessor endpoint addresses (comma separated)<input id="development-sources" placeholder="127.0.0.1" autocomplete="off"></label>

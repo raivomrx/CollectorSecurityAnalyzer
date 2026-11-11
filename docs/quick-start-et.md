@@ -1,6 +1,11 @@
 # CSA Lab kiirjuhend
 
-**5.6.8.1 arenduskandidaat: UNSIGNED LAB ONLY. Avalik väljalase HOLD.**
+**5.6.8.2 arenduskandidaat: UNSIGNED LAB ONLY. Avalik väljalase HOLD.**
+Kinnitatud privaatse kliendipiloodi EXE ja Quick Runi töövoog on
+[5.6.8.2 hindaja kiirjuhendis](sprint-5.6.8.2-client-pilot.md).
+See töötab sõltumatu privaatse üleandmisega ilma tootmise sertifikaadi ja
+Collectori eelpaigalduseta. Allolev varasem juhend käsitleb tootmise
+eelpaigaldatud võrgu-Copy töövoogu.
 ADR 565 arendus on kinnitatud, kuid avaldaja sertifikaat, võtmeomanik ja
 sõltumatu usalduskanal on veel kinnitamata (`TRUST_ENROLLMENT_PENDING`).
 Tavaline Copy ja **Quick Run – ExecutionPolicy Bypass** jäävad keelatuks kuni

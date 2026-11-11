@@ -69,6 +69,10 @@ class TrustedNetworkService:
         if proof.assurance == "TEST_ONLY" and not (
             self.isolated_testing and ipaddress.ip_address(session.listen_address).is_loopback):
             raise DistributionDenied()
+        if proof.assurance == "ASSESSOR_VERIFIED_PILOT":
+            raise DistributionDenied()  # Portable private-only; no automatic network bootstrap.
+        if proof.assurance == "REAL" and not self.authority_factory(row["recipientId"]).permits_source(source, proof):
+            raise DistributionDenied()
         if json.loads(row["provenance"] or "{}") != proof.record():
             raise ValueError("CSA-TRUST-ATTESTATION-SCOPE")
         if proof.facts["expiresAt"] <= time.time() or proof.facts["envelopeId"] != envelope_id:

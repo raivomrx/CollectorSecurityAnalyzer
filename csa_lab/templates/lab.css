@@ -248,3 +248,9 @@ html[data-theme="dark"] { scrollbar-color: var(--border) var(--bg); }
   .action-row { flex-wrap: wrap; }
   .endpoint-detail dl, .advanced-details dl { grid-template-columns: 1fr; }
 }
+/* Long public fingerprints/commands must fit the local pilot setup panel. */
+[data-panel="distribution"] { min-width: 0; overflow-wrap: anywhere; }
+[data-panel="distribution"] pre {
+  max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere;
+  font-size: 12px; line-height: 1.5; padding: 10px;
+}

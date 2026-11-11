@@ -55,6 +55,7 @@ class TrustedGrantStore:
                 "provenance": "TEXT", "bundlePath": "TEXT", "networkEnabled": "INTEGER NOT NULL DEFAULT 0",
                 "authSecretDigest": "TEXT", "authUsed": "INTEGER NOT NULL DEFAULT 0",
                 "requestedMode": "TEXT NOT NULL DEFAULT 'NOT_RECORDED'",
+                "approvedSources": "TEXT",
             }.items():
                 if name not in columns:
                     connection.execute("ALTER TABLE grants ADD COLUMN " + name + " " + declaration)
@@ -91,7 +92,7 @@ class TrustedGrantStore:
                     "packageDigest", "sessionManifestDigest", "profileDigest", "privacyPolicyDigest", "tlsFingerprint", "origin")}),
                  _digest(authorization_secret) if authorization_secret is not None else None))
 
-    def finish_issue(self, session, envelope, *, build_digest=None, provenance=None, bundle_path=None, network=False):
+    def finish_issue(self, session, envelope, *, build_digest=None, provenance=None, bundle_path=None, network=False, approved_sources=None):
         try:
             if provenance is not None:
                 if not isinstance(provenance, VerifiedTrustEvidence):
@@ -115,9 +116,11 @@ class TrustedGrantStore:
                 "operationState": "PREPARING", "assurance": provenance.assurance if provenance else "NOT_EVALUATED"})
             with self._transaction(session) as connection:
                 updated = connection.execute("""UPDATE grants SET operationState='READY',buildDigest=?,provenance=?,
-                    bundlePath=?,networkEnabled=?,reasonCode=NULL WHERE envelopeId=? AND operationState='PREPARING' AND used=0""",
+                    bundlePath=?,networkEnabled=?,approvedSources=?,expiresAt=?,reasonCode=NULL WHERE envelopeId=? AND operationState='PREPARING' AND used=0""",
                     (build_digest, json.dumps(provenance.record()) if provenance else None,
-                     str(bundle_path) if bundle_path else None, int(network), envelope["envelopeId"]))
+                     str(bundle_path) if bundle_path else None, int(network),
+                     json.dumps(approved_sources) if approved_sources else None,
+                     min(envelope["expiresAt"], provenance.facts["expiresAt"]) if provenance else envelope["expiresAt"], envelope["envelopeId"]))
                 if updated.rowcount != 1:
                     raise ValueError("CSA-TRUST-ISSUANCE-STATE")
         except Exception:
@@ -156,7 +159,7 @@ class TrustedGrantStore:
             "failedOperations": sum(row["operationState"] == "FAILED" for row in rows), "consumedOperations": sum(row["used"] for row in rows)})
         return {"items": rows, "action": "ISSUE_NEW_ENVELOPE", "legacyFallbackAllowed": False}
 
-    def consume(self, session, envelope_id, nonce, submission_id, transport):
+    def consume(self, session, envelope_id, nonce, submission_id, transport, source_address=None, requested_execution_mode="NOT_RECORDED"):
         if not _locator(nonce) or envelope_id and not _locator(envelope_id):
             raise ValueError("CSA-TRUST-SESSION")
         with self._transaction(session) as connection:
@@ -166,6 +169,15 @@ class TrustedGrantStore:
                 raise ValueError("CSA-TRUST-SESSION")
             if row["used"]:
                 raise ValueError("CSA-TRUST-REPLAY")
+            if row["provenance"]:
+                proof = json.loads(row["provenance"])
+                if proof.get("assurance") == "ASSESSOR_VERIFIED_PILOT":
+                    if proof["facts"]["expiresAt"] <= time.time():
+                        raise ValueError("CSA-TRUST-EXPIRED")
+                    if transport == "HTTPS" and source_address not in json.loads(row["approvedSources"] or "[]"):
+                        raise ValueError("CSA-TRUST-SOURCE")
+                    if requested_execution_mode in {"STANDARD_POLICY", "QUICK_RUN_PROCESS_BYPASS"}:
+                        connection.execute("UPDATE grants SET requestedMode=? WHERE envelopeId=?", (requested_execution_mode, row["envelopeId"]))
             if row["networkEnabled"] and not row["authUsed"]:
                 raise ValueError("CSA-TRUST-AUTHORIZATION")
             connection.execute("UPDATE grants SET used=1,submissionId=?,transport=? WHERE envelopeId=? AND used=0",

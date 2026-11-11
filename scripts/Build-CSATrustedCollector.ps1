@@ -9,7 +9,8 @@ $arguments = @('/nologo', '/optimize+', '/target:exe', '/platform:anycpu', '/mai
     '/reference:System.IO.Compression.FileSystem.dll', '/reference:System.Web.Extensions.dll',
     '/reference:System.Security.dll', (Join-Path $root 'collector/bootstrapper/Program.cs'),
     (Join-Path $root 'collector/trusted/TrustProtocol.cs'), (Join-Path $root 'collector/trusted/TrustedEntry.cs'),
-    (Join-Path $root 'collector/trusted/TrustedNetwork.cs'), (Join-Path $root 'collector/trusted/TrustInspection.cs'))
+    (Join-Path $root 'collector/trusted/TrustedNetwork.cs'), (Join-Path $root 'collector/trusted/TrustInspection.cs'),
+    (Join-Path $root 'collector/trusted/AssessorPilot.cs'))
 & $compiler $arguments
 if ($LASTEXITCODE) { throw 'Trusted Collector build failed.' }
 Copy-Item -LiteralPath (Join-Path $root 'collector/trusted/Start-CSATrustedCollector.ps1') -Destination $output

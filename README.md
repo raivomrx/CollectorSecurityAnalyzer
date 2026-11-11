@@ -11,8 +11,13 @@
 The current installer is **CSA Lab 5.6.0** and is unsigned. After updating,
 create a new assessment to obtain the updated Collector package.
 
-**5.6.8.1 is a development review candidate (UNSIGNED LAB ONLY)**, available from the
+**5.6.8.2 is a development review candidate (UNSIGNED LAB ONLY)**, available from the
 [CSA Lab Build workflow](https://github.com/raivomrx/CollectorSecurityAnalyzer/actions/workflows/csa-lab-build.yml).
+The approved [5.6.8.2 private assessor pilot](docs/sprint-5.6.8.2-client-pilot.md)
+supports portable EXE and one-paste process-only PowerShell Quick Run with
+independently checked package identities and endpoint/session scope, without
+production signing enrollment. It remains separate from public network Copy
+and production Authenticode trust. Public release stays HOLD.
 The [Audit2 correction](docs/sprint-5.6.6-audit2.md) tightens CVE applicability
 and preserves UTF-8 in new Collector submissions.
 The [Teams follow-up](docs/sprint-5.6.6.1-teams-applicability.md) documents
@@ -26,7 +31,8 @@ The [5.6.8.1 correction](docs/sprint-5.6.8.1-correction.md) adds authenticated
 **PowerShell Copy & Paste** and **Quick Run – ExecutionPolicy Bypass** for the
 Collector process only. Both remain disabled on ordinary Join pages with
 `TRUST_NOT_ESTABLISHED` until independent enrollment is approved.
-The public release and customer pilot trust gates remain **HOLD**.
+The public release and production-network trust gates remain **HOLD**.
+The separately approved private assessor pilot uses ADR 5682.
 See the [English and Estonian operator guide](docs/sprint-5.6.5-quick-start.md).
 The [5.6.4 acceptance guide](docs/sprint-5.6.4-live-stability.md) covers the
 HOME privacy crash fix, BitLocker Shell labels and PowerShell Quick Start.
