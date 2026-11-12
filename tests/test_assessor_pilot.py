@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import time
 import threading
+import unittest
 from unittest import mock
 
 import requests
@@ -17,7 +18,8 @@ from tests import test_collector_launcher as launcher
 from tests import test_trusted_distribution as crypto
 
 
-class AssessorPilotTests(launcher.LauncherCase):
+@unittest.skipUnless(os.name=="nt","Native Windows Collector integration")
+class AssessorPilotCase(launcher.LauncherCase):
     @classmethod
     def setUpClass(cls):
         cls.crypto_type = type("PilotCrypto", (crypto.TrustedProtocolTests,), {})
@@ -66,6 +68,7 @@ class AssessorPilotTests(launcher.LauncherCase):
         self.assertEqual(run.returncode, 0, run.stderr)
         return json.loads(run.stdout.splitlines()[-1])[0]
 
+class AssessorPilotTests(AssessorPilotCase):
     def test_exe_and_quick_collect_same_engine_with_pilot_receipts_without_installation(self):
         for quick in (False, True):
             result, bundle = self.issue()

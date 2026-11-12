@@ -2,6 +2,8 @@
 import json
 import threading
 import time
+import os
+import unittest
 from unittest import mock
 
 import requests
@@ -12,6 +14,7 @@ from csa_console.quick_start import exe_start_command, quick_start_command
 from tests import test_collector_launcher as fixture
 
 
+@unittest.skipUnless(os.name=="nt","Windows local enrollment inspection")
 class PilotPreparationTests(fixture.LauncherCase):
     def setUp(self):
         super().setUp()

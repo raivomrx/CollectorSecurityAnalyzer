@@ -179,12 +179,9 @@ class LauncherPortalTests(LauncherCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn('Õppeseanss &lt;script&gt;alert(1)&lt;/script&gt;', page.text)
         self.assertNotIn('<script', page.text)
-        preview = page.text.split('<section class="quick-start"', 1)[1].split('</section>', 1)[0]
-        self.assertIn('PowerShell Copy &amp; Paste — one command', preview)
-        self.assertIn('TRUST_NOT_ESTABLISHED', preview)
-        self.assertIn('<button type="button" disabled aria-describedby="copy-quick-start-status">Copy command</button>', preview)
-        for active_content in ('<a ', '<code', '<pre', '<input', 'onclick', 'data-command', 'powershell.exe'):
-            self.assertNotIn(active_content, preview)
+        self.assertNotIn("TRUST_NOT_ESTABLISHED",page.text)
+        self.assertNotIn("data-copy-command",page.text)
+        self.assertNotIn("powershell.exe",page.text)
         for secret in (binding['downloadCredential'], config['enrollmentToken'], config['privacyContext']['key'],
                        urlsplit(self.url).path.strip('/').split('/')[-1]):
             self.assertFalse(secret in page.text, 'Join HTML contains session secret material')
@@ -197,10 +194,10 @@ class LauncherPortalTests(LauncherCase):
     def test_join_offers_three_transports_and_launcher_uses_header_only_download(self):
         self.create()
         page = requests.get(self.url,verify=self.session.tls_certificate_path,timeout=5)
-        for label in ['Development Collector (.exe)', 'PowerShell Quick Start (.ps1)', 'PowerShell Offline Package (.zip)']:
+        for label in ['Hindaja arendus-EXE', 'PowerShelli käivitaja', 'PowerShelli ZIP']:
             self.assertIn(label,page.text)
-        self.assertIn(r'powershell.exe -NoProfile -File .\Start-CSACollector.ps1', page.text)
-        self.assertIn('Group Policy and Windows application control still apply', page.text)
+        self.assertNotIn("Release HOLD",page.text)
+        self.assertIn("hindaja antud juhiseid",page.text)
         binding = self.download()
         self.assertEqual(binding['assessmentId'], self.state.assessment_id)
         self.assertEqual(binding['sessionId'],self.state.session_id)

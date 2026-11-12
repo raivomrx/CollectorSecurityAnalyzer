@@ -42,27 +42,37 @@ def inspect_pilot(service, assessment_id, recipient_id=""):
     if store._path(session).is_file():
         with store._transaction(session) as connection:
             candidates = [dict(row) for row in connection.execute(
-                "SELECT * FROM grants WHERE operationState='READY' AND used=0 AND recipientId=? AND expiresAt>?",
-                (recipient_id, time.time()))]
+                "SELECT * FROM grants WHERE operationState='READY' AND recipientId=? ORDER BY rowid DESC",
+                (recipient_id,))]
         for row in candidates:
             saved = json.loads(row["provenance"] or "{}")
             if saved.get("assurance") != "ASSESSOR_VERIFIED_PILOT":
                 continue
             try:
+                from csa_lab.pilot_launch import PilotLaunchService
+                status=PilotLaunchService(service.storage,assessment_id,session.session_id).status(row["envelopeId"])
+                result["launchProgress"]=status
+                if row["used"] or row["expiresAt"]<=time.time():
+                    result.update(state=status["state"],trustState="ASSESSOR_VERIFIED_PILOT",
+                        customerPilotPermitted=False,diagnosticCode=status["state"])
+                    return result
                 from csa_lab.assessor_pilot import AssessorAuthority, bootstrap_directory
                 proof = AssessorAuthority(bootstrap_directory()/"CSA-TrustedCollector.exe",
                     saved["facts"]["approvalDigest"]).verify(Path(row["bundlePath"]))
                 if proof.record() != saved:
                     continue
-                result.update(state="PRIVATE_HANDOFF_PREPARED", trustState="ASSESSOR_VERIFIED_PILOT",
-                    exe="READY_AFTER_INDEPENDENT_COMPARISON", quickRun="READY_AFTER_INDEPENDENT_COMPARISON",
-                    customerPilotPermitted=True, diagnosticCode="VERIFY_PRIVATE_HANDOFF_AT_ENDPOINT",
-                    oneTimeSetup="No administrator or predeployment required for the approved private pilot. Independently check the EXE and approval fingerprints, unpack the private handoff, then choose EXE or Quick Run. Windows controls remain enforced. Production signing and real HOME/LAB acceptance remain separate.")
+                result.update(state=status["state"], trustState="ASSESSOR_VERIFIED_PILOT",
+                    exe="AUTHORIZED" if status["authorizedForExecution"] else "PREPARATION_REQUIRED",
+                    quickRun="AUTHORIZED" if status["authorizedForExecution"] else "PREPARATION_REQUIRED",
+                    customerPilotPermitted=status["authorizedForExecution"],diagnosticCode=status["state"],
+                    oneTimeSetup="Prepare package, confirm independent handoff verification, then authorize execution in Lab. The customer uses Join. No administrator or predeployment is required for the private pilot; Windows controls remain enforced.")
                 result["verifiedInvitations"] = [{"envelopeId":row["envelopeId"],"approvalDigest":saved["facts"]["approvalDigest"]}]
                 approval=json.loads((Path(row["bundlePath"])/"pilot-approval.json").read_bytes())
                 result["approvals"]={key:approval[key] for key in ("approvedBy","customerApprovalReference","assessorApprovalReference","independentChannelReference")}
                 for check in result["checks"]:
-                    check["status"] = "ASSESSOR_APPROVED_PRIVATE_PILOT" if check["id"] != "liveAcceptance" else "LIVE_ACCEPTANCE_PENDING"
+                    check["status"] = ("ACCEPTANCE_PENDING" if check["id"]=="liveAcceptance" else
+                        "AUTHORIZED" if check["id"]=="authorization" and status["authorizedForExecution"] else
+                        "VERIFIED" if status["independentHandoffVerified"] else "PREPARED_NOT_VERIFIED")
                 return result
             except (OSError, ValueError, KeyError, TypeError):
                 continue

@@ -3,7 +3,7 @@ import hashlib
 import base64
 import re
 
-PORTAL_SCRIPT = """document.querySelectorAll('[data-copy-command]').forEach(function(button){button.addEventListener('click',async function(){const code=document.getElementById(button.dataset.copyCommand);try{await navigator.clipboard.writeText(code.textContent);button.textContent='Copied';}catch(error){const range=document.createRange();range.selectNodeContents(code);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);button.textContent='Select and copy the command above';}});});"""
+PORTAL_SCRIPT = """document.querySelectorAll('[data-copy-command]').forEach(function(button){button.addEventListener('click',async function(){const code=document.getElementById(button.dataset.copyCommand);try{await navigator.clipboard.writeText(code.textContent);button.textContent='Copied';}catch(error){let parent=code.closest('details');while(parent){parent.open=true;parent=parent.parentElement.closest('details');}const range=document.createRange();range.selectNodeContents(code);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);button.textContent='Select and copy the command above';}});});"""
 PORTAL_SCRIPT_HASH = base64.b64encode(hashlib.sha256(PORTAL_SCRIPT.encode()).digest()).decode()
 
 

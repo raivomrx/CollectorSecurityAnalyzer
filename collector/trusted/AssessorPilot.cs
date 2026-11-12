@@ -92,7 +92,7 @@ namespace CSA.Collector
         internal static int RunAssessorPilot(string[] args)
         {
             string bundle = null, approvalDigest = null, offline = null, root = null;
-            bool quick = false;
+            bool quick = false, powershell = false;
             List<FileStream> leases = new List<FileStream>();
             int code = 1;
             try
@@ -103,6 +103,7 @@ namespace CSA.Collector
                     string name = args[i];
                     Protocol.Require(seen.Add(name), "CSA-PILOT-ARGUMENTS");
                     if (name == "--quick-run") { quick = true; continue; }
+                    if (name == "--powershell") { powershell = true; continue; }
                     Protocol.Require(i + 1 < args.Length, "CSA-PILOT-ARGUMENTS");
                     string value = args[++i];
                     if (name == "--bundle") bundle = Path.GetFullPath(value);
@@ -111,6 +112,7 @@ namespace CSA.Collector
                     else throw new TrustFailure("CSA-PILOT-ARGUMENTS");
                 }
                 Protocol.Require(bundle != null && approvalDigest != null, "CSA-PILOT-INDEPENDENT-HASH-REQUIRED");
+                Protocol.Require(!(quick && powershell), "CSA-PILOT-ARGUMENTS");
                 try { RejectElevatedProcess(); }
                 catch (InvalidOperationException) { throw new TrustFailure("CSA-PILOT-STANDARD-USER-REQUIRED"); }
                 RejectEnforcedScriptPolicy();
@@ -141,10 +143,12 @@ namespace CSA.Collector
                 ConsumeEnvelope(metadata.Session);
                 Console.WriteLine("Assurance: ASSESSOR_VERIFIED_PILOT / production Authenticode NOT_ESTABLISHED");
                 Console.WriteLine("Privilege: STANDARD_USER / no elevation; engine and privacy profile verified.");
-                Console.WriteLine("Execution transport: " + (quick ? "QUICK_RUN_PROCESS_BYPASS" : "STANDARD_POLICY"));
+                string transport=quick ? "QUICK_RUN_PROCESS_BYPASS" : powershell ? "POWERSHELL_STANDARD_POLICY" : "EXE";
+                Console.WriteLine("Execution transport: " + transport);
+                Console.WriteLine("Child process policy request: " + (powershell ? "STANDARD_POLICY" : "PROCESS_BYPASS"));
                 PrintAssessmentSummary(root);
                 Console.WriteLine("CSA phase: COLLECT / SUBMIT / signed receipt verification");
-                code = RunPowerShell(root, offline != null, offline, true, quick);
+                code = RunPowerShell(root, offline != null, offline, true, !powershell, transport);
                 if (code != 0) Console.Error.WriteLine("CSA-PILOT-RUN-FAILED: retain the Windows control or submission diagnostic; request a new invitation.");
             }
             catch (TrustFailure error) { Console.Error.WriteLine(error.Message + ": Stop and contact the assessor using the independent handoff channel."); }

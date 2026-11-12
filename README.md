@@ -11,8 +11,12 @@
 The current installer is **CSA Lab 5.6.0** and is unsigned. After updating,
 create a new assessment to obtain the updated Collector package.
 
-**5.6.8.2 is a development review candidate (UNSIGNED LAB ONLY)**, available from the
+**5.6.8.3 is a development review candidate (UNSIGNED LAB ONLY)**, available from the
 [CSA Lab Build workflow](https://github.com/raivomrx/CollectorSecurityAnalyzer/actions/workflows/csa-lab-build.yml).
+The [5.6.8.3 Join journey](docs/sprint-5.6.8.3-join-portal.md) connects the
+private pilot to a short customer launch page, with separately verified
+handoff and execution authorization, protected EXE package download and
+automatic PowerShell Quick Run. Real HOME/LAB acceptance remains pending.
 The approved [5.6.8.2 private assessor pilot](docs/sprint-5.6.8.2-client-pilot.md)
 supports portable EXE and one-paste process-only PowerShell Quick Run with
 independently checked package identities and endpoint/session scope, without
@@ -29,8 +33,9 @@ adds immutable launchers, independent publisher/Lab signature verification,
 one-use signed session handoffs and a fail-closed release signing lane.
 The [5.6.8.1 correction](docs/sprint-5.6.8.1-correction.md) adds authenticated
 **PowerShell Copy & Paste** and **Quick Run – ExecutionPolicy Bypass** for the
-Collector process only. Both remain disabled on ordinary Join pages with
-`TRUST_NOT_ESTABLISHED` until independent enrollment is approved.
+Collector process only. The production-enrollment path requires independent
+publisher enrollment; the private Join path above uses its separate approved
+assessor handoff and execution authorization.
 The public release and production-network trust gates remain **HOLD**.
 The separately approved private assessor pilot uses ADR 5682.
 See the [English and Estonian operator guide](docs/sprint-5.6.5-quick-start.md).

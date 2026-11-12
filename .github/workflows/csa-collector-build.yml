@@ -29,7 +29,7 @@ jobs:
       - name: Verify stream integrity and transient Windows file locks
         env:
           CSA_BROWSER_SMOKE: "1"
-        run: python -W error::ResourceWarning -m unittest tests.test_collector_bootstrap tests.test_collector_launcher tests.test_trusted_distribution tests.test_trusted_network tests.test_pilot_readiness tests.test_assessor_pilot -v
+        run: python -W error::ResourceWarning -m unittest tests.test_collector_bootstrap tests.test_collector_launcher tests.test_trusted_distribution tests.test_trusted_network tests.test_pilot_readiness tests.test_assessor_pilot tests.test_join_journey -v
       - name: Validate standard-user PowerShell contract
         shell: pwsh
         run: |

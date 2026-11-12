@@ -583,7 +583,7 @@ try {
     if ($null -ne $trustedEnvelopeProperty) {
         if ([string]$configuration.trustedEnvelopeId -notmatch '\A[A-Za-z0-9_-]{16,128}\z' -or
             [string]$configuration.trustedEnvelopeNonce -notmatch '\A[A-Za-z0-9_-]{16,128}\z') { throw 'CSA-TRUST-SESSION' }
-        if ($env:CSA_EXECUTION_TRANSPORT -in @('QUICK_RUN_PROCESS_BYPASS','STANDARD_POLICY')) {
+        if ($env:CSA_EXECUTION_TRANSPORT -in @('EXE','QUICK_RUN_PROCESS_BYPASS','POWERSHELL_STANDARD_POLICY','STANDARD_POLICY')) {
             $authorizationHeaders['X-CSA-Execution-Transport'] = $env:CSA_EXECUTION_TRANSPORT
         }
         $authorizationHeaders['X-CSA-Envelope'] = [string]$configuration.trustedEnvelopeId

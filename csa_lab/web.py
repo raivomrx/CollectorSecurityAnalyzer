@@ -112,7 +112,7 @@ def _admin_handler_factory(application: LabAdminServer):
     service = application.service
 
     class AdminHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Lab-Admin/5.6.8.2"
+        server_version = "CSA-Lab-Admin/5.6.8.3"
         protocol_version = "HTTP/1.1"
 
         def do_GET(self) -> None:
@@ -273,7 +273,26 @@ def _admin_handler_factory(application: LabAdminServer):
                     self._json(HTTPStatus.NOT_FOUND, {"error": "NOT_FOUND"})
                     return
                 assessment_id, action = self._assessment_route(path)
-                if action == "assessor-pilot-commands":
+                if action in {"pilot-launch-verify","pilot-launch-authorize","pilot-launch-status","pilot-launch-accept","pilot-launch-revoke"}:
+                    from csa_lab.pilot_launch import PilotLaunchService
+                    data=self._read_json(MAX_JSON)
+                    state=service.load_state(assessment_id)
+                    launches=PilotLaunchService(service.storage,assessment_id,state.session_id)
+                    identifier=data.get("handoffId","")
+                    if action=="pilot-launch-verify":
+                        result=launches.verify_handoff(identifier,data.get("reference"),data.get("approvalSha256"),data.get("exeSha256"))
+                    elif action=="pilot-launch-authorize":
+                        if state.status.value!="COLLECTING":
+                            raise ValueError("PILOT_START_COLLECTION_FIRST")
+                        result=launches.authorize(identifier,data.get("reference"))
+                    elif action=="pilot-launch-accept":
+                        result=launches.accept(identifier,data.get("reference"),state.report_path)
+                    elif action=="pilot-launch-revoke":
+                        result=launches.retire(identifier,revoke=True)
+                    else:
+                        result=launches.status(identifier)
+                    self._json(HTTPStatus.OK,result)
+                elif action == "assessor-pilot-commands":
                     from csa_lab.assessor_pilot import pilot_commands
                     data = self._read_json(MAX_JSON)
                     if set(data) != {"folder", "approvalSha256", "exeSha256"}:
@@ -333,6 +352,11 @@ def _admin_handler_factory(application: LabAdminServer):
                         enabled=payload["developmentAssessorOnly"], allowed_sources=payload.get("allowedSources", []))
                     self._json(HTTPStatus.OK, result)
                 elif action == "bitlocker-verification":
+                    # Drain and discard a bounded request before closing.
+                    # Closing with unread bytes can reset the Windows socket,
+                    # preventing the caller from receiving the refusal.
+                    self.connection.settimeout(5)
+                    self._read_body(MAX_JSON)
                     self.close_connection = True
                     self._json(HTTPStatus.FORBIDDEN, {"error": "BITLOCKER_VERIFICATION_COL1_REQUIRED"})
                 elif action == "start":
@@ -545,6 +569,7 @@ def _assessment_payload(
     state = service.load_state(assessment_id)
     from csa_console.distribution import DistributionPolicy
     from csa_console.trusted_grants import TrustedGrantStore
+    from csa_lab.pilot_launch import PilotLaunchService
     session = service.sessions.load_session(assessment_id, state.session_id)
     distribution = DistributionPolicy() if TrustedGrantStore(service.storage).required(session) else DistributionPolicy.from_session(session)
     endpoints = service.dashboard(assessment_id)
@@ -560,6 +585,8 @@ def _assessment_payload(
     return {
         "assessment": model_to_dict(state),
         "distributionState": distribution.state.value,
+        "pilotLaunches": PilotLaunchService(
+            service.storage,assessment_id,state.session_id).list_status(),
         "portalUrl": (
             service.portal_url(assessment_id)
             if state.status.value == "COLLECTING"

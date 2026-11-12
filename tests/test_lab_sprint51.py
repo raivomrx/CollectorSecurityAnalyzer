@@ -565,10 +565,10 @@ class LabServiceTests(unittest.TestCase):
             timeout=5,
         )
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Restricted assessor development only", response.text)
+        self.assertIn("Hindaja arendus-EXE", response.text)
         self.assertIn('href="download"', response.text)
-        self.assertIn("Development Collector (.exe) — unsigned; not approved for customers", response.text)
-        self.assertIn("PowerShell Offline Package (.zip) — Manual/offline fallback", response.text)
+        self.assertIn("PowerShelli käivitaja", response.text)
+        self.assertIn("PowerShelli ZIP", response.text)
         self.assertIn('href="download-powershell"', response.text)
         self.assertNotIn("enrollmentToken", response.text)
         unavailable = requests.get(
@@ -580,8 +580,8 @@ class LabServiceTests(unittest.TestCase):
             timeout=5,
         )
         self.assertEqual(unavailable.status_code, 410)
-        self.assertIn("Collector page unavailable", unavailable.text)
-        self.assertIn("Copy Collector Page", unavailable.text)
+        self.assertIn("CSA Security Assessment", unavailable.text)
+        self.assertIn("hindaja poole", unavailable.text)
         self.assertNotIn("PORTAL_UNAVAILABLE", unavailable.text)
         download = requests.get(
             urljoin(response.url, "download"),

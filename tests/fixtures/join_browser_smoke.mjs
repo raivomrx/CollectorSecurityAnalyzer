@@ -7,7 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 let input = '';
 for await (const chunk of process.stdin) input += chunk;
-const { url, browserPath, profile, pin, mode, pilot, screenshot } = JSON.parse(input);
+const { url, browserPath, profile, pin, mode, pilot, screenshot, deliveryCode } = JSON.parse(input);
 assert.equal(new URL(url).hostname, '127.0.0.1');
 const browser = spawn(browserPath, ['--headless=new', '--no-first-run', '--no-default-browser-check',
     '--disable-background-networking', '--remote-debugging-port=0',
@@ -54,7 +54,34 @@ try {
     await call('Page.enable');
     const navigation = await call('Page.navigate', { url });
     assert.ok(!navigation.errorText, 'Join page did not load');
-    if (mode === 'pilot') {
+    if (mode === 'customer') {
+        async function until(expression) {
+            for(let i=0;i<100;i++){if(await evaluate(expression))return;await delay(100);}
+            assert.fail('Customer launch UI did not become available');
+        }
+        await until("!!document.querySelector('input[name=code]')");
+        await evaluate("document.querySelector('input[name=code]').value="+JSON.stringify(deliveryCode)+";document.querySelector('form button').click()");
+        await until("!!document.querySelector('[data-copy-command=quick]')");
+        const text=await evaluate("document.body.innerText");
+        assert.ok(!/TRUST_ENROLLMENT_PENDING|Release HOLD|TRUST_NOT_ESTABLISHED|SETUP_REQUIRED/.test(text));
+        assert.ok(!text.includes(deliveryCode));
+        assert.match(text,/Windows EXE Collector/);
+        assert.match(text,/PowerShell Quick Run/);
+        const copied=await evaluate(`(async()=>{
+            let text='';Object.defineProperty(navigator,'clipboard',{value:{writeText:async value=>{text=value;}}});
+            document.querySelector('[data-copy-command=quick]').click();await Promise.resolve();return text;
+        })()`);
+        assert.match(copied,/-ExecutionPolicy Bypass/);
+        assert.ok(!copied.includes(deliveryCode));
+        assert.ok(copied.length<8191);
+        assert.ok((await evaluate("document.body.scrollHeight"))<1100);
+        if(screenshot){
+            const capture=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
+            await writeFile(screenshot,Buffer.from(capture.data,'base64'));
+        }
+        await call('Browser.close').catch(()=>{});
+        console.log('Customer authorized EXE and Quick Run page: PASS');
+    } else if (mode === 'pilot') {
         async function until(expression) {
             for (let i=0;i<100;i++) {
                 if (await evaluate(expression)) return;
@@ -73,6 +100,7 @@ try {
             document.getElementById('prepare-assessor-pilot').click();
         })()`);
         await until("!document.getElementById('build-pilot-commands').disabled");
+        await evaluate("document.getElementById('build-pilot-commands').closest('details').open=true");
         await evaluate("document.getElementById('build-pilot-commands').click()");
         await until("!document.getElementById('copy-pilot-quick').disabled");
         assert.match(await evaluate("document.getElementById('pilot-quick-command').textContent"), /-ExecutionPolicy Bypass/);

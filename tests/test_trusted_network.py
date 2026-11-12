@@ -130,7 +130,8 @@ class TrustedNetworkAcceptance(launcher.LauncherCase):
         first, standard_secret = self._issue()
         second, quick_secret = self._issue()
         pending = self._get(self.url)
-        self.assertIn("TRUST_ENROLLMENT_PENDING", pending.text)
+        self.assertIn("hindaja poole", pending.text)
+        self.assertNotIn("TRUST_ENROLLMENT_PENDING", pending.text)
         self.assertNotIn(first, pending.text)
         self.assertEqual(self._get(self._endpoint(first) + "metadata").status_code, 403)
         self.network.isolated_testing = True

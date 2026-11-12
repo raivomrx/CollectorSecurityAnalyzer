@@ -373,7 +373,7 @@ namespace CSA.Collector
             }
         }
 
-        internal static int RunPowerShell(string root, bool offline, string output, bool trustedPolicy = false, bool quickRun = false)
+        internal static int RunPowerShell(string root, bool offline, string output, bool trustedPolicy = false, bool quickRun = false, string executionTransport = null)
         {
             string script = ResolvePackagePath(root, "Invoke-CSACollector.ps1");
             StringBuilder arguments = new StringBuilder();
@@ -393,7 +393,7 @@ namespace CSA.Collector
             start.WorkingDirectory = root;
             start.UseShellExecute = false;
             start.CreateNoWindow = false;
-            start.EnvironmentVariables["CSA_EXECUTION_TRANSPORT"] = quickRun ? "QUICK_RUN_PROCESS_BYPASS" : "STANDARD_POLICY";
+            start.EnvironmentVariables["CSA_EXECUTION_TRANSPORT"] = executionTransport ?? (quickRun ? "QUICK_RUN_PROCESS_BYPASS" : "STANDARD_POLICY");
             using (Process process = Process.Start(start))
             {
                 process.WaitForExit();

@@ -92,6 +92,8 @@
       pilotHandoff = null;
       for (const id of ["pilot-exe-command", "pilot-standard-command", "pilot-quick-command", "pilot-verification-script", "assessor-pilot-result"]) $(id).textContent = "";
       for (const id of ["download-assessor-pilot", "build-pilot-commands", "copy-pilot-quick"]) $(id).disabled = true;
+      $("pilot-delivery-code").value="";
+      $("verify-pilot-handoff").disabled=true;$("authorize-pilot-launch").disabled=true;
       $("pilot-status").textContent = "SETUP_REQUIRED — inspect this assessment";
       $("pilot-checks").replaceChildren();
       $("pilot-recipient").value = "";
@@ -118,6 +120,7 @@
     $("assessment-name").textContent = assessment.name;
     $("assessment-reference").textContent = assessment.organization || assessment.referenceNumber || "CSA assessment";
     $("distribution-status").textContent = payload.distributionState;
+    renderPilotLaunches(payload.pilotLaunches || []);
     $("assessment-status").textContent = status.replaceAll("_", " ");
     $("assessment-status").className = `status status-${status.toLowerCase()}`;
     $("endpoint-count").textContent = `${payload.endpoints.length} / ${assessment.expectedEndpoints}`;
@@ -477,6 +480,10 @@
       pilotHandoff = data;
       $("assessor-pilot-result").textContent = `${data.assurance}. Approval: ${data.approvalSha256}. EXE: ${data.exeSha256}. Expires: ${new Date(data.expiresAt*1000).toLocaleString()}. ${data.instruction}`;
       $("download-assessor-pilot").disabled = false; $("build-pilot-commands").disabled = false;
+      $("verify-pilot-handoff").disabled=false;
+      $("authorize-pilot-launch").disabled=true;
+      $("pilot-delivery-code").value="";
+      $("pilot-launch-progress").textContent="Pakett koostatud. Sõltumatu kontroll ja käivitusluba on veel kinnitamata.";
     } catch (error) { showMessage(error.message, true); }
     finally { button.disabled = false; }
   });
@@ -512,6 +519,49 @@
     catch { const range=document.createRange(); range.selectNodeContents(code); const selection=window.getSelection();
       selection.removeAllRanges();selection.addRange(range);showMessage("Vali ja kopeeri märgitud käsk."); }
   });
+  async function pilotStage(action) {
+    if (!pilotHandoff || !state.currentId) return;
+    const assessmentId=state.currentId, handoff=pilotHandoff;
+    try {
+      const body={handoffId:handoff.handoffId,reference:$("pilot-launch-reference").value.trim()};
+      if(action==="verify") {
+        body.approvalSha256=$("pilot-verified-approval").value.trim();
+        body.exeSha256=$("pilot-verified-exe").value.trim();
+      }
+      const data=await request(`/api/v1/assessments/${encodeURIComponent(assessmentId)}/pilot-launch-${action}`,{method:"POST",body});
+      if(state.currentId!==assessmentId || pilotHandoff!==handoff) return;
+      $("pilot-launch-progress").textContent=data.state;
+      $("authorize-pilot-launch").disabled=!data.independentHandoffVerified || data.authorizedForExecution;
+      if(data.deliveryCode) $("pilot-delivery-code").value=data.deliveryCode;
+      await loadAssessments();
+    } catch(error) { showMessage(error.message,true); }
+  }
+  $("verify-pilot-handoff").addEventListener("click",()=>pilotStage("verify"));
+  $("authorize-pilot-launch").addEventListener("click",()=>pilotStage("authorize"));
+  $("show-pilot-delivery-code").addEventListener("click",()=>{
+    $("pilot-delivery-code").type=$("pilot-delivery-code").type==="password"?"text":"password";
+  });
+  function renderPilotLaunches(rows) {
+    $("pilot-launch-ledger").replaceChildren(...rows.map(row=>{
+      const card=document.createElement("div"),text=document.createElement("p");
+      text.textContent=`${row.handoffId}: ${row.state}; ${row.executionTransport}; aegub ${new Date(row.expiresAt*1000).toLocaleString()}`;
+      card.append(text);
+      for(const [action,label] of [["status","Värskenda"],["revoke","Tühista luba"],["accept","Kinnita live-vastuvõtt"]]) {
+        const button=document.createElement("button");button.type="button";button.textContent=label;
+        button.disabled=action==="accept" && (!row.evidenceReceived || row.acceptanceCompleted);
+        button.addEventListener("click",async()=>{
+          const reference=action==="status"?"":window.prompt("Projektijuhi live-katse või tühistamise viide:");
+          if(reference===null) return;
+          try{
+            await request(`/api/v1/assessments/${encodeURIComponent(state.currentId)}/pilot-launch-${action}`,
+              {method:"POST",body:{handoffId:row.handoffId,reference}});
+            await openAssessment(state.currentId);
+          }catch(error){showMessage(error.message,true);}
+        });card.append(button);
+      }
+      return card;
+    }));
+  }
 
   async function runCveAnalysis() {
     if (!state.currentId) return;

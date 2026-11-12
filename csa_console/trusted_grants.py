@@ -176,7 +176,7 @@ class TrustedGrantStore:
                         raise ValueError("CSA-TRUST-EXPIRED")
                     if transport == "HTTPS" and source_address not in json.loads(row["approvedSources"] or "[]"):
                         raise ValueError("CSA-TRUST-SOURCE")
-                    if requested_execution_mode in {"STANDARD_POLICY", "QUICK_RUN_PROCESS_BYPASS"}:
+                    if requested_execution_mode in {"EXE", "POWERSHELL_STANDARD_POLICY", "STANDARD_POLICY", "QUICK_RUN_PROCESS_BYPASS"}:
                         connection.execute("UPDATE grants SET requestedMode=? WHERE envelopeId=?", (requested_execution_mode, row["envelopeId"]))
             if row["networkEnabled"] and not row["authUsed"]:
                 raise ValueError("CSA-TRUST-AUTHORIZATION")

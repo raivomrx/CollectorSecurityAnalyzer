@@ -1,6 +1,10 @@
 # CSA Lab kiirjuhend
 
-**5.6.8.2 arenduskandidaat: UNSIGNED LAB ONLY. Avalik väljalase HOLD.**
+**5.6.8.3 arenduskandidaat: UNSIGNED LAB ONLY. Avalik väljalase HOLD.**
+Kasuta [uut Joini ettevalmistuse ja kliendi käivituse juhendit](sprint-5.6.8.3-join-portal.md).
+Hindaja koostab paketi, kinnitab sõltumatu kontrolli ja lubab käivituse.
+Klient avab Join-lehe, sisestab eraldi saadud koodi ja valib Quick Runi
+või EXE paketi.
 Kinnitatud privaatse kliendipiloodi EXE ja Quick Runi töövoog on
 [5.6.8.2 hindaja kiirjuhendis](sprint-5.6.8.2-client-pilot.md).
 See töötab sõltumatu privaatse üleandmisega ilma tootmise sertifikaadi ja

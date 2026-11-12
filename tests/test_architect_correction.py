@@ -45,23 +45,25 @@ class DistributionBoundaryTests(test_console_sprint5.Sprint5TestCase):
             response = requests.get(f"{origin}/join/{code}/{route}?development=true&state=RELEASE_APPROVED",
                                     verify=self.session.tls_certificate_path, timeout=5)
             self.assertEqual(response.status_code, 403)
-            self.assertEqual(response.json()["error"], "TRUST_NOT_ESTABLISHED")
+            self.assertEqual(response.headers["X-CSA-Code"], "TRUST_NOT_ESTABLISHED")
+            self.assertNotIn("TRUST_NOT_ESTABLISHED",response.text)
         response = requests.post(origin + "/api/v1/collector-package", headers={"Authorization": "CSA-Launcher " + credential},
                                  verify=self.session.tls_certificate_path, timeout=5)
         self.assertEqual(response.status_code, 403)
         page = requests.get(f"{origin}/join/{code}/", verify=self.session.tls_certificate_path, timeout=5).text
         self.assertNotIn('href="download"', page)
         self.assertNotIn("Default/Home", page)
-        self.assertIn("Quick Run – ExecutionPolicy Bypass", page)
-        self.assertIn("TRUST_NOT_ESTABLISHED", page)
+        self.assertNotIn("data-copy-command", page)
+        self.assertNotIn("TRUST_NOT_ESTABLISHED", page)
+        self.assertIn("hindaja poole", page)
 
     def test_explicit_restricted_development_is_functional_and_labelled(self):
         origin, code, _ = self.start_portal(DistributionPolicy(DistributionState.DEVELOPMENT_UNSIGNED, ("127.0.0.1",)))
         response = requests.get(f"{origin}/join/{code}/download", verify=self.session.tls_certificate_path, timeout=5)
         self.assertEqual(response.status_code, 200)
         page = requests.get(f"{origin}/join/{code}/", verify=self.session.tls_certificate_path, timeout=5).text
-        self.assertIn("Restricted assessor development only", page)
-        self.assertIn("UNSIGNED LAB ONLY", page)
+        self.assertIn("Hindaja arendus-EXE", page)
+        self.assertNotIn("Release HOLD", page)
         self.assertNotIn("Recommended", page)
 
     def test_session_claim_cannot_approve_customer_distribution(self):

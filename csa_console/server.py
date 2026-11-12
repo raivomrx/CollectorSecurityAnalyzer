@@ -216,10 +216,31 @@ def _handler_factory(
     reporter = ConsoleReportGenerator(storage)
     limiter = _RateLimiter()
     trusted_network = trusted_network or TrustedNetworkService(storage, assessment_id, session_id)
+    from csa_lab.pilot_launch import PilotLaunchService
+    pilot_launch = PilotLaunchService(storage,assessment_id,session_id)
 
     class SubmissionHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Lab/5.6.8.2"
+        server_version = "CSA-Lab/5.6.8.3"
         protocol_version = "HTTP/1.1"
+
+        def _pilot_cookie(self, name="__Host-CSA-Pilot"):
+            from http.cookies import SimpleCookie, CookieError
+            try:
+                cookie=SimpleCookie(self.headers.get("Cookie",""))
+                return cookie[name].value if name in cookie else ""
+            except CookieError:
+                return ""
+
+        def _pilot_route(self):
+            parts=self._request_path().strip("/").split("/")
+            if len(parts)!=5 or parts[:3]!=["api","v1","pilot-launch"] or not re.fullmatch(r"[A-Za-z0-9_-]{16,128}",parts[3]):
+                raise _HttpRequestError(HTTPStatus.NOT_FOUND,"NOT_FOUND")
+            return parts[3],parts[4]
+
+        def _customer_error(self, status, code):
+            self.diagnostic_code=code
+            from csa_console.customer_launch import render
+            self._bytes(status,render(""),"text/html; charset=utf-8")
 
         def handle_one_request(self):
             self.correlation_id = uuid.uuid4().hex
@@ -320,6 +341,13 @@ def _handler_factory(
             source = str(self.client_address[0])
             try:
                 path = self._request_path()
+                if path.startswith("/api/v1/pilot-launch/"):
+                    self.diagnostic_stage="PILOT_BOOTSTRAP"
+                    identifier,action=self._pilot_route()
+                    if action!="bootstrap.ps1" or not limiter.allow(source):
+                        raise DistributionDenied()
+                    self._bytes(HTTPStatus.OK,pilot_launch.bootstrap(identifier,source),"text/plain; charset=utf-8")
+                    return
                 if path.startswith("/api/v2/trusted/"):
                     if not limiter.allow(source):
                         raise _HttpRequestError(HTTPStatus.TOO_MANY_REQUESTS, "RATE_LIMIT")
@@ -352,18 +380,34 @@ def _handler_factory(
                     if not path.endswith("/"):
                         self._redirect(f"{path}/")
                         return
-                    body = portal.render_page(
+                    from csa_console.customer_launch import render
+                    view=pilot_launch.customer_view(self._pilot_cookie(),source)
+                    body = render(
                         submission_service.sessions.load_session(
                             assessment_id, session_id
                         ).assessment_name,
+                        view,
                         network_options=self._trusted_result(lambda: trusted_network.advertisements(source)),
-                        development_available=self._legacy_available(source),
+                        development=self._legacy_available(source),
+                        activation_available=pilot_launch.has_authorized(source),
                     )
                     self._bytes(
                         HTTPStatus.OK,
                         body,
                         "text/html; charset=utf-8",
                     )
+                    return
+                if parts[1]=="pilot-download":
+                    self.diagnostic_stage="PILOT_PRIVATE_PACKAGE"
+                    view=pilot_launch.customer_view(self._pilot_cookie(),source)
+                    if view is None:
+                        raise DistributionDenied()
+                    ticket=self._pilot_cookie("__Host-CSA-Download")
+                    if not ticket:
+                        ticket=pilot_launch.ticket(view["handoffId"],source,cookie=self._pilot_cookie())["ticket"]
+                        self._response_cookie="__Host-CSA-Download="+ticket+"; Secure; HttpOnly; SameSite=Strict; Path=/"
+                    data=pilot_launch.package(view["handoffId"],source,ticket)
+                    self._bytes(HTTPStatus.OK,data,"application/zip",attachment="CSA-Windows-Collector.zip")
                     return
                 if parts[1] == "download":
                     self.diagnostic_stage = "PORTAL_DOWNLOAD"
@@ -390,9 +434,15 @@ def _handler_factory(
                     attachment=filename,
                 )
             except DistributionDenied:
-                self._json(HTTPStatus.FORBIDDEN, {"error": "TRUST_NOT_ESTABLISHED"})
+                if self.path.startswith("/join/"):
+                    self._customer_error(HTTPStatus.FORBIDDEN,"TRUST_NOT_ESTABLISHED")
+                else:
+                    self._json(HTTPStatus.FORBIDDEN, {"error": "TRUST_NOT_ESTABLISHED"})
             except _HttpRequestError as error:
-                self._json(error.status, {"error": error.code})
+                if self.path.startswith("/join/"):
+                    self._customer_error(error.status,error.code)
+                else:
+                    self._json(error.status, {"error": error.code})
             except (OSError, ValueError):
                 LOGGER.warning("CSA-PORTAL-ERROR correlation=%s stage=%s", self.correlation_id, self.diagnostic_stage)
                 self.diagnostic_code = "CSA-PORTAL-ERROR"
@@ -408,7 +458,36 @@ def _handler_factory(
                 return
             try:
                 path = self._request_path()
-                if path.startswith("/api/v2/trusted/"):
+                if path.startswith("/api/v1/pilot-launch/"):
+                    identifier,action=self._pilot_route()
+                    self._read_body(0)
+                    self.diagnostic_stage="PILOT_PRIVATE_DELIVERY"
+                    if action=="ticket":
+                        code=self._credential("CSA-Pilot ")
+                        self._json(HTTPStatus.OK,pilot_launch.ticket(identifier,source,code=code))
+                    elif action=="package":
+                        ticket=self._credential("CSA-Pilot-Ticket ")
+                        self._bytes(HTTPStatus.OK,pilot_launch.package(identifier,source,ticket),"application/zip")
+                    else:
+                        raise _HttpRequestError(HTTPStatus.NOT_FOUND,"NOT_FOUND")
+                elif path.startswith("/join/") and path.endswith("/pilot-activate"):
+                    self.diagnostic_stage="PILOT_CUSTOMER_AUTHORIZATION"
+                    from urllib.parse import parse_qs
+                    parts=path.strip("/").split("/")
+                    if len(parts)!=3 or portal is None or not portal.authorize(parts[1],source):
+                        raise DistributionDenied()
+                    if self.headers.get_content_type()!="application/x-www-form-urlencoded":
+                        raise DistributionDenied()
+                    data=parse_qs(self._read_body(512).decode("ascii"),strict_parsing=True)
+                    if set(data)!={"code"} or len(data["code"])!=1:
+                        raise DistributionDenied()
+                    cookie=pilot_launch.login(data["code"][0],source)
+                    self.send_response(HTTPStatus.SEE_OTHER)
+                    self.send_header("Location","/join/"+parts[1]+"/")
+                    self.send_header("Set-Cookie","__Host-CSA-Pilot="+cookie+"; Secure; HttpOnly; SameSite=Strict; Path=/")
+                    self.send_header("Content-Length","0");self.send_header("Cache-Control","no-store")
+                    self.end_headers()
+                elif path.startswith("/api/v2/trusted/"):
                     self._trusted_post(source)
                 elif path == "/api/v1/collector-package":
                     self.diagnostic_stage = "PACKAGE_DOWNLOAD"
@@ -433,19 +512,25 @@ def _handler_factory(
                 else:
                     self._json(HTTPStatus.NOT_FOUND, {"error": "NOT_FOUND"})
             except DistributionDenied:
-                self._json(HTTPStatus.FORBIDDEN, {"error": "TRUST_NOT_ESTABLISHED"})
+                if self.path.startswith("/join/"):
+                    self._customer_error(HTTPStatus.FORBIDDEN,"TRUST_NOT_ESTABLISHED")
+                else:
+                    self._json(HTTPStatus.FORBIDDEN, {"error": "TRUST_NOT_ESTABLISHED"})
             except SubmissionRejected as error:
                 self._json(
                     HTTPStatus.FORBIDDEN,
                     {"error": error.state.value, "message": error.safe_message},
                 )
             except _HttpRequestError as error:
-                self._json(error.status, {"error": error.code})
+                if self.path.startswith("/join/"):
+                    self._customer_error(error.status,error.code)
+                else:
+                    self._json(error.status, {"error": error.code})
             except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
-                self._json(
-                    HTTPStatus.BAD_REQUEST,
-                    {"error": "INVALID_REQUEST"},
-                )
+                if self.path.startswith("/join/"):
+                    self._customer_error(HTTPStatus.BAD_REQUEST,"INVALID_REQUEST")
+                else:
+                    self._json(HTTPStatus.BAD_REQUEST,{"error":"INVALID_REQUEST"})
             except Exception:
                 LOGGER.warning("CSA-SUBMISSION-ERROR correlation=%s stage=%s", self.correlation_id, self.diagnostic_stage)
                 self._json(
@@ -656,6 +741,9 @@ def _handler_factory(
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("Pragma", "no-cache")
+            if getattr(self,"_response_cookie",None):
+                self.send_header("Set-Cookie",self._response_cookie)
+                self._response_cookie=None
             if status >= 400:
                 self.send_header("Connection", "close")
             self.send_header("X-CSA-Correlation-ID", getattr(self, "correlation_id", ""))
@@ -668,7 +756,7 @@ def _handler_factory(
             self.send_header(
                 "Content-Security-Policy",
                 "default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-" + PORTAL_SCRIPT_HASH + "'; "
-                "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+                "base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
             )
             self.send_header(
                 "Permissions-Policy", "camera=(), microphone=(), geolocation=()"

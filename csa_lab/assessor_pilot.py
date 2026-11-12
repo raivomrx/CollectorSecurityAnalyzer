@@ -32,6 +32,14 @@ def bootstrap_directory():
     return Path(__file__).resolve().parents[1] / "build/trusted-collector"
 
 
+def clear_private_session_files(bundle, handoff_root):
+    bundle=Path(bundle)
+    if bundle.is_symlink() or not bundle.resolve().is_relative_to(Path(handoff_root).resolve()):
+        raise ValueError("PILOT_CLEANUP_PATH")
+    for name in ("collector.zip","session-envelope.json","session-envelope.p7s","customer-package.zip"):
+        (bundle/name).unlink(missing_ok=True)
+
+
 def pilot_commands(folder, approval_digest, exe_digest):
     if (not isinstance(folder, str) or not re.fullmatch(r"[A-Za-z]:\\[A-Za-z0-9 _\\.\-]+", folder)
             or any(part == ".." for part in folder.split("\\"))):
@@ -48,7 +56,7 @@ def pilot_commands(folder, approval_digest, exe_digest):
             "([BitConverter]::ToString($h.ComputeHash($f))).Replace('-','').ToLowerInvariant()}"
             "finally{$h.Dispose()};if($d -cne '"+exe_digest+"'){throw 'CSA-PILOT-EXE-HASH'};"
             "& $p --assessor-pilot --bundle '"+folder+"' --approval-sha256 '"+approval_digest+"'"+
-            (" --quick-run" if quick else "")+";exit $LASTEXITCODE}finally{$f.Dispose()}")
+            (" --quick-run" if quick else " --powershell")+";exit $LASTEXITCODE}finally{$f.Dispose()}")
         # One literal argument works in both CMD and an existing PowerShell.
         # Encoding is for quoting only: the public verifier script is returned
         # separately for inspection, and never fetches/evaluates remote code.
@@ -58,7 +66,7 @@ def pilot_commands(folder, approval_digest, exe_digest):
         if quick:
             commands["verificationScript"] = script
     commands["exe"] = ('"'+exe+'" --assessor-pilot --bundle "'+folder+
-        '" --approval-sha256 '+approval_digest+" --quick-run")
+        '" --approval-sha256 '+approval_digest)
     return commands
 
 
@@ -162,6 +170,14 @@ def issue_assessor_pilot(service, assessment_id, request):
                                approved_sources=[source])
     except Exception:
         store.fail_issue(session, envelope_id, "CSA-PILOT-ISSUANCE-FAILED")
+        try:
+            with store._transaction(session) as db:
+                db.execute("UPDATE grants SET bundlePath=? WHERE envelopeId=? AND operationState='FAILED'",
+                           (str(output),envelope_id))
+            clear_private_session_files(output,output.parent)
+        except (OSError,ValueError):
+            service._audit(assessment_id).append("pilot_private_cleanup_pending",
+                {"envelopeId":envelope_id,"code":"PILOT_CLEANUP_PENDING"})
         raise
     service._audit(assessment_id).append("assessor_pilot_handoff_prepared", {
         "envelopeId":envelope_id, "assurance":"ASSESSOR_VERIFIED_PILOT", "approvalDigest":digest,
