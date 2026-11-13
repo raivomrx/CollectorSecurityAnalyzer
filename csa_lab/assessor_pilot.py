@@ -36,7 +36,7 @@ def clear_private_session_files(bundle, handoff_root):
     bundle=Path(bundle)
     if bundle.is_symlink() or not bundle.resolve().is_relative_to(Path(handoff_root).resolve()):
         raise ValueError("PILOT_CLEANUP_PATH")
-    for name in ("collector.zip","session-envelope.json","session-envelope.p7s","customer-package.zip"):
+    for name in ("collector.zip","session-envelope.json","session-envelope.p7s","customer-package.zip","CSA-Collector.exe"):
         (bundle/name).unlink(missing_ok=True)
 
 
@@ -103,13 +103,15 @@ def _identity(role, now, expiry):
     return row, sign
 
 
-def issue_assessor_pilot(service, assessment_id, request):
+def issue_assessor_pilot(service, assessment_id, request, *, _source_bound=False):
     required = {"recipientId", "endpointBinding", "sourceAddress", "approvedBy", "customerApprovalReference",
                 "assessorApprovalReference", "independentChannelReference", "riskAccepted"}
     if (set(request) != required or request.get("riskAccepted") is not True
             or any(not isinstance(request.get(key), str) for key in required-{"riskAccepted"})):
         raise ValueError("CSA-PILOT-APPROVAL-REQUIRED")
-    if not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", request["recipientId"]) or not re.fullmatch(r"sha256:[a-f0-9]{64}", request["endpointBinding"]):
+    valid_binding = (request["endpointBinding"] == "source-ip:" + request["sourceAddress"] if _source_bound
+                     else bool(re.fullmatch(r"sha256:[a-f0-9]{64}", request["endpointBinding"])))
+    if not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", request["recipientId"]) or not valid_binding:
         raise ValueError("CSA-PILOT-ENDPOINT")
     for key in ("approvedBy", "customerApprovalReference", "assessorApprovalReference", "independentChannelReference"):
         if not 1 <= len(request[key]) <= 160 or any(ord(char)<32 for char in request[key]):

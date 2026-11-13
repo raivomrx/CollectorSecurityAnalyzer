@@ -14,4 +14,13 @@ $arguments = @('/nologo', '/optimize+', '/target:exe', '/platform:anycpu', '/mai
 & $compiler $arguments
 if ($LASTEXITCODE) { throw 'Trusted Collector build failed.' }
 Copy-Item -LiteralPath (Join-Path $root 'collector/trusted/Start-CSATrustedCollector.ps1') -Destination $output
+Copy-Item -LiteralPath (Join-Path $root 'collector/bootstrapper/Program.cs') -Destination $output
+Copy-Item -LiteralPath (Join-Path $root 'collector/trusted/BoundPilot.cs') -Destination $output
+$seal = @{}
+foreach ($name in @('CSA-TrustedCollector.exe','Start-CSATrustedCollector.ps1','Program.cs','BoundPilot.cs')) {
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try { $seal[$name] = 'sha256:' + ([BitConverter]::ToString($hasher.ComputeHash([IO.File]::ReadAllBytes((Join-Path $output $name))))).Replace('-','').ToLowerInvariant() }
+    finally { $hasher.Dispose() }
+}
+$seal | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $output 'delivery-build.json') -Encoding utf8
 Write-Host 'Immutable trusted Collector built. UNSIGNED LAB ONLY until publisher signing and independent enrollment.'

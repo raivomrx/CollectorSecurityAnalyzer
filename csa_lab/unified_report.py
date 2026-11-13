@@ -301,7 +301,7 @@ class UnifiedReportGenerator:
             ]
         model: dict[str, Any] = {
             "reportType": "UNIFIED_ASSESSMENT",
-            "reportVersion": "CSA-5.6.8.3",
+            "reportVersion": "CSA-5.6.8.4",
             "generatedAt": generated_at,
             "dataClassification": "Confidential - Security Assessment Data",
             "containsPersonalData": True,

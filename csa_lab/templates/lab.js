@@ -119,7 +119,11 @@
     const processingEndpoints = payload.endpoints.filter((item) => item.status !== "COMPLETE");
     $("assessment-name").textContent = assessment.name;
     $("assessment-reference").textContent = assessment.organization || assessment.referenceNumber || "CSA assessment";
-    $("distribution-status").textContent = payload.distributionState;
+    const ready=payload.collectorReadiness;
+    $("collector-readiness").textContent = ready && ready.state === "READY"
+      ? "Ready: EXE and Quick Run. Share the Join URL with the authorized customer."
+      : ready ? `${ready.state}: ${ready.diagnosticCode || ""} ${ready.instruction}` : "Press Start Collector to prepare EXE and Quick Run.";
+    $("distribution-status").textContent = ready ? `${ready.state}: ${ready.diagnosticCode || ""} ${ready.instruction}` : payload.distributionState;
     renderPilotLaunches(payload.pilotLaunches || []);
     $("assessment-status").textContent = status.replaceAll("_", " ");
     $("assessment-status").className = `status status-${status.toLowerCase()}`;

@@ -48,6 +48,36 @@ namespace CSA.Collector
             }
         }
 
+        internal static string PilotExecutionBinding(string bundle, string approvalDigest)
+        {
+            // Start Collector authorizes a bounded LAN scope. Automatic delivery
+            // binds each one-use grant to the observed source, not an invented
+            // MachineGuid. Legacy independently prepared hardware pins still work.
+            byte[] bytes = ReadTrustedInput(Path.Combine(bundle, "pilot-approval.json"), 4 * 1024 * 1024);
+            Protocol.Artifact(bytes, approvalDigest);
+            Dictionary<string, object> approval = Protocol.ReadCanonical(bytes);
+            string binding = Protocol.Text(approval, "endpointBinding");
+            if (!binding.StartsWith("source-ip:", StringComparison.Ordinal)) return PilotEndpointBinding();
+            string source = Protocol.Text(approval, "sourceAddress");
+            Protocol.Require(binding == "source-ip:" + source, "CSA-PILOT-ENDPOINT");
+            Dictionary<string, object> policy = Protocol.Object(approval["policy"]);
+            System.Collections.IEnumerable labs = (System.Collections.IEnumerable)policy["labs"];
+            string origin = null;
+            foreach (object item in labs) origin = Protocol.Text(Protocol.Object(item), "origin");
+            Uri uri = new Uri(origin);
+            // UDP connect chooses the local route without sending a datagram.
+            // NAT/proxy addresses do not establish a hardware identity and fail
+            // closed if they differ. Server nonce redemption checks source too.
+            using (System.Net.Sockets.UdpClient route = new System.Net.Sockets.UdpClient(
+                System.Net.IPAddress.Parse(source).AddressFamily))
+            {
+                route.Connect(uri.Host, uri.Port);
+                string local = ((System.Net.IPEndPoint)route.Client.LocalEndPoint).Address.ToString();
+                Protocol.Require(local == source, "CSA-PILOT-SOURCE-ROUTE: Use the approved direct LAN connection; proxy/NAT is unsupported.");
+            }
+            return binding;
+        }
+
         internal static BundleMetadata VerifyAssessorPilot(string bundle, string expectedApproval, byte[] executable,
             byte[] entry, string endpoint, long now)
         {
@@ -129,7 +159,7 @@ namespace CSA.Collector
                 leases.Add(new FileStream(self, FileMode.Open, FileAccess.Read, FileShare.Read));
                 BundleMetadata metadata = VerifyAssessorPilot(bundle, approvalDigest, ReadTrustedInput(self, 16 * 1024 * 1024),
                     ReadTrustedInput(Path.Combine(bundle, "Start-CSATrustedCollector.ps1"), 1024 * 1024),
-                    PilotEndpointBinding(), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                    PilotExecutionBinding(bundle, approvalDigest), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
                 byte[] package = ReadTrustedInput(Path.Combine(bundle, "collector.zip"), 64 * 1024 * 1024);
                 Protocol.VerifyArchive(package, metadata.Release, metadata.Session);
                 root = CreateRestrictedTemporaryDirectory();
@@ -138,7 +168,7 @@ namespace CSA.Collector
                 LeaseVerifiedFiles(package, root, leases);
                 VerifyAssessorPilot(bundle, approvalDigest, ReadTrustedInput(self, 16 * 1024 * 1024),
                     ReadTrustedInput(Path.Combine(bundle, "Start-CSATrustedCollector.ps1"), 1024 * 1024),
-                    PilotEndpointBinding(), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                    PilotExecutionBinding(bundle, approvalDigest), DateTimeOffset.UtcNow.ToUnixTimeSeconds());
                 Protocol.Window(metadata.Session, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
                 ConsumeEnvelope(metadata.Session);
                 Console.WriteLine("Assurance: ASSESSOR_VERIFIED_PILOT / production Authenticode NOT_ESTABLISHED");

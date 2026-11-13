@@ -42,6 +42,14 @@ try {
         if ($LASTEXITCODE) { throw 'Trusted Collector final signing failed.' }
     }
 
+    # Seal the final inner binary/scripts after optional signing. This manifest
+    # belongs to the independently handed-off local Lab installation, not Join.
+    $deliverySeal = @{}
+    foreach ($name in @('CSA-TrustedCollector.exe','Start-CSATrustedCollector.ps1','Program.cs','BoundPilot.cs')) {
+        $deliverySeal[$name] = 'sha256:' + (Get-FileHash -LiteralPath (Join-Path $root ('build/trusted-collector/' + $name)) -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    $deliverySeal | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $root 'build/trusted-collector/delivery-build.json') -Encoding utf8
+
     # Sign copies before trusted manifests are generated, never mutate source.
     $buildRoot = [IO.Path]::GetFullPath((Join-Path $root 'build'))
     $scriptStage = [IO.Path]::GetFullPath((Join-Path $buildRoot 'collector-scripts'))

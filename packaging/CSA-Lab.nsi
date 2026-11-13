@@ -2,7 +2,7 @@ Unicode True
 !include "MUI2.nsh"
 
 !define PRODUCT_NAME "CSA Lab"
-!define PRODUCT_VERSION "5.6.8.3"
+!define PRODUCT_VERSION "5.6.8.4"
 !define PRODUCT_PUBLISHER "CollectorSecurityAnalyzer"
 !define PRODUCT_EXE "CSA-Lab.exe"
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\CSA Lab"

@@ -43,6 +43,10 @@ class AssessorPilotCase(launcher.LauncherCase):
 
     def setUp(self):
         super().setUp()
+        # This suite exercises the separately prepared hardware-bound ADR 5682
+        # handoff. Automatic Start-only delivery has its own complete regression.
+        automatic = mock.patch("csa_lab.simple_delivery.prepare_start", return_value=None)
+        automatic.start(); self.addCleanup(automatic.stop)
         self.create(synthetic=True, development=False, expected_endpoints=3)
         patch = mock.patch("csa_lab.assessor_pilot.bootstrap_directory", return_value=self.native)
         patch.start(); self.addCleanup(patch.stop)

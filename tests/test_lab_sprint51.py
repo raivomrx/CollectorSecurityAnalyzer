@@ -153,6 +153,10 @@ class LabServiceTests(unittest.TestCase):
     """Verify wizard, lifecycle, portal and recovery behavior."""
 
     def setUp(self) -> None:
+        # Lifecycle-only fixtures use a fake PE. Real Start-only package
+        # preparation and delivery are exercised in test_start_only_delivery.
+        automatic = mock.patch('csa_lab.simple_delivery.prepare_start',return_value=None)
+        automatic.start(); self.addCleanup(automatic.stop)
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
@@ -768,6 +772,15 @@ class LabServiceTests(unittest.TestCase):
         self.assertTrue(self.firewall.exists(valid.rule_name))
         self.firewall.remove(valid.rule_name)
         self.assertFalse(self.firewall.exists(valid.rule_name))
+        from csa_lab.firewall import WindowsFirewallManager
+        manager=WindowsFirewallManager()
+        with mock.patch.object(manager,'_elevated_netsh') as elevated, mock.patch.object(manager,'exists',return_value=True):
+            from dataclasses import replace
+            manager.create(replace(valid,local_address='127.0.0.1',remote_subnet='127.0.0.0/8'))
+            elevated.assert_not_called()
+            manager.create(valid)
+            elevated.assert_called_once()
+            self.assertIn('remoteip=192.168.10.0/24',elevated.call_args.args[0])
         for change in (
             {"local_address": "0.0.0.0"},
             {"remote_subnet": "0.0.0.0/0"},

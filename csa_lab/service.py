@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import os
@@ -103,7 +104,7 @@ class LabApplicationService:
         self._secret = self._load_or_create_join_secret()
         self._application_audit().append(
             "application_started",
-            {"version": "5.6.8.3", "processId": os.getpid()},
+            {"version": "5.6.8.4", "processId": os.getpid()},
         )
         self.detect_recovery_items()
 
@@ -479,6 +480,12 @@ class LabApplicationService:
             if session.status != SessionStatus.OPEN:
                 raise ValueError("Collection session is no longer active")
             distribution = DistributionPolicy.from_session(session)
+            simple_delivery = None
+            if distribution.state != DistributionState.DEVELOPMENT_UNSIGNED:
+                from csa_lab.simple_delivery import SimpleDelivery, prepare_start
+                authorization = prepare_start(self, state, session)
+                if authorization is not None:
+                    simple_delivery = SimpleDelivery(self, assessment_id, authorization)
             script_path, launcher, credential_hash = None, b"", ""
             if distribution.state == DistributionState.DEVELOPMENT_UNSIGNED:
                 script_path = Path(state.collector_path).with_name("CSA-PowerShell-Collector.zip")
@@ -519,6 +526,7 @@ class LabApplicationService:
                 self.storage,
                 portal=portal,
                 analyze_automatically=True,
+                simple_delivery=simple_delivery,
             )
             spec = FirewallRuleSpec(
                 rule_name=state.firewall_rule_name,
@@ -531,7 +539,8 @@ class LabApplicationService:
             try:
                 self.firewall.create(spec)
                 self._audit(assessment_id).append(
-                    "firewall_rule_created",
+                    "firewall_not_required_loopback" if isinstance(self.firewall,WindowsFirewallManager)
+                        and ipaddress.ip_address(state.listener_address).is_loopback else "firewall_rule_created",
                     {
                         "sessionId": state.session_id,
                         "ruleName": state.firewall_rule_name,
@@ -1250,7 +1259,7 @@ class LabApplicationService:
         summary = {
             "schemaVersion": "5.2",
             "generatedAt": utc_text(),
-            "applicationVersion": "5.6.8.3",
+            "applicationVersion": "5.6.8.4",
             "assessmentCount": len(assessments),
             "assessments": assessments,
             "containsEvidence": False,

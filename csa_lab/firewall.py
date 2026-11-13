@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import ipaddress
 import os
 import subprocess
 import tempfile
@@ -56,6 +57,10 @@ class WindowsFirewallManager:
         """Create an exact program, address, port, profile and subnet rule."""
 
         validate_firewall_spec(spec)
+        if ipaddress.ip_address(spec.local_address).is_loopback:
+            # A loopback-only listener cannot accept remote connections and
+            # needs no inbound firewall exception or UAC operation.
+            return
         arguments = [
             "advfirewall",
             "firewall",

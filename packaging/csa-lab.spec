@@ -3,6 +3,7 @@
 
 from pathlib import Path
 import os
+import ssl
 
 from PyInstaller.utils.hooks import collect_submodules
 
@@ -32,6 +33,13 @@ datas = [
         "collector-bootstrapper",
     ),
 ]
+
+# Some managed Python runtimes load an additional CA-policy resource inside
+# SSLContext.__new__. Preserve that runtime policy when freezing; never remove
+# its check or turn off verification to make a locally packaged Lab start.
+runtime_ca_policy = Path(ssl.__file__).with_name("codex-rejected-cas.pem")
+if runtime_ca_policy.is_file():
+    datas.append((str(runtime_ca_policy), "."))
 
 hiddenimports = sorted(
     set(

@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import secrets
+import traceback
 import subprocess
 import tempfile
 import threading
@@ -112,7 +113,7 @@ def _admin_handler_factory(application: LabAdminServer):
     service = application.service
 
     class AdminHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Lab-Admin/5.6.8.3"
+        server_version = "CSA-Lab-Admin/5.6.8.4"
         protocol_version = "HTTP/1.1"
 
         def do_GET(self) -> None:
@@ -461,7 +462,11 @@ def _admin_handler_factory(application: LabAdminServer):
                 else:
                     self._json(HTTPStatus.NOT_FOUND, {"error": "NOT_FOUND"})
             except (ValueError, OSError, KeyError) as error:
-                LOGGER.warning("CSA Lab request rejected: %s", error)
+                # Safe call sites, without exception text, arguments, full paths
+                # or input values. Packaged failures must be diagnosable too.
+                sites="/".join(Path(frame.filename).name+":"+str(frame.lineno)+":"+frame.name
+                    for frame in traceback.extract_tb(error.__traceback__))
+                LOGGER.warning("CSA-LAB-INPUT type=%s sites=%s",type(error).__name__,sites)
                 self._json(
                     HTTPStatus.BAD_REQUEST,
                     {"error": "CSA-LAB-INPUT", "message": _safe_error(error)},
@@ -585,6 +590,9 @@ def _assessment_payload(
     return {
         "assessment": model_to_dict(state),
         "distributionState": distribution.state.value,
+        "collectorReadiness": (service._servers[assessment_id].simple_delivery.readiness()
+            if assessment_id in service._servers and service._servers[assessment_id].simple_delivery is not None
+            else {"state":"NOT_STARTED", "instruction":"Press Start Collector to authorize both customer methods."}),
         "pilotLaunches": PilotLaunchService(
             service.storage,assessment_id,state.session_id).list_status(),
         "portalUrl": (

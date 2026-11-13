@@ -55,6 +55,9 @@ jobs:
       - name: Smoke test packaged Lab with isolated data
         shell: pwsh
         run: ./scripts/Invoke-CSALabSmoke.ps1
+      - name: Test packaged Start-only customer journey
+        shell: pwsh
+        run: python scripts/Test-PackagedCustomerJourney.py --executable dist/CSA-Lab/CSA-Lab.exe --output "$env:RUNNER_TEMP/csa-start-only" --execute --browser "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
       - name: Record installer creation time
         shell: pwsh
         run: |

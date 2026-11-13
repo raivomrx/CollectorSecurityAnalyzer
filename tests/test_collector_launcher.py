@@ -72,7 +72,7 @@ class LauncherCase(unittest.TestCase):
         self.addCleanup(self.service.shutdown)
 
     def create(self, synthetic=False, privacy_failure=False, name='Synthetic launcher acceptance', evidence_encoding=None,
-               development=True, expected_endpoints=1):
+               development=True, expected_endpoints=1, automatic=False):
         request = AssessmentWizardRequest(name=name, organization='DEMO', expected_endpoints=expected_endpoints,
             source_subnet='127.0.0.0/8', network_profile='Private', listener_address='127.0.0.1', listener_port=_free_port())
         if synthetic:
@@ -126,7 +126,14 @@ Export-ModuleMember -Function Get-CSAExecutionTokenContext
             state = self.service.create_assessment(request)
         if development:
             self.service.configure_development_distribution(state.assessment_id, enabled=True, allowed_sources=['127.0.0.1'])
-        self.state = self.service.start_collection(state.assessment_id)
+        if not development and not automatic:
+            # Legacy/manual transport contract fixtures deliberately start
+            # without a Start-only authorization. Dedicated regressions use
+            # automatic=True and the real installed-build verification.
+            with mock.patch('csa_lab.simple_delivery.prepare_start',return_value=None):
+                self.state = self.service.start_collection(state.assessment_id)
+        else:
+            self.state = self.service.start_collection(state.assessment_id)
         self.session = self.service.sessions.load_session(state.assessment_id,state.session_id)
         self.url = self.service.portal_url(state.assessment_id)
         return self.state

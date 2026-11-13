@@ -54,7 +54,33 @@ try {
     await call('Page.enable');
     const navigation = await call('Page.navigate', { url });
     assert.ok(!navigation.errorText, 'Join page did not load');
-    if (mode === 'customer') {
+    if (mode === 'start-only') {
+        for(let i=0;i<100;i++){
+            if(await evaluate("!!document.querySelector('[data-copy-command=quick]')"))break;
+            await delay(100);
+        }
+        await call('Emulation.setDeviceMetricsOverride',{width:800,height:560,deviceScaleFactor:1,mobile:false});
+        const text=await evaluate('document.body.innerText');
+        assert.match(text,/Recommended/);
+        assert.match(text,/Copy Quick Run/);
+        assert.match(text,/Download Collector \(\.exe\)/);
+        assert.ok(!/ZIP|TRUST_ENROLLMENT_PENDING|Release HOLD|käivituskood|pöördu hindaja/.test(text));
+        assert.equal(await evaluate("document.querySelectorAll('input').length"),0);
+        const copied=await evaluate(`(async()=>{
+            let text='';Object.defineProperty(navigator,'clipboard',{value:{writeText:async value=>{text=value;}}});
+            document.querySelector('[data-copy-command=quick]').click();await Promise.resolve();return text;
+        })()`);
+        assert.match(copied,/-ExecutionPolicy Bypass/);
+        assert.ok(copied.length<8191);
+        assert.match(await evaluate("document.querySelector('a.button').href"),/\/collector.exe$/);
+        if(screenshot){
+            await evaluate("document.querySelector('[data-copy-command=quick]').textContent='▣ Copy Quick Run'");
+            const capture=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
+            await writeFile(screenshot,Buffer.from(capture.data,'base64'));
+        }
+        await call('Browser.close').catch(()=>{});
+        console.log('Start-only approved customer view and Copy: PASS');
+    } else if (mode === 'customer') {
         async function until(expression) {
             for(let i=0;i<100;i++){if(await evaluate(expression))return;await delay(100);}
             assert.fail('Customer launch UI did not become available');

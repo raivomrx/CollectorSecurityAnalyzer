@@ -56,5 +56,19 @@ trust exception. It does not invent a key, independently checked fingerprint,
 real endpoint acceptance result, channel record, or Windows signature.
 Those must be supplied/checked for each actual handoff.
 
+## November 13 Start-only delivery instruction
+
+The project lead subsequently requires Start Collector alone to prepare both
+mandatory customer methods. The [5.6.8.3 P0 correction](sprint-5.6.8.3-p0-live-fix.md)
+documents the concrete implementation in delivery version 5.6.8.4: the local
+assessor's Start action authorizes the selected bounded LAN/session scope using
+the independently obtained Lab installation. Each Join source receives a sealed,
+one-use standalone EXE and the hash/TLS-pinned Quick Run of that same EXE.
+Automatic delivery uses direct LAN source binding, not a fabricated hardware
+pin or production Publisher identity. Existing manual hardware-bound handoffs
+remain separate. This operational update introduces no new signature protocol
+and does not remove independent origin verification or protection enforcement.
+Production trust and project-manager live acceptance are still pending.
+
 Alternative: retain the existing signed-and-pre-enrolled transport and
 complete its production identities/channel before client collection.

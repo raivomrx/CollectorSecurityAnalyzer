@@ -62,6 +62,7 @@ class ConsoleHttpsServer:
         analyze_automatically: bool = True,
         portal: PortalBinding | None = None,
         trusted_network: TrustedNetworkService | None = None,
+        simple_delivery=None,
     ) -> None:
         """Create a configured but not yet started HTTPS server."""
 
@@ -69,6 +70,7 @@ class ConsoleHttpsServer:
         self.assessment_id = assessment_id
         self.session_id = session_id
         self.portal = portal
+        self.simple_delivery = simple_delivery
         self.trusted_network = trusted_network or TrustedNetworkService(self.storage, assessment_id, session_id)
         self.session = AssessmentSessionService(self.storage).load_session(
             assessment_id, session_id
@@ -93,6 +95,7 @@ class ConsoleHttpsServer:
             analyze_automatically,
             portal,
             self.trusted_network,
+            simple_delivery,
         )
         self._server = _SafeThreadingHTTPServer(
             (self.session.listen_address, self.session.listen_port), handler
@@ -208,6 +211,7 @@ def _handler_factory(
     analyze_automatically: bool,
     portal: PortalBinding | None = None,
     trusted_network: TrustedNetworkService | None = None,
+    simple_delivery=None,
 ):
     """Build a request handler bound to one assessment session."""
 
@@ -220,7 +224,7 @@ def _handler_factory(
     pilot_launch = PilotLaunchService(storage,assessment_id,session_id)
 
     class SubmissionHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Lab/5.6.8.3"
+        server_version = "CSA-Lab/5.6.8.4"
         protocol_version = "HTTP/1.1"
 
         def _pilot_cookie(self, name="__Host-CSA-Pilot"):
@@ -344,7 +348,13 @@ def _handler_factory(
                 if path.startswith("/api/v1/pilot-launch/"):
                     self.diagnostic_stage="PILOT_BOOTSTRAP"
                     identifier,action=self._pilot_route()
-                    if action!="bootstrap.ps1" or not limiter.allow(source):
+                    if not limiter.allow(source):
+                        raise DistributionDenied()
+                    if action=="collector.exe" and simple_delivery is not None:
+                        self._bytes(HTTPStatus.OK,simple_delivery.download(identifier,source),
+                            "application/vnd.microsoft.portable-executable",attachment="CSA-Collector.exe")
+                        return
+                    if action!="bootstrap.ps1":
                         raise DistributionDenied()
                     self._bytes(HTTPStatus.OK,pilot_launch.bootstrap(identifier,source),"text/plain; charset=utf-8")
                     return
@@ -381,7 +391,13 @@ def _handler_factory(
                         self._redirect(f"{path}/")
                         return
                     from csa_console.customer_launch import render
-                    view=pilot_launch.customer_view(self._pilot_cookie(),source)
+                    if simple_delivery is not None:
+                        if not limiter.allow(source):
+                            raise DistributionDenied()
+                        self.diagnostic_stage="COLLECTOR_PREPARATION"
+                        view=simple_delivery.view(source)
+                    else:
+                        view=pilot_launch.customer_view(self._pilot_cookie(),source)
                     body = render(
                         submission_service.sessions.load_session(
                             assessment_id, session_id
