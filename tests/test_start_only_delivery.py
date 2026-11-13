@@ -28,7 +28,7 @@ class StartOnlyDeliveryTests(AssessorPilotCase):
         # Deliberately bypass the old manual-handoff fixture's setup, not any
         # product security check. No issue/verify/authorize/login API is called.
         LauncherCase.setUp(self)
-        for module in ("csa_lab.assessor_pilot", "csa_lab.simple_delivery"):
+        for module in ("csa_lab.assessor_pilot", "csa_lab.simple_delivery", "csa_lab.pilot_launch"):
             patch=mock.patch(module+".bootstrap_directory", return_value=self.native)
             patch.start(); self.addCleanup(patch.stop)
         self.create(synthetic=True,development=False,expected_endpoints=3,automatic=True)
