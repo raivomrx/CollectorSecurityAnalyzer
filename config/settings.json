@@ -14,6 +14,7 @@
     "Provider": "NVD",
     "ApiKeyEnvironmentVariable": "NVD_API_KEY",
     "RequestTimeoutSeconds": 30,
+    "ProductDeadlineSeconds": 60,
     "MaxRetries": 3,
     "CacheTtlHours": 24,
     "MinimumCpeConfidence": 80,

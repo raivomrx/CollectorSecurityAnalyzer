@@ -45,34 +45,34 @@ def commands(view):
 
 
 def single_file_commands(view):
-    for key in ("exeSha256","tlsFingerprint"):
+    for key in ("exeSha256","tlsFingerprint","starterSha256"):
         if not re.fullmatch(r"sha256:[a-f0-9]{64}",view[key]):
             raise ValueError("CSA-JOIN-IDENTITY")
-    if not re.fullmatch(r"[A-Za-z0-9_-]{16,128}",view["handoffId"]) or not re.fullmatch(r"https://[a-zA-Z0-9.\[\]:-]+",view["origin"]):
+    if (not re.fullmatch(r"[A-Za-z0-9_-]{16,128}",view["handoffId"])
+            or not re.fullmatch(r"https://[a-zA-Z0-9.\[\]:-]+",view["origin"])
+            or not re.fullmatch(r"sha256//[A-Za-z0-9+/]{43}=",view["tlsPublicKeyPin"])):
         raise ValueError("CSA-JOIN-SCOPE")
-    # Public locator/pins only. Start Collector in the independently obtained
-    # local Lab grants source/session-scoped authority. Hashes from an arbitrary
-    # untrusted page are not a substitute for that assessor handoff.
-    script=("$ErrorActionPreference='Stop';[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;"
-        "$p=Join-Path ([IO.Path]::GetTempPath()) ('CSA-'+[Guid]::NewGuid().ToString('N')+'.exe');$f=$null;try{"
-        "$r=[Net.HttpWebRequest]::Create('"+view["origin"]+"/api/v1/pilot-launch/"+view["handoffId"]+"/collector.exe');"
-        "$r.AllowAutoRedirect=$false;$r.Timeout=30000;$r.ReadWriteTimeout=30000;"
-        "$r.ServerCertificateValidationCallback={param($s,$c,$ch,$e)if(!$c){return $false};$h=[Security.Cryptography.SHA256]::Create();"
-        "try{return ('sha256:'+([BitConverter]::ToString($h.ComputeHash($c.GetRawCertData()))).Replace('-','').ToLowerInvariant()) -ceq '"+
-        view["tlsFingerprint"]+"'}finally{$h.Dispose()}};"
-        "$a=$r.GetResponse();try{if($a.ContentLength -le 0 -or $a.ContentLength -gt 67108864){throw 'CSA-JOIN-SIZE'};"
-        "$w=[IO.File]::Open($p,'CreateNew','Write','None');try{$s=$a.GetResponseStream();$b=New-Object byte[] 65536;$n=0;"
-        "while(($k=$s.Read($b,0,$b.Length)) -gt 0){$n+=$k;if($n -gt $a.ContentLength){throw 'CSA-JOIN-SIZE'};$w.Write($b,0,$k)};"
-        "if($n -ne $a.ContentLength){throw 'CSA-JOIN-TRUNCATED'}}finally{$w.Dispose()}}finally{$a.Dispose()};"
-        "for($i=0;;$i++){try{$f=[IO.File]::Open($p,'Open','Read','Read');break}catch [IO.IOException]{"
-        "$e=$_.Exception.HResult -band 65535;if($e -notin 32,33 -or $i -ge 5){throw};"
-        "[Console]::WriteLine('CSA-COL-FILELOCK: Endpoint security is scanning a Collector file. Waiting...');Start-Sleep -Milliseconds 1000}};"
-        "$h=[Security.Cryptography.SHA256]::Create();try{$d='sha256:'+([BitConverter]::ToString($h.ComputeHash($f))).Replace('-','').ToLowerInvariant()}"
-        "finally{$h.Dispose()};if($d -cne '"+view["exeSha256"]+"'){throw 'CSA-JOIN-EXE-HASH'};"
-        "& $p --quick-run;$rc=$LASTEXITCODE;exit $rc}catch{[Console]::Error.WriteLine('CSA-JOIN-START-FAILED: Verification, connection or Windows policy stopped execution. Contact the assessor.');exit 1}"
-        "finally{if($f){$f.Dispose()};if([IO.File]::Exists($p)){[IO.File]::Delete($p)}}")
-    return {"quick":"powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand "+
-            base64.b64encode(script.encode("utf-16-le")).decode("ascii")}
+    import secrets
+    name="CSA-"+secrets.token_hex(4)+".ps1"
+    # No dollar variables: the literal quoted command works in both CMD and
+    # an existing PowerShell. The fixed starter is independently hash-pinned
+    # from the assessor's verified Lab before any downloaded code executes.
+    # curl's key pin is derived from that same TLS certificate; the starter
+    # additionally verifies the exact certificate and package fingerprints.
+    script=("Set-Location ([IO.Path]::GetTempPath());[Environment]::CurrentDirectory=[IO.Path]::GetTempPath();Set-Variable CSAStage CONNECTION_TLS;try{"
+        "Set-Variable CSAHttp (curl.exe --fail --silent --show-error --max-time 45 --write-out '%{http_code}' --insecure --pinnedpubkey '"+view["tlsPublicKeyPin"]+
+        "' --output '"+name+"' '"+view["origin"]+"/api/v1/pilot-launch/"+view["handoffId"]+"/starter.ps1');"
+        "if((Get-Variable LASTEXITCODE -ValueOnly) -ne 0){if((Get-Variable CSAHttp -ValueOnly) -match '^4'){Set-Variable CSAStage AUTHORIZATION};throw 'STARTER_DOWNLOAD'};"
+        "Set-Variable CSAStage PACKAGE_INTEGRITY;"
+        "Set-Variable CSAFile ([IO.File]::Open('"+name+"','Open','Read','Read'));try{"
+        "Set-Variable CSAHash ([Security.Cryptography.SHA256]::Create());"
+        "if([BitConverter]::ToString((Get-Variable CSAHash -ValueOnly).ComputeHash((Get-Variable CSAFile -ValueOnly))).Replace('-','') -ne '"+view["starterSha256"][7:]+"'){throw 'BOOTSTRAP_INTEGRITY'};"
+        "Set-Variable CSAStage APPLICATION_CONTROL;& './"+name+"' -Origin '"+view["origin"]+"' -LaunchId '"+view["handoffId"]+"' -TlsPin '"+view["tlsFingerprint"]+
+        "' -ExeSha256 '"+view["exeSha256"]+"';exit (Get-Variable LASTEXITCODE -ValueOnly)"
+        "}finally{(Get-Variable CSAFile -ValueOnly).Dispose();(Get-Variable CSAHash -ValueOnly).Dispose()}"
+        "}catch{[Console]::Error.WriteLine('CSA-JOIN-'+(Get-Variable CSAStage -ValueOnly)+': Trusted starter stopped. Contact the assessor.');exit 1}"
+        "finally{[IO.File]::Delete('"+name+"')}")
+    return {"quick":'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "'+script+'"'}
 
 
 def render(name, view=None, *, network_options=None, development=False, activation_available=False):

@@ -7,7 +7,7 @@ import os
 import re
 import time
 from collections.abc import Callable
-from threading import Event
+from threading import Event, Lock, Thread, BoundedSemaphore
 from typing import Any
 
 import requests
@@ -15,11 +15,13 @@ import requests
 from cve.cache import NvdCache
 from cve.exceptions import CveScanCancelled, NvdRequestError
 from cve.rate_limiter import SlidingWindowRateLimiter
+from cve.control import AnalysisControl
 
 LOGGER = logging.getLogger(__name__)
 NVD_CVE_ENDPOINT = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 NVD_CPE_ENDPOINT = "https://services.nvd.nist.gov/rest/json/cpes/2.0"
 USER_AGENT = "CollectorSecurityAnalyzer/0.1"
+_NETWORK_SLOTS = BoundedSemaphore(4)
 
 
 class NvdClient:
@@ -37,6 +39,7 @@ class NvdClient:
         api_key: str | None = None,
         progress_callback: Callable[[dict[str, Any]], None] | None = None,
         cancel_event: Event | None = None,
+        product_deadline_seconds: float = 60,
     ) -> None:
         """Create a configured NVD client."""
 
@@ -46,6 +49,9 @@ class NvdClient:
         self.api_key = api_key if api_key is not None else os.getenv(api_key_env_var)
         self.progress_callback = progress_callback
         self.cancel_event = cancel_event
+        self.product_deadline_seconds = max(.05, float(product_deadline_seconds))
+        self.product_deadline = None
+        self._request_lock = Lock()
         self.metrics = {
             "nvdApiKeyConfigured": bool(self.api_key), "nvdRequests": 0,
             "rateLimitWaitSeconds": 0.0, "cpeCacheHits": 0, "cpeCacheMisses": 0,
@@ -90,6 +96,7 @@ class NvdClient:
         results_per_page = int(params.get("resultsPerPage", 2000))
         collected: list[dict[str, Any]] = []
         while True:
+            self._check_cancelled()
             page_params = dict(params)
             page_params["startIndex"] = start_index
             page_params["resultsPerPage"] = results_per_page
@@ -114,6 +121,7 @@ class NvdClient:
         """Fetch one JSON page with cache, retries, and rate limiting."""
 
         cache_key = NvdCache.make_key(endpoint, params)
+        self._check_cancelled()
         cached = self.cache.get(cache_key)
         cache_label = "cpe" if endpoint == NVD_CPE_ENDPOINT else "cve"
         if cached is not None:
@@ -136,7 +144,7 @@ class NvdClient:
                         on_wait=lambda remaining: self._progress(
                             endpoint, "RATE_LIMIT_WAIT", remaining, attempt + 1
                         ),
-                        cancel_event=self.cancel_event,
+                        cancel_event=self._control(),
                     )
                 else:
                     self.limiter.acquire()
@@ -145,12 +153,7 @@ class NvdClient:
                 self._progress(endpoint, "PROVIDER_REQUEST", 0, attempt + 1)
                 self.metrics["nvdRequests"] += 1
                 self.metrics["remoteCpeRequests" if cache_label == "cpe" else "remoteCveRequests"] += 1
-                response = self.session.get(
-                    endpoint,
-                    params=params,
-                    headers=headers,
-                    timeout=self.timeout,
-                )
+                response, data = self._request(endpoint, params, headers, attempt+1)
                 if response.status_code == 429:
                     error = _http_error(endpoint, response, retryable=True, secret=self.api_key)
                     if attempt < self.max_retries:
@@ -161,7 +164,7 @@ class NvdClient:
                                 on_wait=lambda remaining: self._progress(
                                     endpoint, "RATE_LIMIT_WAIT", remaining, attempt + 2
                                 ),
-                                cancel_event=self.cancel_event,
+                                cancel_event=self._control(),
                             )
                         else:
                             self.limiter.retry_after(response.headers.get("Retry-After"))
@@ -172,7 +175,7 @@ class NvdClient:
                 if 400 <= response.status_code < 500:
                     raise _http_error(endpoint, response, retryable=False, secret=self.api_key)
                 response.raise_for_status()
-                data = response.json()
+                self._check_cancelled()
                 if not isinstance(data, dict):
                     raise NvdRequestError("Invalid NVD JSON response", retryable=False)
                 self.cache.set(cache_key, endpoint, params, data, self.cache_ttl_hours)
@@ -216,8 +219,74 @@ class NvdClient:
     def _check_cancelled(self) -> None:
         """Stop a pending scan before another provider request is sent."""
 
-        if self.cancel_event is not None and self.cancel_event.is_set():
-            raise CveScanCancelled("CVE scan cancelled")
+        self._control().check()
+
+    def _control(self):
+        return AnalysisControl(self.cancel_event,self.product_deadline)
+
+    def _request(self, endpoint, params, headers, attempt=1):
+        # A requests socket timeout is not an overall response/DNS deadline.
+        # Keep one bounded in-flight request per client; cancelled requests
+        # never publish late results or spawn an unbounded queue of threads.
+        if not self._request_lock.acquire(blocking=False):
+            raise NvdRequestError("NVD transport still finishing an interrupted request",retryable=False,
+                                  endpoint_label=_endpoint_label(endpoint))
+        if not _NETWORK_SLOTS.acquire(blocking=False):
+            self._request_lock.release()
+            raise NvdRequestError("NVD request capacity is busy; retry incomplete products",endpoint_label=_endpoint_label(endpoint))
+        done, abandoned = Event(), Event()
+        result = {}
+        control=self._control()
+        def request():
+            response=None
+            started=time.monotonic()
+            try:
+                options={'stream':True} if isinstance(self.session,requests.Session) else {}
+                response=self.session.get(endpoint,params=params,headers=headers,timeout=min(self.timeout,10),**options)
+                if isinstance(response,requests.Response):
+                    pieces=[];size=0;maximum=64*1024*1024 if response.status_code<400 else 4096
+                    for piece in response.iter_content(chunk_size=65536):
+                        control.check();size+=len(piece)
+                        if size>maximum:raise NvdRequestError("NVD response exceeds the bounded transfer size",endpoint_label=_endpoint_label(endpoint))
+                        pieces.append(piece)
+                    response._content=b''.join(pieces);response._content_consumed=True
+                data=response.json() if response.status_code<400 else None
+                control.check()
+                if abandoned.is_set():
+                    close=getattr(response,'close',None)
+                    if close: close()
+                else: result['response']=response;result['data']=data
+            except Exception as error: result['error']=error
+            finally:
+                if response is not None:
+                    close=getattr(response,'close',None)
+                    if close:close()
+                LOGGER.info("NVD transport endpoint=%s attempt=%d status=%s elapsedMs=%d abandoned=%s",
+                    _endpoint_label(endpoint),attempt,getattr(response,'status_code',0),
+                    int((time.monotonic()-started)*1000),abandoned.is_set())
+                self._request_lock.release();_NETWORK_SLOTS.release();done.set()
+        try: Thread(target=request,name="CSA-NVD-request",daemon=True).start()
+        except RuntimeError:
+            self._request_lock.release();_NETWORK_SLOTS.release()
+            raise NvdRequestError("NVD request worker could not start",endpoint_label=_endpoint_label(endpoint)) from None
+        try:
+            request_end=time.monotonic()+max(.05,float(self.timeout))
+            heartbeat=time.monotonic()
+            while not done.wait(.1):
+                self._check_cancelled()
+                if time.monotonic()-heartbeat >= .5:
+                    self._progress(endpoint,"PROVIDER_REQUEST",0,attempt);heartbeat=time.monotonic()
+                if time.monotonic()>=request_end: raise requests.Timeout()
+            self._check_cancelled()
+            if 'error' in result: raise result['error']
+            return result['response'],result['data']
+        except BaseException:
+            abandoned.set()
+            response=result.pop('response',None)
+            if response is not None:
+                close=getattr(response,'close',None)
+                if close: close()
+            raise
 
     def _progress(self, endpoint: str, phase: str, wait: float, attempt: int) -> None:
         """Emit safe provider state without disclosing URL parameters or key."""
@@ -226,6 +295,7 @@ class NvdClient:
             self.progress_callback({
                 "phase": phase, "provider": f"NVD {_endpoint_label(endpoint)}",
                 "wait_seconds": wait, "retry_attempt": attempt,
+                "product_remaining_seconds":max(0,self.product_deadline-time.monotonic()) if self.product_deadline else 0,
             })
 
     def _backoff(self, endpoint: str, attempt: int) -> None:
@@ -236,7 +306,7 @@ class NvdClient:
             self.limiter._wait(
                 seconds,
                 lambda remaining: self._progress(endpoint, "RETRY_WAIT", remaining, attempt + 2),
-                self.cancel_event,
+                self._control(),
             )
         else:
             time.sleep(seconds)

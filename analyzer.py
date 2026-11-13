@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import time
 from threading import Event
 from collections.abc import Callable
@@ -132,8 +133,12 @@ def analyze_file(
         cve_progress_callback,
         api_key=nvd_api_key,
         cancel_event=cve_cancel_event,
+        checkpoint_path=(Path(output_dir)/f"{input_path.stem}.cve-checkpoint.json") if output_dir is not None else None,
     )
-    if cve_cancel_event is not None and cve_cancel_event.is_set():
+    partial_cancel = bool(context.cve_summary and context.cve_summary.telemetry.get("cancelled"))
+    if cve_cancel_event is not None and cve_cancel_event.is_set() and context.cve_summary is not None:
+        context.cve_summary.telemetry['cancelled']=True;partial_cancel=True
+    if cve_cancel_event is not None and cve_cancel_event.is_set() and not partial_cancel:
         raise CveScanCancelled("CVE scan cancelled")
     _emit_cve_progress(
         cve_progress_callback,
@@ -149,17 +154,21 @@ def analyze_file(
             else 0
         ),
     )
-    _run_cve_enrichment(
-        context=context,
-        skip_enrichment=skip_enrichment,
-        skip_kev=skip_kev,
-        skip_cve_program=skip_cve_program,
-        refresh_enrichment_cache=refresh_enrichment_cache,
-        cvelist_path=cvelist_path,
-        progress_callback=cve_progress_callback,
-        cancel_event=cve_cancel_event,
-    )
-    if cve_cancel_event is not None and cve_cancel_event.is_set():
+    try:
+        _run_cve_enrichment(
+            context=context,
+            skip_enrichment=skip_enrichment or partial_cancel,
+            skip_kev=skip_kev,
+            skip_cve_program=skip_cve_program,
+            refresh_enrichment_cache=refresh_enrichment_cache,
+            cvelist_path=cvelist_path,
+            progress_callback=cve_progress_callback,
+            cancel_event=cve_cancel_event,
+        )
+    except CveScanCancelled:
+        if context.cve_summary is None:raise
+        context.cve_summary.telemetry['cancelled']=True;partial_cancel=True
+    if cve_cancel_event is not None and cve_cancel_event.is_set() and not partial_cancel:
         raise CveScanCancelled("CVE scan cancelled")
     _emit_cve_progress(
         cve_progress_callback,
@@ -404,6 +413,10 @@ def _cve_analysis_metadata(
         else set()
     )
     completion = scan_metadata(summary, context.software_inventory.collection_status)
+    if summary.telemetry.get('enrichmentIncomplete') and completion['status']=='COMPLETE':
+        completion.update(status='PARTIAL',assessmentReasonCode='ENRICHMENT_INTERRUPTED')
+    if summary.telemetry.get("cancelled"):
+        completion.update(status="CANCELLED",scanComplete=False,coverageComplete=False)
     status = completion["status"]
     provider_coverage[0]["evaluationCoverageStatus"] = status
 
@@ -912,6 +925,7 @@ def _run_cve_scan(
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     api_key: str | None = None,
     cancel_event: Event | None = None,
+    checkpoint_path: Path | None = None,
 ) -> None:
     """Run the CVE scan and store results on the analysis context."""
 
@@ -948,6 +962,7 @@ def _run_cve_scan(
             cache=cache,
             limiter=limiter,
             api_key=api_key,
+            product_deadline_seconds=float(os.getenv("CSA_CVE_PRODUCT_DEADLINE_SECONDS") or cve_config.get("ProductDeadlineSeconds",60)),
         )
         resolver = CpeResolver(
             client=client,
@@ -959,14 +974,19 @@ def _run_cve_scan(
             resolver=resolver,
             minimum_cpe_confidence=int(cve_config.get("MinimumCpeConfidence", 80)),
         )
+        from cve.checkpoint import ProductCheckpoint,checkpoint_scope
+        checkpoint=(ProductCheckpoint(checkpoint_path,checkpoint_scope(context.raw_data,cve_config),
+            ttl_seconds=int(cve_config.get("CacheTtlHours",24))*3600) if checkpoint_path is not None else None)
         context.cve_summary = service.scan_inventory(
             context.software_inventory,
             context.raw_data,
             progress_callback,
             cancel_event=cancel_event,
+            checkpoint=checkpoint,
         )
-    except CveScanCancelled:
-        raise
+    except CveScanCancelled as error:
+        if not hasattr(error,"partial_summary"): raise
+        context.cve_summary=error.partial_summary
     except Exception as error:
         LOGGER.exception("CVE service failed")
         context.cve_summary = empty_summary(scan_complete=False, message=str(error))
@@ -1054,7 +1074,8 @@ def _run_cve_enrichment(
             prioritization_weights=priority_config,
             enrich_not_affected=bool(enrichment_config.get("EnrichNotAffected", False)),
         )
-        context.cve_enrichment = service.enrich_summary(
+        from cve.control import interruptible_call
+        context.cve_enrichment = interruptible_call(lambda combined:service.enrich_summary(
             context.cve_summary,
             progress_callback=lambda details: _emit_cve_progress(
                 progress_callback,
@@ -1063,8 +1084,8 @@ def _run_cve_enrichment(
                 products_total=context.cve_summary.eligible_products,
                 **details,
             ),
-            cancel_event=cancel_event,
-        )
+            cancel_event=combined,
+        ),cancel_event,timeout=60)
         context.cve_summary.telemetry.update({
             "cveProgramSeconds": service.provider_seconds.get("CVE Program", 0.0),
             "cisaKevSeconds": service.provider_seconds.get("CISA KEV", 0.0),
@@ -1076,6 +1097,7 @@ def _run_cve_enrichment(
     except Exception:
         LOGGER.exception("CVE enrichment failed")
         context.cve_enrichment = None
+        context.cve_summary.telemetry['enrichmentIncomplete']=True
 
 
 def _run_compliance_assessment(

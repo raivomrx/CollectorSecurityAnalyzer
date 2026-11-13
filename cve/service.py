@@ -58,6 +58,7 @@ class CveService:
         raw_data: dict[str, Any] | None = None,
         progress_callback: CveProgressCallback | None = None,
         cancel_event: Event | None = None,
+        checkpoint=None,
     ) -> CveScanSummary:
         """Scan a software inventory for CVEs."""
 
@@ -75,6 +76,23 @@ class CveService:
         product_evaluations: list[CveProductEvaluation] = []
         applicability_seconds = 0.0
         current: dict[str, Any] = {"current_product": "", "current_version": "", "products_processed": 0}
+        previous=checkpoint.load() if checkpoint is not None else None
+        saved={row.product_key:row for row in previous.product_evaluations} if previous else {}
+        if previous: assessments.extend(previous.assessments)
+        def snapshot(cancelled=False):
+            unique={(_product_key(row.software),row.cve.cve_id,row.applicability.value):row for row in assessments}
+            result=_summary(scanned_products=inventory.product_count,unique_products=len(unique_products),
+                eligible_products=eligible_total,evaluated_products=evaluated_products,
+                products_with_cpe=products_with_cpe,products_without_cpe=products_without_cpe,
+                ambiguous_cpe_matches=ambiguous,assessments=list(unique.values()),errors=errors,
+                product_evaluations=product_evaluations)
+            result.scan_complete=False;result.coverage_complete=False
+            result.telemetry.update(cancelled=cancelled,checkpointRecovered=bool(previous))
+            return result
+        def save(cancelled=False):
+            result=snapshot(cancelled)
+            if checkpoint is not None: checkpoint.save(result)
+            return result
         if isinstance(self.client, NvdClient):
             self.client.cancel_event = cancel_event
             self.client.progress_callback = lambda details: _notify(
@@ -90,9 +108,21 @@ class CveService:
 
         for software in unique_products:
             if cancel_event is not None and cancel_event.is_set():
-                raise CveScanCancelled("CVE scan cancelled")
+                error=CveScanCancelled("CVE scan cancelled");error.partial_summary=save(True);raise error
             product_key = _product_key(software)
             eligible = _is_eligible(software)
+            retained=saved.get(product_key)
+            retained_at=(retained.discovery_trace.get("checkpointCompletedAt",previous.telemetry.get("checkpointSavedAt",0)) if retained else 0)
+            if (retained and retained.terminal_status in {"COMPLETED","NOT_ELIGIBLE"}
+                    and 0<=time.time()-retained_at<getattr(checkpoint,"ttl_seconds",86400)):
+                product_evaluations.append(retained)
+                if eligible:
+                    eligible_products+=1; evaluated_products+=int(retained.terminal_status=="COMPLETED")
+                    products_with_cpe+=int(bool(retained.cpe)); software.cpe=retained.cpe
+                else: products_without_cpe+=1
+                _notify(progress_callback,phase="RECOVERED_PRODUCT",products_processed=eligible_products,
+                    products_total=eligible_total,current_product=software.product,current_version=software.version)
+                continue
             evaluation = CveProductEvaluation(
                 product_key=product_key,
                 display_name=software.product,
@@ -130,6 +160,10 @@ class CveService:
                 current_version=software.version,
             )
             try:
+                old_assessments={id(row) for row in assessments if _product_key(row.software)==product_key}
+                if isinstance(self.client,NvdClient):
+                    self.client.product_deadline=time.monotonic()+self.client.product_deadline_seconds
+                    self.client._check_cancelled()
                 version = version_evidence(software.vendor, software.product, software.version)
                 comparison = compare_applicability_versions(version.interpreted, version.interpreted, version.scheme)
                 version_reason = version.reason or comparison.reason
@@ -255,7 +289,12 @@ class CveService:
                 applicability_seconds += time.perf_counter() - applicability_started
                 if evaluation.terminal_status == "COMPLETED":
                     evaluated_products += 1
-            except CveScanCancelled:
+                    evaluation.discovery_trace["checkpointCompletedAt"]=time.time()
+                    assessments[:]=[row for row in assessments if id(row) not in old_assessments]
+            except CveScanCancelled as error:
+                _mark_terminal_failure(evaluation,stage="PROVIDER_QUERY",reason="Analysis cancelled; retry incomplete product",
+                    reason_code=CveTerminalReason.ANALYSIS_CANCELLED,terminal_status="PARTIAL",retryable=True)
+                error.partial_summary=save(True)
                 raise
             except Exception as error:
                 evaluation.discovery_trace = getattr(error, "discovery_trace", evaluation.discovery_trace)
@@ -274,7 +313,7 @@ class CveService:
                     stage=failure_stage,
                     reason=error_reason,
                     retryable=bool(getattr(error, "retryable", False)),
-                    terminal_status="FAILED",
+                    terminal_status="PARTIAL" if getattr(error,"reason_code",None)=="PRODUCT_DEADLINE_EXCEEDED" else "FAILED",
                     reason_code=_provider_reason_code(
                         error,
                         evaluation.discovery_trace,
@@ -289,6 +328,8 @@ class CveService:
                     )
                 )
             finally:
+                save(bool(cancel_event is not None and cancel_event.is_set()))
+                if isinstance(self.client,NvdClient): self.client.product_deadline=None
                 _notify(
                     progress_callback,
                     phase="SCANNING_PRODUCTS",
@@ -299,6 +340,7 @@ class CveService:
                     product_status=evaluation.cve_result_status,
                 )
 
+        unique={(_product_key(row.software),row.cve.cve_id,row.applicability.value):row for row in assessments}
         summary = _summary(
             scanned_products=inventory.product_count,
             unique_products=len(unique_products),
@@ -307,7 +349,7 @@ class CveService:
             products_with_cpe=products_with_cpe,
             products_without_cpe=products_without_cpe,
             ambiguous_cpe_matches=ambiguous,
-            assessments=assessments,
+            assessments=list(unique.values()),
             errors=errors,
             product_evaluations=product_evaluations,
         )
@@ -323,6 +365,7 @@ class CveService:
             "applicabilityEvaluationSeconds": applicability_seconds,
             "providerErrors": summary.api_errors,
         }
+        if checkpoint is not None: checkpoint.save(summary)
         return summary
 
 
@@ -571,6 +614,8 @@ def _provider_reason_code(
 ) -> CveTerminalReason:
     """Classify transient provider failures independently from identity gaps."""
 
+    if getattr(error,"reason_code",None)=="PRODUCT_DEADLINE_EXCEEDED":
+        return CveTerminalReason.PRODUCT_DEADLINE_EXCEEDED
     if isinstance(error, NvdRequestError) and error.status_code == 429:
         return CveTerminalReason.PROVIDER_RATE_LIMIT
     if trace.get("catalogState") == "STALE":

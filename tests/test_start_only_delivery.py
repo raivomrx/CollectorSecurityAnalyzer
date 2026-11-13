@@ -66,10 +66,12 @@ class StartOnlyDeliveryTests(AssessorPilotCase):
             else:
                 command=commands(view)["quick"]
                 self.assertLess(len(command),8191)
-                script=base64.b64decode(command.split(" -EncodedCommand ")[1]).decode("utf-16-le")
+                self.assertLess(len(command),2000)
+                script=command
+                self.assertNotIn("-EncodedCommand",command)
                 for secret in ("enrollmentToken","Read-Host","IEX","DownloadString","Set-ExecutionPolicy"):
                     self.assertNotIn(secret,script)
-                args=(["cmd.exe","/d","/s","/c",command] if shell=="cmd" else
+                args=("cmd.exe /d /s /c "+command if shell=="cmd" else
                       ["powershell.exe","-NoProfile","-Command",command])
             run=subprocess.run(args,stdin=subprocess.DEVNULL,capture_output=True,text=True,timeout=150,env=env)
             if ctypes.windll.shell32.IsUserAnAdmin():
@@ -107,7 +109,7 @@ class StartOnlyDeliveryTests(AssessorPilotCase):
         with self.assertRaises(ValueError):self.delivery.view("192.0.2.4")
         bundle=self.service.storage.path(self.state.assessment_id,"pilot-handoffs",identifier)
         path=bundle/"CSA-Collector.exe";original=path.read_bytes();path.write_bytes(original+b"TAMPER")
-        with self.assertRaisesRegex(ValueError,"PACKAGE-CHANGED"):self.delivery.download(identifier,"127.0.0.1")
+        with self.assertRaisesRegex(ValueError,"PACKAGE_INTEGRITY_FAILED"):self.delivery.download(identifier,"127.0.0.1")
         path.write_bytes(original)
         store=self.delivery.service._servers[self.state.assessment_id].trusted_network.grants
         with store._transaction(self.session) as db:
@@ -115,6 +117,20 @@ class StartOnlyDeliveryTests(AssessorPilotCase):
         with self.assertRaises(ValueError):self.delivery.download(identifier,"127.0.0.1")
         self.service.pause_collection(self.state.assessment_id)
         with self.assertRaises(ValueError):self.delivery.view("127.0.0.1")
+        self.assertEqual(self.service.submissions.list_submissions(self.state.assessment_id),[])
+
+    def test_five_downloads_do_not_permanently_revoke_an_unused_collector(self):
+        self.join();view=self.delivery.view('127.0.0.1')
+        identifier=view['handoffId']
+        from csa_lab.simple_delivery import DeliveryDenied
+        first=self.delivery.download(identifier,'127.0.0.1')
+        for _ in range(4):self.assertEqual(self.delivery.download(identifier,'127.0.0.1'),first)
+        with self.assertRaises(DeliveryDenied) as caught:self.delivery.download(identifier,'127.0.0.1')
+        self.assertEqual(caught.exception.reason_code,'DOWNLOAD_RATE_LIMIT')
+        self.assertEqual(caught.exception.http_status,429)
+        now=time.time()
+        with mock.patch('csa_lab.simple_delivery.time.time',return_value=now+61):
+            self.assertEqual(self.delivery.download(identifier,'127.0.0.1'),first)
         self.assertEqual(self.service.submissions.list_submissions(self.state.assessment_id),[])
 
     def test_missing_or_replaced_installed_collector_stops_start_with_diagnostic(self):
@@ -158,6 +174,35 @@ class StartOnlyDeliveryTests(AssessorPilotCase):
                 stdin=subprocess.DEVNULL,capture_output=True,text=True,timeout=45,env=env)
             self.assertNotEqual(run.returncode,0)
             self.assertNotIn("Submission accepted",run.stdout)
+            self.assertIn("CONNECTION_TLS" if key=="tlsFingerprint" else "PACKAGE_INTEGRITY",run.stderr)
+        self.assertEqual(self.service.submissions.list_submissions(self.state.assessment_id),[])
+
+    def test_starter_bytes_must_match_independent_pin_and_client_diagnostics_do_not_establish_receipt(self):
+        self.join();view=self.delivery.view('127.0.0.1')
+        original=self.delivery.starter(view['handoffId'],'127.0.0.1')
+        env=dict(os.environ);env.pop('PSModulePath',None)
+        with mock.patch.object(self.delivery,'starter',return_value=original+b'\n# Synthetic modification'):
+            run=subprocess.run(['powershell.exe','-NoProfile','-Command',commands(view)['quick']],
+                stdin=subprocess.DEVNULL,capture_output=True,text=True,timeout=45,env=env)
+        self.assertNotEqual(run.returncode,0);self.assertIn('PACKAGE_INTEGRITY',run.stderr)
+        self.assertEqual(self.service.submissions.list_submissions(self.state.assessment_id),[])
+        self.delivery.client_diagnostic(view['handoffId'],'127.0.0.1',{'stage':'COLLECTOR_EXECUTION','code':'CSA-SYNTHETIC-FAIL','correlationId':'a'*32})
+        self.assertEqual(self.delivery.readiness()['diagnostics'][-1]['eventClass'],'CLIENT_REPORTED')
+        self.assertEqual(self.service.submissions.list_submissions(self.state.assessment_id),[])
+        with self.assertRaises(ValueError):
+            self.delivery.client_diagnostic(view['handoffId'],'127.0.0.2',{'stage':'COLLECTOR_EXECUTION','code':'CSA-SYNTHETIC-FAIL','correlationId':'a'*32})
+
+    def test_expired_quick_run_stops_at_authorization_before_executing_the_starter(self):
+        self.join();view=self.delivery.view('127.0.0.1')
+        store=self.service._servers[self.state.assessment_id].trusted_network.grants
+        with store._transaction(self.session) as db:
+            db.execute('UPDATE grants SET expiresAt=? WHERE envelopeId=?',(int(time.time())-1,view['handoffId']))
+        env=dict(os.environ);env.pop('PSModulePath',None)
+        run=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-Command',commands(view)['quick']],
+            stdin=subprocess.DEVNULL,capture_output=True,text=True,timeout=45,env=env)
+        self.assertNotEqual(run.returncode,0)
+        self.assertIn('AUTHORIZATION',run.stderr)
+        self.assertNotIn('Submission accepted',run.stdout)
         self.assertEqual(self.service.submissions.list_submissions(self.state.assessment_id),[])
 
     def test_revoke_cannot_be_undone_by_reloading_join(self):

@@ -2,7 +2,7 @@
 
 ## Download CSA Lab for Windows
 
-For the authorized Start-only pilot, use the **5.6.8.4 Actions installer** from
+For the authorized Start-only pilot, use the **5.6.8.5 Actions installer** from
 the exact build linked in the developer handoff. The public 5.6.0 installer
 below does not contain this correction. Public release remains HOLD.
 
@@ -15,8 +15,11 @@ below does not contain this correction. Public release remains HOLD.
 The current installer is **CSA Lab 5.6.0** and is unsigned. After updating,
 create a new assessment to obtain the updated Collector package.
 
-**5.6.8.4 is the Start-only P0 correction candidate (UNSIGNED LAB ONLY)**, available from the
+**5.6.8.5 is the Collector reliability candidate (UNSIGNED LAB ONLY)**, available from the
 [CSA Lab Build workflow](https://github.com/raivomrx/CollectorSecurityAnalyzer/actions/workflows/csa-lab-build.yml).
+The [reliability correction and acceptance guide](docs/sprint-5.6.8.5-reliability.md)
+documents renewable download limits, readable verified Quick Run, staged
+diagnostics, CVE product deadlines, cancellation and recovery checkpoints.
 The [P0 live correction](docs/sprint-5.6.8.3-p0-live-fix.md) makes **Start Collector**
 prepare the customer Join page: one direct `.exe` download or one-paste Quick Run
 in PowerShell/CMD. No client code, manual unpacking or extra configuration.

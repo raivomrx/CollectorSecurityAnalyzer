@@ -45,7 +45,7 @@ class LabAdminServer:
         *,
         host: str = "127.0.0.1",
         port: int = 0,
-        browser_timeout_seconds: int = 60,
+        browser_timeout_seconds: int = 300,
     ) -> None:
         """Create the local administration server."""
 
@@ -57,6 +57,7 @@ class LabAdminServer:
         self._last_heartbeat = time.monotonic()
         self._heartbeat_seen = threading.Event()
         self._shutdown_requested = threading.Event()
+        self._stale_during_analysis = False
         handler = _admin_handler_factory(self)
         self.server = _AdminHttpServer((host, port), handler)
         self.server.daemon_threads = True
@@ -104,6 +105,15 @@ class LabAdminServer:
                 and time.monotonic() - self._last_heartbeat
                 > self.browser_timeout_seconds
             ):
+                if self.service.has_active_analysis():
+                    if not self._stale_during_analysis:
+                        LOGGER.warning("CSA-LAB-HEARTBEAT-STALE: Active analysis is preserved; reconnect the local Lab UI.")
+                    self._stale_during_analysis=True
+                    continue
+                if self._stale_during_analysis:
+                    self._last_heartbeat=time.monotonic()
+                    self._stale_during_analysis=False
+                    continue
                 LOGGER.info("CSA Lab browser heartbeat ended; cleaning up")
                 self.shutdown()
                 return
@@ -113,7 +123,7 @@ def _admin_handler_factory(application: LabAdminServer):
     service = application.service
 
     class AdminHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Lab-Admin/5.6.8.4"
+        server_version = "CSA-Lab-Admin/5.6.8.5"
         protocol_version = "HTTP/1.1"
 
         def do_GET(self) -> None:

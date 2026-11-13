@@ -16,8 +16,9 @@ if ($LASTEXITCODE) { throw 'Trusted Collector build failed.' }
 Copy-Item -LiteralPath (Join-Path $root 'collector/trusted/Start-CSATrustedCollector.ps1') -Destination $output
 Copy-Item -LiteralPath (Join-Path $root 'collector/bootstrapper/Program.cs') -Destination $output
 Copy-Item -LiteralPath (Join-Path $root 'collector/trusted/BoundPilot.cs') -Destination $output
+Copy-Item -LiteralPath (Join-Path $root 'csa_lab/powershell/Start-CSASimple.ps1') -Destination $output
 $seal = @{}
-foreach ($name in @('CSA-TrustedCollector.exe','Start-CSATrustedCollector.ps1','Program.cs','BoundPilot.cs')) {
+foreach ($name in @('CSA-TrustedCollector.exe','Start-CSATrustedCollector.ps1','Program.cs','BoundPilot.cs','Start-CSASimple.ps1')) {
     $hasher = [Security.Cryptography.SHA256]::Create()
     try { $seal[$name] = 'sha256:' + ([BitConverter]::ToString($hasher.ComputeHash([IO.File]::ReadAllBytes((Join-Path $output $name))))).Replace('-','').ToLowerInvariant() }
     finally { $hasher.Dispose() }

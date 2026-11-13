@@ -100,13 +100,16 @@ class LabApplicationService:
         self._cve_jobs: dict[str, dict[str, Any]] = {}
         self._cve_cancel_events: dict[str, threading.Event] = {}
         self._cve_started: dict[str, float] = {}
+        self._cve_lock = threading.RLock()
+        self._cve_persisted = {}
         self._lock = threading.RLock()
         self._secret = self._load_or_create_join_secret()
         self._application_audit().append(
             "application_started",
-            {"version": "5.6.8.4", "processId": os.getpid()},
+            {"version": "5.6.8.5", "processId": os.getpid()},
         )
         self.detect_recovery_items()
+        self._recover_cve_jobs()
 
     def nvd_settings(self) -> dict:
         """Return configuration presence, never the stored credential."""
@@ -951,6 +954,7 @@ class LabApplicationService:
                         "provider": str(details.get("provider", "")),
                         "waitSeconds": float(details.get("wait_seconds", 0) or 0),
                         "retryAttempt": int(details.get("retry_attempt", 0) or 0),
+                        "productRemainingSeconds": float(details.get("product_remaining_seconds",0) or 0),
                     },
                 )
 
@@ -1006,7 +1010,7 @@ class LabApplicationService:
     def start_cve_analysis(self, assessment_id: str) -> dict[str, Any]:
         """Start one auditable CVE analysis job in the background."""
 
-        with self._lock:
+        with self._cve_lock:
             current = self._cve_jobs.get(assessment_id)
             if current and current.get("state") in {"RUNNING", "CANCELLING"}:
                 return dict(current)
@@ -1017,7 +1021,15 @@ class LabApplicationService:
                 raise ValueError(
                     "At least one completed endpoint analysis is required"
                 )
+            state = self.load_state(assessment_id)
+            if state.report_path:
+                state.report_path = ""
+                state.report_generated_at = ""
+                if state.status == LabAssessmentStatus.COMPLETED:
+                    state.status = LabAssessmentStatus.READY_FOR_REPORT
+                self._write_state(state)
             progress = {
+                "jobId":secrets.token_hex(12),
                 "state": "RUNNING",
                 "result": "PENDING",
                 "phase": "PREPARING",
@@ -1034,9 +1046,10 @@ class LabApplicationService:
             self._cve_jobs[assessment_id] = progress
             self._cve_cancel_events[assessment_id] = threading.Event()
             self._cve_started[assessment_id] = time.monotonic()
+            self.storage.write_json(assessment_id,("cve","job.json"),dict(progress))
             worker = threading.Thread(
                 target=self._run_cve_job,
-                args=(assessment_id,),
+                args=(assessment_id,progress["jobId"]),
                 name=f"CSA-CVE-{assessment_id}",
                 daemon=True,
             )
@@ -1048,7 +1061,7 @@ class LabApplicationService:
         """Return the current in-memory CVE job state for an assessment."""
 
         self.load_state(assessment_id)
-        with self._lock:
+        with self._cve_lock:
             result = dict(
                 self._cve_jobs.get(
                     assessment_id,
@@ -1064,12 +1077,47 @@ class LabApplicationService:
                 result["elapsedSeconds"] = int(time.monotonic() - self._cve_started[assessment_id])
             return result
 
+    def _recover_cve_jobs(self):
+        for path in self.storage.root.glob("*/cve/job.json"):
+            try:
+                progress=read_json(path)
+                if progress.get("state") in {"RUNNING","CANCELLING"}:
+                    progress.update(state="INTERRUPTED",result="PARTIAL",phase="INTERRUPTED",
+                        message="CSA-CVE-INTERRUPTED: Completed products are checkpointed. Run CVE Analysis to retry incomplete products.")
+                    write_canonical_json(path,progress)
+                    assessment_id=path.parent.parent.name
+                    for finding in self.storage.path(assessment_id,"findings").glob("*.json"):
+                        document=read_json(finding)
+                        if document.get("cveAnalysisStatus")=="RUNNING":
+                            document["cveAnalysisStatus"]="PARTIAL"
+                            document["cveSummary"]={**document.get("cveSummary",{}),"status":"PARTIAL",
+                                "scanCompleted":False,"scanComplete":False,"coverageComplete":False,"incompleteReason":"APPLICATION_INTERRUPTED"}
+                            write_canonical_json(finding,document)
+                self._cve_jobs[path.parent.parent.name]=progress
+            except (OSError,ValueError,KeyError):
+                LOGGER.warning("CSA-CVE-RECOVERY: Invalid job marker; accepted evidence remains available.")
+        # 5.6.8.4 did not persist a job marker. Recover its RUNNING findings as
+        # incomplete too, without inventing user cancellation or provider success.
+        for path in self.storage.root.glob("*/findings/*.json"):
+            try:
+                value=read_json(path)
+                if value.get("cveAnalysisStatus")!="RUNNING": continue
+                value["cveAnalysisStatus"]="PARTIAL"
+                value["cveSummary"]={**value.get("cveSummary",{}),"status":"PARTIAL","scanCompleted":False,
+                    "coverageComplete":False,"incompleteReason":"APPLICATION_INTERRUPTED"}
+                write_canonical_json(path,value)
+                self._cve_jobs.setdefault(path.parent.parent.name,{"state":"INTERRUPTED","result":"PARTIAL",
+                    "phase":"INTERRUPTED","percent":0,"message":"CSA-CVE-INTERRUPTED: Restart analysis to retry incomplete products; existing evidence is retained."})
+            except (OSError,ValueError,KeyError):
+                LOGGER.warning("CSA-CVE-RECOVERY: Finding recovery remains incomplete.")
+
     def cancel_cve_analysis(self, assessment_id: str) -> dict[str, Any]:
         """Request an interruptible stop of the active scan."""
 
         self.load_state(assessment_id)
-        with self._lock:
+        with self._cve_lock:
             current = self._cve_jobs.get(assessment_id)
+            if current and current.get("state")=="CANCELLED": return dict(current)
             if current is None or current.get("state") not in {"RUNNING", "CANCELLING"}:
                 raise ValueError("No CVE analysis is running")
             self._cve_cancel_events[assessment_id].set()
@@ -1077,24 +1125,36 @@ class LabApplicationService:
             current["message"] = "Cancelling CVE analysis"
             return dict(current)
 
-    def _run_cve_job(self, assessment_id: str) -> None:
+    def _run_cve_job(self, assessment_id: str,job_id=None) -> None:
         """Execute a background CVE job and publish a terminal state."""
 
+        with self._cve_lock:
+            job_id=job_id or self._cve_jobs[assessment_id].get("jobId")
+            cancel_event=self._cve_cancel_events[assessment_id]
         def update(details: dict[str, Any]) -> None:
-            with self._lock:
+            with self._cve_lock:
                 current = self._cve_jobs.setdefault(assessment_id, {})
+                if current.get("jobId")!=job_id:return
+                if current.get("state") in {"CANCELLED","COMPLETED","FAILED","INTERRUPTED"} and details.get("state")=="RUNNING":return
                 current.update(details)
                 if self._cve_cancel_events.get(assessment_id) and self._cve_cancel_events[assessment_id].is_set() and current.get("state") == "RUNNING":
                     current["state"] = "CANCELLING"
                 current["message"] = _cve_progress_message(current)
+                if assessment_id in self._cve_started:
+                    current["elapsedSeconds"]=int(time.monotonic()-self._cve_started[assessment_id])
+                snapshot=dict(current)
+                now=time.monotonic()
+                persist=(now-self._cve_persisted.get(assessment_id,0)>.5 or current.get("state") not in {"RUNNING","CANCELLING"})
+                if persist: self._cve_persisted[assessment_id]=now
+            if persist: self.storage.write_json(assessment_id,("cve","job.json"),snapshot)
 
         try:
             endpoints = self.run_cve_analysis(
                 assessment_id,
                 progress_callback=update,
-                cancel_event=self._cve_cancel_events[assessment_id],
+                cancel_event=cancel_event,
             )
-            if self._cve_cancel_events[assessment_id].is_set():
+            if cancel_event.is_set():
                 raise CveScanCancelled("CVE scan cancelled")
             statuses = {
                 item.cve_analysis_status
@@ -1119,7 +1179,7 @@ class LabApplicationService:
             update({"state": "CANCELLED", "result": "CANCELLED", "phase": "CANCELLED",
                     "message": "CVE analysis cancelled; endpoint results are incomplete"})
         except Exception as error:
-            with self._lock:
+            with self._cve_lock:
                 failed_phase = str(
                     self._cve_jobs.get(assessment_id, {}).get(
                         "phase", "UNKNOWN"
@@ -1142,8 +1202,15 @@ class LabApplicationService:
                 }
             )
         finally:
-            with self._lock:
-                self._cve_cancel_events.pop(assessment_id, None)
+            with self._cve_lock:
+                if self._cve_jobs.get(assessment_id,{}).get('jobId')==job_id:
+                    started=self._cve_started.pop(assessment_id,None)
+                    if started is not None:self._cve_jobs[assessment_id]["elapsedSeconds"]=int(time.monotonic()-started)
+                    self._cve_cancel_events.pop(assessment_id, None)
+
+    def has_active_analysis(self):
+        with self._cve_lock:
+            return any(job.get("state") in {"RUNNING","CANCELLING"} for job in self._cve_jobs.values())
 
     def generate_unified_report(
         self,
@@ -1259,7 +1326,7 @@ class LabApplicationService:
         summary = {
             "schemaVersion": "5.2",
             "generatedAt": utc_text(),
-            "applicationVersion": "5.6.8.4",
+            "applicationVersion": "5.6.8.5",
             "assessmentCount": len(assessments),
             "assessments": assessments,
             "containsEvidence": False,

@@ -5,10 +5,12 @@ No customer browser, JSON flag or downloaded hash can create this authorization.
 Production Publisher enrollment and real HOME/LAB acceptance remain separate.
 """
 import hashlib
+import base64
 import io
 import ipaddress
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import subprocess
@@ -26,7 +28,12 @@ from csa_console.trusted_grants import TrustedGrantStore
 from csa_lab.assessor_pilot import bootstrap_directory, issue_assessor_pilot
 from csa_lab.pilot_launch import AssessorAuthority, FILES, PilotLaunchService
 
-BUILD_FILES = ("CSA-TrustedCollector.exe", "Start-CSATrustedCollector.ps1", "Program.cs", "BoundPilot.cs")
+BUILD_FILES = ("CSA-TrustedCollector.exe", "Start-CSATrustedCollector.ps1", "Program.cs", "BoundPilot.cs", "Start-CSASimple.ps1")
+
+
+class DeliveryDenied(DistributionDenied):
+    def __init__(self,reason,status=403,retry_after=0):
+        super().__init__();self.args=(reason,);self.reason_code=reason;self.http_status=status;self.retry_after=retry_after
 
 
 def checked_build():
@@ -60,6 +67,25 @@ class SimpleDelivery:
     def __init__(self, service, assessment_id, authorization):
         self.service, self.assessment_id, self.authorization = service, assessment_id, authorization
         self.last_error = None
+        self.diagnostics=[]
+
+    def record_diagnostic(self,stage,code,correlation,*,client=False):
+        item={"stage":stage,"code":code,"correlationId":correlation,"eventClass":"CLIENT_REPORTED" if client else "SERVER_VERIFIED","recordedAt":int(time.time())}
+        with self.service._lock:
+            self.diagnostics=(self.diagnostics+[item])[-20:]
+            self.service.storage.write_json(self.assessment_id,("delivery",self.authorization["sessionId"]+".diagnostics.json"),{"entries":self.diagnostics})
+        self.service._audit(self.assessment_id).append("collector_client_diagnostic" if client else "collector_delivery_diagnostic",item)
+
+    def client_diagnostic(self,identifier,source,value):
+        if (not isinstance(value,dict) or set(value)!={"stage","code","correlationId"}
+                or value.get("stage") not in {"CONNECTION_TLS","AUTHORIZATION","PACKAGE_INTEGRITY","APPLICATION_CONTROL","COLLECTOR_EXECUTION","EVIDENCE_SUBMISSION"}
+                or not isinstance(value.get("code"),str) or not re.fullmatch(r"CSA-[A-Z0-9_-]{1,100}",value["code"])
+                or not isinstance(value.get("correlationId"),str) or not re.fullmatch(r"[a-f0-9]{0,32}",value["correlationId"])):
+            raise ValueError("CSA-CLIENT-DIAGNOSTIC-SCHEMA")
+        _,session,_=self._current(source)
+        grant=TrustedGrantStore(self.service.storage).record(session,identifier)
+        if source not in json.loads(grant["approvedSources"] or "[]"):raise DeliveryDenied("SOURCE_NOT_AUTHORIZED")
+        self.record_diagnostic(value['stage'],value['code'],value['correlationId'],client=True)
 
     def _current(self, source):
         state = self.service.load_state(self.assessment_id)
@@ -71,7 +97,7 @@ class SimpleDelivery:
                 or session.collection_profile_digest != self.authorization["profileDigest"]
                 or session.allowed_submission_count != self.authorization["invitationBudget"]
                 or state.source_subnet != self.authorization["sourceSubnet"]):
-            raise DistributionDenied()
+            raise DeliveryDenied("SESSION_OR_SOURCE_NOT_AUTHORIZED")
         root, seal = checked_build()
         if seal != self.authorization["build"]:
             raise ValueError("CSA-START-BUILD-CHANGED")
@@ -84,6 +110,9 @@ class SimpleDelivery:
             authorizationId TEXT, downloads INTEGER NOT NULL DEFAULT 0)""")
         if "authorizationId" not in {row[1] for row in db.execute("PRAGMA table_info(simple_launches)")}:
             db.execute("ALTER TABLE simple_launches ADD COLUMN authorizationId TEXT")
+        columns={row[1] for row in db.execute("PRAGMA table_info(simple_launches)")}
+        for name,kind in (("windowStarted","REAL NOT NULL DEFAULT 0"),("windowDownloads","INTEGER NOT NULL DEFAULT 0")):
+            if name not in columns: db.execute("ALTER TABLE simple_launches ADD COLUMN "+name+" "+kind)
 
     def view(self, source):
         try:
@@ -102,7 +131,7 @@ class SimpleDelivery:
                 self.last_error="CSA-START-BUILD-CHANGED"
         except ValueError:
             self.last_error="CSA-START-BUILD"
-        return {"state":"PREPARATION_FAILED" if self.last_error else "READY",
+        return {"state":"PREPARATION_FAILED" if self.last_error else "READY","diagnostics":self.diagnostics[-5:],
                 "diagnosticCode":self.last_error, "methods":["EXE","QUICK_RUN_PROCESS_BYPASS"],
                 "assurance":"ASSESSOR_VERIFIED_PILOT", "binding":"DIRECT_LAN_SOURCE_ONE_USE",
                 "instruction":"Share this assessment's Join URL on the approved direct LAN. Both methods need no client preparation."
@@ -157,9 +186,30 @@ class SimpleDelivery:
                     with store._transaction(session) as db:
                         db.execute("UPDATE grants SET operationState='FAILED',reasonCode='CSA-START-PACKAGE' WHERE envelopeId=?", (identifier,))
                     raise
+            from cryptography import x509
+            from cryptography.hazmat.primitives import serialization
+            certificate=x509.load_pem_x509_certificate(Path(session.tls_certificate_path).read_bytes())
+            public_key=certificate.public_key().public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo)
             return {"singleFile": True, "handoffId": row["envelopeId"], "exeSha256": row["executableDigest"],
+                    "starterSha256":self.authorization["build"]["Start-CSASimple.ps1"],
+                    "tlsPublicKeyPin":"sha256//"+base64.b64encode(hashlib.sha256(public_key).digest()).decode("ascii"),
                     "origin": "https://"+state.listener_address+":"+str(state.listener_port),
                     "tlsFingerprint": session.tls_fingerprint, "expiresAt": row["expiresAt"]}
+
+    def starter(self,identifier,source):
+        _,session,root=self._current(source)
+        with TrustedGrantStore(self.service.storage)._transaction(session) as db:
+            grant=db.execute('SELECT * FROM grants WHERE envelopeId=?',(identifier,)).fetchone()
+        if grant is None: raise DeliveryDenied("INVITATION_UNKNOWN")
+        if grant["used"]: raise DeliveryDenied("INVITATION_ALREADY_USED")
+        if grant["operationState"]!="READY": raise DeliveryDenied("INVITATION_REVOKED_OR_FAILED")
+        if grant["expiresAt"]<=time.time(): raise DeliveryDenied("INVITATION_EXPIRED")
+        if source not in json.loads(grant["approvedSources"] or "[]"):
+            raise DeliveryDenied("SOURCE_NOT_AUTHORIZED")
+        data=(root/"Start-CSASimple.ps1").read_bytes()
+        if sha256_bytes(data)!=self.authorization["build"]["Start-CSASimple.ps1"]:
+            raise ValueError("CSA-START-BOOTSTRAP-CHANGED")
+        return data
 
     def _seal(self, bundle, result, root):
         snapshots = {name: (bundle/name).read_bytes() for name in FILES}
@@ -205,17 +255,22 @@ class SimpleDelivery:
             store = TrustedGrantStore(self.service.storage)
             with store._transaction(session) as db:
                 self._schema(db)
-                row = db.execute("SELECT g.*,s.executableDigest,s.sourceDigest,s.downloads FROM grants g JOIN simple_launches s USING(envelopeId) WHERE envelopeId=?", (identifier,)).fetchone()
-                if (row is None or row["used"] or row["operationState"] != "READY" or row["expiresAt"] <= time.time()
-                        or row["sourceDigest"] != sha256_bytes(source.encode("ascii")) or row["downloads"] >= 5):
-                    raise DistributionDenied()
+                row = db.execute("SELECT g.*,s.executableDigest,s.sourceDigest,s.downloads,s.windowStarted,s.windowDownloads FROM grants g JOIN simple_launches s USING(envelopeId) WHERE envelopeId=?", (identifier,)).fetchone()
+                if row is None: raise DeliveryDenied("INVITATION_UNKNOWN")
+                if row["used"]: raise DeliveryDenied("INVITATION_ALREADY_USED")
+                if row["operationState"]!="READY": raise DeliveryDenied("INVITATION_REVOKED_OR_FAILED")
+                if row["expiresAt"]<=time.time(): raise DeliveryDenied("INVITATION_EXPIRED")
+                if row["sourceDigest"]!=sha256_bytes(source.encode("ascii")): raise DeliveryDenied("SOURCE_NOT_AUTHORIZED")
+                now=time.time(); window=row["windowStarted"]; count=row["windowDownloads"]
+                if now-window>=60: window=now;count=0
+                if count>=5: raise DeliveryDenied("DOWNLOAD_RATE_LIMIT",429,max(1,int(61-(now-window))))
                 path = Path(row["bundlePath"])/"CSA-Collector.exe"
                 if path.is_symlink():
                     raise DistributionDenied()
                 with path.open("rb") as stream:
                     data = stream.read(64*1024*1024+1)
                 if len(data)>64*1024*1024 or sha256_bytes(data) != row["executableDigest"]:
-                    raise ValueError("CSA-START-PACKAGE-CHANGED")
-                db.execute("UPDATE simple_launches SET downloads=downloads+1 WHERE envelopeId=?",(identifier,))
+                    raise DeliveryDenied("PACKAGE_INTEGRITY_FAILED")
+                db.execute("UPDATE simple_launches SET downloads=downloads+1,windowStarted=?,windowDownloads=? WHERE envelopeId=?",(window,count+1,identifier))
             self.service._audit(self.assessment_id).append("collector_single_file_delivered", {"envelopeId": identifier})
             return data

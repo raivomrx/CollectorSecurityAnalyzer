@@ -40,6 +40,8 @@ class CveDataQuality(str, Enum):
 
 class CveTerminalReason(str, Enum):
     """Stable reason codes for product-level CVE pipeline outcomes."""
+    PRODUCT_DEADLINE_EXCEEDED = "PRODUCT_DEADLINE_EXCEEDED"
+    ANALYSIS_CANCELLED = "ANALYSIS_CANCELLED"
 
     UNSUPPORTED_COMPONENT = "UNSUPPORTED_COMPONENT"
     CUSTOM_OR_INTERNAL_SOFTWARE = "CUSTOM_OR_INTERNAL_SOFTWARE"

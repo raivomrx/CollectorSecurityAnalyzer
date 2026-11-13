@@ -37,7 +37,8 @@ try {
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'scripts/Build-CSATrustedCollector.ps1')
     if ($LASTEXITCODE) { throw 'Trusted Collector build failed.' }
     foreach ($trustedPath in @((Join-Path $root 'build/trusted-collector/CSA-TrustedCollector.exe'),
-                               (Join-Path $root 'build/trusted-collector/Start-CSATrustedCollector.ps1'))) {
+                               (Join-Path $root 'build/trusted-collector/Start-CSATrustedCollector.ps1'),
+                               (Join-Path $root 'build/trusted-collector/Start-CSASimple.ps1'))) {
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'scripts/Sign-CSAArtifacts.ps1') -Paths $trustedPath
         if ($LASTEXITCODE) { throw 'Trusted Collector final signing failed.' }
     }
@@ -45,7 +46,7 @@ try {
     # Seal the final inner binary/scripts after optional signing. This manifest
     # belongs to the independently handed-off local Lab installation, not Join.
     $deliverySeal = @{}
-    foreach ($name in @('CSA-TrustedCollector.exe','Start-CSATrustedCollector.ps1','Program.cs','BoundPilot.cs')) {
+    foreach ($name in @('CSA-TrustedCollector.exe','Start-CSATrustedCollector.ps1','Program.cs','BoundPilot.cs','Start-CSASimple.ps1')) {
         $deliverySeal[$name] = 'sha256:' + (Get-FileHash -LiteralPath (Join-Path $root ('build/trusted-collector/' + $name)) -Algorithm SHA256).Hash.ToLowerInvariant()
     }
     $deliverySeal | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $root 'build/trusted-collector/delivery-build.json') -Encoding utf8

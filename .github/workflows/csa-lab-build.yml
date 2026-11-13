@@ -37,7 +37,8 @@ jobs:
             "dist/CSA-Lab/_internal/csa_lab/powershell/Sign-CSALauncher.ps1",
             "dist/CSA-Lab/_internal/csa_lab/powershell/Sign-CSATrustObject.ps1",
             "dist/CSA-Lab/_internal/trusted-collector/CSA-TrustedCollector.exe",
-            "dist/CSA-Lab/_internal/trusted-collector/Start-CSATrustedCollector.ps1"
+            "dist/CSA-Lab/_internal/trusted-collector/Start-CSATrustedCollector.ps1",
+            "dist/CSA-Lab/_internal/trusted-collector/Start-CSASimple.ps1"
           )
           foreach ($requiredFile in $requiredRuntimeFiles) {
             if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {

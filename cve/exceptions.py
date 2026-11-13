@@ -31,3 +31,10 @@ class CveCacheError(CveEngineError):
 
 class CveScanCancelled(CveEngineError):
     """Raised when the operator cancels a CVE scan."""
+
+
+class CveProductDeadline(NvdRequestError):
+    """One product exhausted its wall-clock budget, including retries/waits."""
+    def __init__(self):
+        super().__init__("Product analysis deadline exceeded", retryable=True)
+        self.reason_code = "PRODUCT_DEADLINE_EXCEEDED"

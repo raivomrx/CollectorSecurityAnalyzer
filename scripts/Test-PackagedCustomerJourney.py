@@ -9,6 +9,7 @@ import argparse
 import base64
 import ctypes
 import hashlib
+import html as html_parser
 import json
 import os
 from pathlib import Path
@@ -115,9 +116,10 @@ def main():
                     input=json.dumps(dict(url=url,browserPath=args.browser,profile=str(root/"browser"),pin=pin,
                         mode="start-only",screenshot=str(root/"customer-start-only.png"))),capture_output=True,text=True,timeout=60)
                 assert browser.returncode==0,"Packaged browser Copy check failed"
-            command=re.search(r'<code id="quick">([^<]+)</code>',page.text).group(1)
+            command=html_parser.unescape(re.search(r'<code id="quick">([^<]+)</code>',page.text).group(1))
             assert len(command)<8191 and "-ExecutionPolicy Bypass" in command
-            script=base64.b64decode(command.split(" -EncodedCommand ")[1]).decode("utf-16-le")
+            script=command
+            assert "-EncodedCommand" not in command
             config=json.loads(next((root/"assessments"/identifier/"downloads").glob("*/package/session-config.json")).read_bytes())
             assert config["enrollmentToken"] not in script
             assert all(text not in script for text in ("Read-Host","IEX","DownloadString","Set-ExecutionPolicy"))
@@ -130,7 +132,7 @@ def main():
                 assert "sha256:"+hashlib.sha256(download.content).hexdigest() in script
                 launch=[str(executable)]
             else:
-                launch=(["cmd.exe","/d","/s","/c",command] if mode=="cmd" else
+                launch=("cmd.exe /d /s /c "+command if mode=="cmd" else
                         ["powershell.exe","-NoProfile","-Command",command])
             if args.execute:
                 run=subprocess.run(launch,stdin=subprocess.DEVNULL,capture_output=True,text=True,timeout=240,env=env)

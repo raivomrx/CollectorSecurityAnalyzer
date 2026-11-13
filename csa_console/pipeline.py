@@ -333,7 +333,7 @@ class ConsoleAnalysisPipeline:
                     }
                 )
             ),
-            analysis_engine_version="CSA-5.6.8.4",
+            analysis_engine_version="CSA-5.6.8.5",
             cve_analysis_status=str(
                 cve_metadata.get("status", "NOT_PERFORMED")
             ),
@@ -426,8 +426,8 @@ class ConsoleAnalysisPipeline:
             **dict(existing.get("cveSummary", {})),
             "status": "CANCELLED",
             "scanComplete": False,
+            "scanCompleted": False,
             "coverageComplete": False,
-            "coveragePercent": 0.0,
         }
         self.storage.write_json(
             assessment_id,

@@ -224,7 +224,7 @@ def _handler_factory(
     pilot_launch = PilotLaunchService(storage,assessment_id,session_id)
 
     class SubmissionHandler(BaseHTTPRequestHandler):
-        server_version = "CSA-Lab/5.6.8.4"
+        server_version = "CSA-Lab/5.6.8.5"
         protocol_version = "HTTP/1.1"
 
         def _pilot_cookie(self, name="__Host-CSA-Pilot"):
@@ -350,7 +350,11 @@ def _handler_factory(
                     identifier,action=self._pilot_route()
                     if not limiter.allow(source):
                         raise DistributionDenied()
+                    if action=="starter.ps1" and simple_delivery is not None:
+                        self._bytes(HTTPStatus.OK,simple_delivery.starter(identifier,source),"text/plain; charset=utf-8")
+                        return
                     if action=="collector.exe" and simple_delivery is not None:
+                        self.diagnostic_stage="COLLECTOR_DOWNLOAD"
                         self._bytes(HTTPStatus.OK,simple_delivery.download(identifier,source),
                             "application/vnd.microsoft.portable-executable",attachment="CSA-Collector.exe")
                         return
@@ -449,11 +453,18 @@ def _handler_factory(
                     content_type,
                     attachment=filename,
                 )
-            except DistributionDenied:
+            except DistributionDenied as error:
+                reason=getattr(error,"reason_code","TRUST_NOT_ESTABLISHED")
+                self.diagnostic_code=reason
+                if simple_delivery is not None:
+                    simple_delivery.record_diagnostic(self.diagnostic_stage,reason,self.correlation_id)
+                ConsoleAuditLog(storage.path(assessment_id,"audit","audit.jsonl")).append("collector_delivery_rejected",
+                    {"correlationId":self.correlation_id,"stage":self.diagnostic_stage,"reasonCode":reason})
                 if self.path.startswith("/join/"):
-                    self._customer_error(HTTPStatus.FORBIDDEN,"TRUST_NOT_ESTABLISHED")
+                    self._customer_error(HTTPStatus.FORBIDDEN,reason)
                 else:
-                    self._json(HTTPStatus.FORBIDDEN, {"error": "TRUST_NOT_ESTABLISHED"})
+                    self._json(HTTPStatus(getattr(error,"http_status",403)), {"error": reason,
+                        "reason":reason,"retryAfterSeconds":getattr(error,"retry_after",0)})
             except _HttpRequestError as error:
                 if self.path.startswith("/join/"):
                     self._customer_error(error.status,error.code)
@@ -476,6 +487,12 @@ def _handler_factory(
                 path = self._request_path()
                 if path.startswith("/api/v1/pilot-launch/"):
                     identifier,action=self._pilot_route()
+                    if action=="diagnostic" and simple_delivery is not None:
+                        self.diagnostic_stage="CLIENT_DIAGNOSTIC"
+                        value=json.loads(self._read_body(4096).decode('utf-8'))
+                        simple_delivery.client_diagnostic(identifier,source,value)
+                        self._json(HTTPStatus.OK,{"recorded":True,"assurance":"CLIENT_REPORTED_NOT_ATTESTATION"})
+                        return
                     self._read_body(0)
                     self.diagnostic_stage="PILOT_PRIVATE_DELIVERY"
                     if action=="ticket":

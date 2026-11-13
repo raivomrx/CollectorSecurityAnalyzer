@@ -40,8 +40,17 @@
       settings.headers["Content-Type"] = "application/json";
       settings.body = JSON.stringify(settings.body);
     }
-    const response = await fetch(path, settings);
-    const data = await response.json();
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+    let response, data;
+    try {
+      response = await fetch(path, { ...settings, signal: controller.signal });
+      data = await response.json();
+    } catch (error) {
+      throw new Error(error.name === "AbortError"
+        ? "CSA-LAB-TIMEOUT: Lab did not respond within 15 seconds. Check the Lab window and retry the status request. Collected evidence is retained."
+        : "CSA-LAB-CONNECTION: Connection to the local Lab was lost. Reopen CSA Lab to recover completed results and retry incomplete analysis.");
+    } finally { window.clearTimeout(timeout); }
     if (!response.ok) throw new Error(data.message || data.error || "CSA Lab request failed");
     return data;
   }
@@ -123,6 +132,10 @@
     $("collector-readiness").textContent = ready && ready.state === "READY"
       ? "Ready: EXE and Quick Run. Share the Join URL with the authorized customer."
       : ready ? `${ready.state}: ${ready.diagnosticCode || ""} ${ready.instruction}` : "Press Start Collector to prepare EXE and Quick Run.";
+    if(ready && ready.diagnostics && ready.diagnostics.length) {
+      const last=ready.diagnostics[ready.diagnostics.length-1];
+      $("collector-readiness").textContent+=` Last diagnostic (${last.eventClass}): ${last.stage}; ${last.code}; correlation ${last.correlationId || "unavailable"}.`;
+    }
     $("distribution-status").textContent = ready ? `${ready.state}: ${ready.diagnosticCode || ""} ${ready.instruction}` : payload.distributionState;
     renderPilotLaunches(payload.pilotLaunches || []);
     $("assessment-status").textContent = status.replaceAll("_", " ");
@@ -611,7 +624,7 @@
       ? `CVEs ${progress.cvesProcessed || 0}/${progress.cvesTotal}`
       : "";
     const currentCve = progress.currentCve || "";
-    const elapsed = running ? `Elapsed ${progress.elapsedSeconds || 0}s` : "";
+    const elapsed = running ? `Elapsed ${progress.elapsedSeconds || 0}s; product budget remaining ${Math.ceil(progress.productRemainingSeconds || 0)}s` : "";
     const provider = progress.provider || "";
     const wait = progress.waitSeconds > 0 ? `Wait ${Math.ceil(progress.waitSeconds)}s` : "";
     const retry = progress.retryAttempt > 1 ? `Attempt ${progress.retryAttempt}` : "";
@@ -858,6 +871,9 @@
     request("/api/v1/heartbeat").catch(() => $("connection-state").textContent = "Console disconnected");
     if (state.currentId) openAssessment(state.currentId).catch(() => {});
   }, 5000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) request("/api/v1/heartbeat").catch(error => showMessage(error.message, true));
+  });
 
   applyTheme(document.documentElement.dataset.themePreference || "system");
   loadAssessments().catch((error) => showMessage(error.message, true));
